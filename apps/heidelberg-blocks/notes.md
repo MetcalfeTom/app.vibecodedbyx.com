@@ -219,48 +219,40 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   Untested on real phones: real fps + where the adaptive step settles, iOS low power, how the car feels on a thumb.
 - 2026-10-13 07:08 (helper): v1.15 Bergbahn designed (route, stations, summit, Frieda + Fernrohr quest), no code
   shipped; stopped for a session restart. Full plan + scratch path under todos. Live index.html unchanged (v1.14).
+- v1.15 2026-10-13 08:54 (helper), step 1: DIE BERGBAHN (Flax's Königstuhl funicular). Two crimson-and-cream cars on
+  one rope run Kornmarkt -> Schloss -> Königstuhl: car A at u = s on the east branch, car B at L - s on the west, so
+  they cross at the Schloss passing loop (M = 43.4, L = 86.8) where both conductors wave. Board with R / the ride
+  button at any of the three stops (zones in bergZone); if no car is there the button rings for it. Rider stands in
+  the lowest compartment (local -.38,-.24,-1.55) so the end window is the view; physics off while aboard, Get out only
+  when stopped. States dwell 9 s at the ends / stop 5 s at the loop, held while you stand at a stop; brakes + bell if
+  you stand on the rails ahead of a car; rope hum (engOn) + a two-strike bell. Voxels (bergWorld, after vehWorld):
+  gravel bed on red sandstone arches (pier every 6 u) or in a cutting, whole trees felled near the line; Kornmarkt
+  stepped platform x 7..8 z 64..69 under a stepped wooden canopy, a passage under the line at z 70..71 (Anselm's
+  night round moved from x 7.5 to 10.5); Schloss platform x 8..9 z 95..99 at walk 48 + tunnel x 10..11 onto the castle
+  terrace (parapet at x 12 opened); Königstuhl plaza x -25..-8 z 123..131 at walk 68, Gipfelkiosk, telescope pedestal,
+  benches, a belt of beeches south of the plaza (bTree: like tree() but allowed up high; hides the map's far edge),
+  and a homage TV tower mesh at (-3.5,141.5) with a blinking red lamp at night. Signs on one canvas (Fraktur).
+  Meshes: track + props + tower 1 call, 2 cars (folkMat, night glow), signs 1, lamp 1 (night). Place names
+  Bergbahn / Bergbahn · Kornmarkt / Bergbahn · Schloss. Budget vs v1.14 (same views): phone spawn 143k/50 -> 161k/54,
+  philS 207k/64 -> 225k/68; desktop philS 242k/84 -> 261k/88, Königstuhl looking north 293k/97 (new spot). 0 JS errors
+  1280x800 + 390x844 ?touch. Scratch $SP/hb15 (mk.sh test build with hooks, hrun.sh, p/b1-b4.py, p/perf.py).
+  Untested on real phones: how the ride feels, whether the rider view through the end window is enough on portrait.
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
 - fannar22 2026-10-11 23:50: rising into the sky at the east/west map edge in the river (fixed v1.1, probe hb_edge.js).
 - pathLine drop walls: a one-block drop must not get a parapet (blocked the Snake Path entry from Brückenstraße).
 
 ## todos
-- v1.15 BERGBAHN, designed but NOT BUILT (helper stopped at 07:08 for a session restart; live = v1.14).
-  Scratch: /tmp/claude-1000/-vibespace/c15135b2-3c29-43bc-9198-9a7bf45fb281/scratchpad/hbb (index.html = v1.14
-  copy, mk.sh = test build with hooks, hrun.sh = headless runner, plan/plan.js = track solver, hdump.json = height map).
-  The plan, in case scratch is gone:
-  - Track: Catmull-Rom (200 samples/segment) through [5,64.6] [5,80] [5,100] [5,106] [3.8,112] [.8,117.5] [-3.5,122]
-    [-8.5,126] [-13.5,129.5] [-17.5,132.5], with outer handles [5,60] and [-20.5,135]. Rail y starts at 19.3.
-    Slope is .872 below the Schloss and .5558 above it, blended over 12 around z 97.5.
-    u = 3D arclength. The loop sits at M = u(z 97.5); L = 2M ≈ 86.8, so the track ends near (-11.9,128.4) at y 69.
-  - Cars: two cars at s and L-s, so they pass at M with a lateral offset of ±1.45 (smoothstep 6..12 from M).
-    Cars stop at 3.2 from each end. Each car has 3 stepped compartments: local rail line y = .72z, floors .95+.72zc.
-    Pose: bogies at s±2; rotation order YXZ with pitch = atan(.72) - track angle.
-    Each car is one folkMat mesh; the conductor's arm (gesture channel) waves at the loop.
-  - Voxels (bbWorld, after vehWorld): corridor cells ±1.2 around each branch.
-    - Bed: gravel at floor(lowest rail - .3) - 1, never below 18. Everything above is cleared; sandstone fill below.
-    - Where the gap is 5 or more: arches every 6 u (1.5 pier + 4.5 opening).
-    - Natural blocks next to a cutting become sandstone; trees within 6 of the corridor are removed.
-  - Kornmarkt station: stair platform x 7..8, z 64..69 (walk 20,21,22,22,23,24), wall + parapet at x 9.
-    Pillars at (2,64) (2,68) (9,64) (9,68). Slate roof x 2..9 at floor(railY(z+.5)) + 5.
-    A passage under the track at z 70..71, y 19..21. Anselm's x 7.5 route points move to 10.5.
-  - Schloss stop: platform x 8..9, z 95..99 at the floors of the east car parked at M.
-    A walkway z 96..98 runs through a tunnel in x 10..11 (sandstone roof at y 51); the parapet at x 12 is opened.
-  - Summit: cobble plaza x -25..-8, z 123..131 at walk 68 (sandstone fill), parapet on the drop edges.
-    Gipfelkiosk x -24..-20, z 127..131 (counter on the east side). Telescope pedestal at (-15,68,124).
-    TV tower near (-3.5,141.5).
-  - Zones (show the ride button / call the car): Kornmarkt x 5.5..12, z 62..73; Schloss x 7..18, z 93..101;
-    summit x -13.5..-5, z 121..131. Hooks: rideKey/rideUi, frame (no physics while aboard), tickFolk, placeName.
-  - Reason to go: Frieda Wolkenstein at the kiosk (German lines, glasses at the optician's). She asks you to spot
-    Kapitän Jupp, Fritz and Clara through the coin Fernrohr. The view narrows to 8° wide on portrait, 12° on landscape;
-    hold a target in the centre ring for .6 s with a clear line of sight. Hilde can't be seen from the top.
-    All three found = "Ehrenausguck vom Königstuhl" and she refills an empty water bottle.
-    Saved in 'hb-berg' {met,seen,done,rides}. Never touch SECS (the nine secrets) or Mike's stone.
-  - The telescope eye has to sit at y 70 (stand at 68.4), or the z 123 parapet blocks the view to the town.
+- v1.15 step 2 (next): Frieda Wolkenstein at the Gipfelkiosk + the coin Fernrohr quest. Her glasses are at the
+  optician's; she gives you an old Groschen, the telescope (pedestal at (-15,68,124), eye ~(-14.5,70.1,124.5)) zooms to
+  8° wide on portrait / 12° on landscape; hold Kapitän Jupp, Fritz and Clara in the centre ring .6 s with a clear voxel
+  line of sight (Hilde can't be seen). All three = "Ehrenausguck vom Königstuhl", she refills an empty water bottle.
+  While scoping: push fog out and raise LIFE.cull, scale look() by the zoom, no stick on touch, Esc/R/✕ exits.
+  'hb-berg' already holds {met,seen,done,rides}; add bergSide() to qlogFill. Never touch SECS or Mike's stone.
 - big round (Flax, 2026-10-13) done through v1.13; later: German dialogue switch,
   garden lanterns at night, a second garden terrace (the south wall is one tall cut)
 - optional firework bang sounds after a tap
-- Jesuit church, Marstall, Karl Theodor statue on the bridge, Königstuhl funicular
+- Jesuit church, Marstall, Karl Theodor statue on the bridge
 - real phone test of the touch stick + look; real GPU fps (v1.14 adaptive sharpness: ask phone users if it looks soft)
 
 ## art direction
@@ -278,6 +270,8 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
 
 - v1.1: 292k triangles in the whole world (469k before greedy strips). Busiest view = Philosophers' Walk looking
   south at the town: 248k drawn / 69 calls; spawn 181k / 45; castle courtyard looking north 212k / 58.
+- v1.15 (Bergbahn): world chunks 304k tris. Phone FOV (390x844): spawn 161k/54, philS 225k/68, Königstuhl north
+  243k/79 (busiest). Desktop 1280x800: philS 261k/88, Königstuhl north 293k/97. Probe $SP/hb15/p/perf.py.
 
 ## testing
 - scratch: $SP/hb (index.html + mk.sh injects window.__G/__E into gaunt/sw/hm43/hb). The live file only has a
