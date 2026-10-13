@@ -338,6 +338,28 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   Max (the guitar) has bright blonde hair (#f2d47c, a fuller top, a fringe and short sides) and fair skin (#fbe2cf).
   The pink headphones are gone from the group: they were on Marco, the only headphones there, and Flax may have read
   them as Max's. Ask Flax if Marco should get them back. 0 JS errors at 1280 and 390.
+- v1.19 2026-10-13 13:27 (helper): UNIVERSITÄTSPLATZ + STUDENTENKARZER (Flax 12:08-13:15) + Marco's new look.
+  West Altstadt south row, x -94..-48, z 72..95 (uniWorld/uniBuild/uniTick, before wegSign). Universitätsplatz x -94..-72,
+  z 72..82: cobbles with a paving grid, the Löwenbrunnen at (-77.5,77.5) (round sandstone basin, pillar, lion mesh on
+  top, four water arcs, a pool plane), two benches at x -85. Alte Universität x -71..-59: cream baroque body, red plinth,
+  pilasters and cornice, a mansard roof with dormers, a risalit with the door facing the square and an
+  "ALTE UNIVERSITÄT" board. Neue Universität x -96..-70, z 88..95: sandstone/ochre block, bay with three doors, gold
+  Athena in the niche, "DEM LEBENDIGEN GEIST". Studentenkarzer x -58..-48, z 72..82, door at (-48,77) on the
+  Augustinergasse: Herr Riegel the Pedell (id 'riegel', f.fy=TOWN keeps indoor folk on their floor) at his desk,
+  a stair at z 74 (steps x -51..-54) up to a corridor (z 74-75) and three cells (A x -57..-56, B -54..-53,
+  C -51..-49, 1-wide doors at x -56/-53/-50) with beds, a stove, tables and one candle in cell C.
+  The graffiti: kzPaint() one 512x512 canvas atlas, 16 tiles (invented initials and years 1871-1902, a cap and a top
+  hat silhouette, shields, sabres, "L + E treu 1897", "3 Tage, 2 Nächte", tallies, "Wasser & Brot", a Pedell
+  caricature, names); kzGraffiti() lays quads on every wall and the ceiling of the upper floor and the stairwell.
+  kzMat (basic + kzLight in GLSL) and a block-shader zone light the inside by window daylight (KZ_U.x, by time),
+  the desk lamp and the candle (KZ_U.y flickers). UNI_COL (Set of x/z/y cells) = furniture collision in solidAt.
+  First time upstairs: a toast + localStorage 'hb-karz' (Riegel then has one more line, quest-log line karzSide).
+  Petra's route now crosses the square and pauses at the fountain. Josie points to the Karzer.
+  Marco (Flax 13:13 "marco same but singing"): wheat-blonde hair #f6df98 with a little quiff (Max is golden #f2d47c
+  with a fringe), fair skin, no headphones, still sings.
+  Stair fix: no collision on the rail cell x -53 (the head of the stair needs 1.8 of headroom to step up).
+  Probes p/u1.py, p/u2.py, p/w3.py (G.physics stepped at 60 Hz: stair up/down, all 3 cells, door in/out).
+  0 JS errors at 1280 and 390 ?touch. Not measured: tris for the new views.
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
 - fannar22 2026-10-11 23:50: rising into the sky at the east/west map edge in the river (fixed v1.1, probe hb_edge.js).
@@ -357,10 +379,9 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   Stückgarten west of the Dicker Turm), Studentenkarzer (11:33, see the queue below), more room round the Fass in the cellar,
   Torch + Toni L busking on the Alte Brücke (original beat only, no real lyrics/melodies), life in the west Altstadt
   (walkers, a stall/bench crowd, lit windows at night)
-- Flax 12:08-12:16 queue, in this order: (1) named crew DONE v1.18.2; (2) Universitätsplatz in the west Altstadt (Alte Universität baroque front, lion fountain, Neue Universität)
-  + the Studentenkarzer behind it in Augustinergasse (graffiti canvas on the cell walls + stairwell: invented
-  initials/years, silhouette heads, shields, a made-up line like "3 Tage, 2 Nächte"; one candle in a cell);
-  (3) Neckarwiese on the north bank (night: blankets, lanterns/string lights, a speaker glow) + a flock of blocky
+- Flax 12:08-13:15 queue, in this order: (1) named crew DONE v1.18.2; (2) university + Karzer DONE v1.19;
+  (2b) Torch + Toni L busking on the Alte Brücke (original made-up beat only, never real lyrics/melodies/titles,
+  name tags, a small crowd, a hat for coins); (3) Neckarwiese on the north bank (night: blankets, lanterns/string lights, a speaker glow) + a flock of blocky
   ducks (paddle by the bank, waddle on the grass, heads tucked in at night), only if the map reaches that far west
 - Café Nerd ideas: a board game you can join, Nele's daily special
 - the monkey rub buttons still sit bottom-left on narrow phones (only near the monkey)
