@@ -394,6 +394,8 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   Four draw calls: iron (Lambert), glass (Basic, colour x.18 by day, x.26 golden hour, x1 at night), halos (one Points,
   additive, fog off, within 160 m) and pools of light on the gravel (one additive mesh, within 70 m), night only.
   Probe p/l1.py: views + collision. 0 JS errors at 1280 and 390 ?touch. World tris unchanged (307k; the lamps are ~1.5k).
+- 2026-10-13 14:00 UTC v1.22.1: the luck/secret sparks and the Geheimrat fountain jets get a round soft dot texture (roundDot(), a hoisted function so it's safe anywhere in the module); before, these points drew as pale squares up close.
+
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
 - fannar22 2026-10-11 23:50: rising into the sky at the east/west map edge in the river (fixed v1.1, probe hb_edge.js).
@@ -415,7 +417,6 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
 - a second garden terrace (the south wall is one tall cut)
 - optional firework bang sounds after a tap
 - real phone test of the touch stick + look; real GPU fps (v1.14 adaptive sharpness: ask phone users if it looks soft)
-- the secret-found sparks (PointsMaterial, no map) draw as big pale squares close to the camera; give them a round map
 - the monkey rub buttons still sit bottom-left on narrow phones (only near the monkey)
 
 ## art direction
