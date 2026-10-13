@@ -388,6 +388,7 @@ for (const [r, h] of tiers) {
   for (const sx of [-0.9, 0.9]) add(new THREE.ConeGeometry(0.16, 0.6, 5), M('#e3b23c'), sx, y + 0.35, 0, 0, g).rotation.z = sx > 0 ? -0.5 : 0.5;
 }
 const CANOPY = [];
+const SNAGS = []; // every blossom strand: [x, z, top, tip, size, angle, distance from the dome's middle], for lanterns to catch on
 // the great weeping cherry (bereonion): one colossal trunk behind the castle, its crown a pink dome over
 // the whole town, and long blossom strands hanging down all round the edge like a curtain
 {
@@ -424,6 +425,7 @@ const CANOPY = [];
   const strand = (rr, a, bottom, size) => {
     const top = DOME.cy + Math.sqrt(DOME.R * DOME.R - Math.min(rr, 66) ** 2) - 1;
     const sx = DOME.x + Math.cos(a) * rr, sz = DOME.z + Math.sin(a) * rr;
+    SNAGS.push([sx, sz, top, bottom, size, a, rr]);
     for (let yy = top; yy > bottom; yy -= (1.0 + rnd() * 0.4) * size) strands.push([sx + Math.cos(a) * (top - yy) * 0.05, yy, sz + Math.sin(a) * (top - yy) * 0.05, size * (0.75 + rnd() * 0.4)]);
   };
   for (let i = 0; i < 120; i++) { // the curtain round the rim: short tassels to long ropes
@@ -720,21 +722,26 @@ pools.renderOrder = 2; pools.computeBoundingSphere(); scene.add(pools);
 const groundAt = (x, z) => { for (let k = tiers.length - 1; k >= 0; k--) if (rockDepth(x, tiers[k][1] + 0.1, z) > 0) return tiers[k][1] + 0.2; return 0; };
 const skyLanterns = (() => {
   const calm = matchMedia('(prefers-reduced-motion: reduce)').matches, phone = Math.min(innerWidth, innerHeight) < 600;
-  const N = calm ? 18 : phone ? 30 : 48;
+  // v1.11: NS of them hang caught in the cherry's strands; every 40-90 s one wiggles loose and drifts off, and a fresh
+  // one drifting down gets caught in a free spot, so the tree keeps about NS. Tap or click a caught one to free it.
+  const N = calm ? 18 : phone ? 30 : 48, NS = calm ? 3 : phone ? 4 : 6, NT = N + NS;
   let sd = 23; const lr = () => (sd = (sd * 16807) % 2147483647) / 2147483647; // own random: the town keeps its shapes
   const geo = new THREE.CylinderGeometry(0.46, 0.32, 0.95, 6, 2);
   const gp = geo.attributes.position, vc = [];
   for (let i = 0; i < gp.count; i++) { const t = 1 - (gp.getY(i) + 0.475) / 0.95; vc.push(0.9 + t * 0.1, 0.3 + t * 0.6, 0.12 + t * 0.48); } // deep orange paper on top, the flame's glow at the open bottom
   geo.setAttribute('color', new THREE.Float32BufferAttribute(vc, 3));
-  const body = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, fog: false }), N);
+  const body = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, fog: false }), NT);
   body.frustumCulled = false; scene.add(body);
-  const hg = new THREE.BufferGeometry(), hp = new Float32Array(N * 3), hc = new Float32Array(N * 3);
+  const hg = new THREE.BufferGeometry(), hp = new Float32Array(NT * 3), hc = new Float32Array(NT * 3);
   hg.setAttribute('position', new THREE.BufferAttribute(hp, 3)); hg.setAttribute('color', new THREE.BufferAttribute(hc, 3));
   const halo = new THREE.Points(hg, new THREE.PointsMaterial({ map: glowTex, size: 3.4, vertexColors: true, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
   halo.frustumCulled = false; scene.add(halo);
-  const TINT = ['#ffd2a0', '#ffc0a0', '#ffe2b0'].map(c => new THREE.Color(c));
-  const X = new Float32Array(N), Y = new Float32Array(N), Z = new Float32Array(N), V = new Float32Array(N), S = new Float32Array(N), P = new Float32Array(N), T = new Float32Array(N), F = new Float32Array(N), FL = new Float32Array(N);
+  const TINT = ['#ffd2a0', '#ffc0a0', '#ffe2b0'].map(c => new THREE.Color(c)), UNLIT = new THREE.Color(0.74, 0.62, 0.56); // unlit: plain paper in daylight
+  const X = new Float32Array(NT), Y = new Float32Array(NT), Z = new Float32Array(NT), V = new Float32Array(NT), S = new Float32Array(NT), P = new Float32Array(NT), T = new Float32Array(NT), F = new Float32Array(NT), FL = new Float32Array(NT);
+  const FALL = 0, HEAD = 1, SNAG = 2, WIG = 3, LOOSE = 4; // drifting down, heading for a snag spot, caught, wiggling, slipping free
+  const MO = new Uint8Array(NT), SP = new Int16Array(NT).fill(-1), T0 = new Float64Array(NT), WD = new Float32Array(NT), STAY = new Uint8Array(NT), DX = new Float32Array(NT), DZ = new Float32Array(NT);
   const outer = i => i % 3 === 2; // a third drift down over the lake, beyond the curtain
+  const floorAt = (x, z) => { let fl = Math.max(4.5, groundAt(x, z) + 2.2); for (const [tx, tz, tr, tt] of TALL) if (Math.hypot(x - tx, z - tz) < tr) fl = Math.max(fl, tt); return fl; };
   function spawn(i, first) {
     const o = outer(i);
     let x = 0, z = 0;
@@ -743,44 +750,125 @@ const skyLanterns = (() => {
       x = Math.cos(a) * r; z = -6 + Math.sin(a) * r;
       if (o || Math.hypot(x + 2, z + 40) > 11) break; // never inside the great trunk
     }
-    let fl = o ? -0.3 : Math.max(4.5, groundAt(x, z) + 2.2);
-    if (!o) for (const [tx, tz, tr, tt] of TALL) if (Math.hypot(x - tx, z - tz) < tr) fl = Math.max(fl, tt);
+    const fl = o ? -0.3 : floorAt(x, z);
     X[i] = x; Z[i] = z; FL[i] = fl; T[i] = o ? 34 + lr() * 26 : Math.max(fl + 6, 21 + lr() * 12);
     Y[i] = first ? fl + lr() * (T[i] - fl) : T[i];
     V[i] = (o ? 0.55 : 0.28) + lr() * 0.3; S[i] = (o ? 2.3 : 1) * (0.8 + lr() * 0.5); P[i] = lr() * 6.28;
   }
-  for (let i = 0; i < N; i++) spawn(i, true);
+  for (let i = 0; i < NT; i++) spawn(i, true);
+  // snag spots: beside a blossom strand just above its tip (the strands inside town), or on the curtain's high tassels;
+  // the lantern sits off the strand toward where the camera usually is, leaning in against it
+  const spots = [], asp = innerWidth / innerHeight, tc = new THREE.PerspectiveCamera(asp < 0.85 ? 66 : 50, asp, 1, 400), tv = new THREE.Vector3();
+  tc.position.set(-3 + Math.sin(0.45) * Math.cos(0.3) * (asp < 0.85 ? 42 : 40), 7 + Math.sin(0.3) * (asp < 0.85 ? 42 : 40), -6 + Math.cos(0.45) * Math.cos(0.3) * (asp < 0.85 ? 42 : 40));
+  tc.lookAt(-3, 7, -6); tc.updateMatrixWorld(); // the first view of the town: most caught lanterns hang where you see them at once
+  for (const [sx, sz, top, tip, size, a, rr] of SNAGS) {
+    const inner = rr < 30, y = Math.min(top - 3, (inner ? tip + 0.6 : Math.max(tip + 0.6, 9)) + lr() * 2.2), tilt = 0.2 + lr() * 0.2;
+    if (!inner && tip < 8) continue;
+    const ax = sx + Math.cos(a) * (top - y) * 0.05, az = sz + Math.sin(a) * (top - y) * 0.05, sg = inner ? 1 : -1, dx = Math.cos(a) * sg, dz = Math.sin(a) * sg, off = 0.75 * size + 0.5;
+    if (Math.hypot(ax + 2, az + 40) < 12) continue; // not in the trunk
+    const x = ax + dx * off, z = az + dz * off; tv.set(x, y, z).project(tc);
+    spots.push({ x, y, z, dx, dz, tilt, front: tv.z < 1 && Math.abs(tv.x) < 0.8 && tv.y > -0.1 && tv.y < 0.9, who: -1, free: 0 });
+  }
+  let held = 0;
+  const near = (p, q) => Math.hypot(p.x - q.x, p.z - q.z) < 7 && Math.abs(p.y - q.y) < 7;
+  function freeSpot(now, fp) { // a free spot, not next to another caught lantern; usually one in the first view
+    const ok = spots.filter(p => p.who < 0 && now >= p.free && !spots.some(q => q.who >= 0 && near(p, q)));
+    if (!ok.length) return -1;
+    const fr = ok.filter(p => p.front), pool = fr.length && lr() < fp ? fr : ok;
+    return spots.indexOf(pool[Math.floor(lr() * pool.length)]);
+  }
+  function hang(i, k, now) { const p = spots[k]; MO[i] = SNAG; SP[i] = k; T0[i] = now; X[i] = p.x; Y[i] = p.y; Z[i] = p.z; }
+  function steer(i, now) { // a fresh lantern drifting down gets caught in a free spot
+    const k = freeSpot(now, 0.75); if (k < 0) return;
+    const p = spots[k]; p.who = i; held++; SP[i] = k; MO[i] = HEAD;
+    X[i] = p.x + (lr() - 0.5) * 4; Z[i] = p.z + (lr() - 0.5) * 4; T[i] = Y[i] = p.y + 6 + lr() * 4;
+  }
+  for (let i = 0; i < NT && held < NS; i++) if (!outer(i)) { const k = freeSpot(0, 1); if (k < 0) break; spots[k].who = i; held++; hang(i, k, -1e9); }
+  function loosen(i, secs, stay) { if (MO[i] !== SNAG) return; MO[i] = WIG; T0[i] = performance.now(); WD[i] = secs; STAY[i] = stay ? 1 : 0; }
+  let nextFree = performance.now() + 40e3 + lr() * 50e3, nextCatch = 0;
+  const v3 = new THREE.Vector3();
+  function shake() { // the tree lets one go, preferably one you can see
+    const all = [], seen = [];
+    for (let i = 0; i < NT; i++) if (MO[i] === SNAG) { all.push(i); v3.set(X[i], Y[i], Z[i]).project(camera); if (v3.z < 1 && Math.abs(v3.x) < 0.85 && Math.abs(v3.y) < 0.85 && F[i] > 0.5) seen.push(i); }
+    const pool = seen.length ? seen : all;
+    if (pool.length) loosen(pool[Math.floor(lr() * pool.length)], 1.6, false);
+  }
+  const own = [-1, -1], d = new THREE.Object3D(), c = new THREE.Color(), q = new THREE.Quaternion(), axis = new THREE.Vector3();
   const lights = [0, 1].map(() => { const l = new THREE.PointLight('#ffae5e', 0, 11, 1.5); scene.add(l); return l; });
-  const own = [-1, -1], d = new THREE.Object3D(), c = new THREE.Color();
-  return (time, dt) => {
-    const vis = TOD.lamps;
-    body.visible = halo.visible = vis > 0.01;
-    if (!body.visible) { lights[0].intensity = lights[1].intensity = 0; return; }
-    body.material.opacity = Math.min(1, vis * 1.4); halo.material.opacity = 0.6 * vis;
+  const step = (time, dt) => {
+    const vis = TOD.lamps, now = performance.now(), kv = Math.min(1, vis / 0.3); // kv: drifting lanterns only fly when lit
+    halo.visible = vis > 0.01; halo.material.opacity = 0.6 * vis;
+    if (now >= nextFree) { nextFree = now + 40e3 + lr() * 50e3; if (vis > 0.3) shake(); }
     const cp = camera.position, slow = calm ? 0.4 : 1;
-    for (let i = 0; i < N; i++) {
-      Y[i] -= V[i] * dt * slow;
-      X[i] += (Math.sin(time * 0.23 + P[i]) * 0.22 + 0.08) * dt * slow; Z[i] += Math.cos(time * 0.19 + P[i] * 1.3) * 0.18 * dt * slow;
-      if (Y[i] < FL[i]) spawn(i, false);
-      let f = Math.max(0, Math.min(1, (T[i] - Y[i]) / 3, (Y[i] - FL[i]) / 3));
+    for (let i = 0; i < NT; i++) {
+      const age = (now - T0[i]) / 1000;
+      if (MO[i] === WIG && age > WD[i]) {
+        if (STAY[i]) { MO[i] = SNAG; T0[i] = -1e9; } // unlit paper can't fly: it shakes and stays
+        else { const p = spots[SP[i]]; p.who = -1; p.free = now + 12e3; held--; MO[i] = LOOSE; T0[i] = now; DX[i] = p.dx; DZ[i] = p.dz; SP[i] = -1; }
+      }
+      const m = MO[i];
+      let f = 1;
+      if (m === FALL) {
+        Y[i] -= V[i] * dt * slow;
+        X[i] += (Math.sin(time * 0.23 + P[i]) * 0.22 + 0.08) * dt * slow; Z[i] += Math.cos(time * 0.19 + P[i] * 1.3) * 0.18 * dt * slow;
+        if (Y[i] < FL[i]) { spawn(i, false); if (!outer(i) && held < NS && now >= nextCatch && vis > 0.3) { steer(i, now); nextCatch = now + 4e3; } }
+        f = Math.max(0, Math.min(1, (T[i] - Y[i]) / 3, (Y[i] - FL[i]) / 3));
+      } else if (m === HEAD) {
+        const p = spots[SP[i]], e = Math.min(1, dt * 0.6);
+        Y[i] -= V[i] * dt * slow; X[i] += (p.x - X[i]) * e; Z[i] += (p.z - Z[i]) * e;
+        f = Math.max(0, Math.min(1, (T[i] - Y[i]) / 3));
+        if (Y[i] <= p.y) hang(i, SP[i], now);
+      } else if (m === LOOSE) { // slips free: lifts a little and drifts away from its strand, then sails down with the rest
+        const k = Math.max(0, 1 - age / 3.5);
+        Y[i] += 0.55 * k * dt * slow; X[i] += DX[i] * 0.5 * dt * slow; Z[i] += DZ[i] * 0.5 * dt * slow;
+        if (age > 3.5) { MO[i] = FALL; FL[i] = floorAt(X[i], Z[i]); T[i] = Y[i] + 3; V[i] = 0.28 + lr() * 0.3; }
+      }
       f = Math.min(f, Math.max(0, (Math.hypot(X[i] - cp.x, Y[i] - cp.y, Z[i] - cp.z) - 6) / 7)); // never in your face
+      const caught = m === SNAG || m === WIG;
+      if (caught) {
+        const p = spots[SP[i]];
+        let lean = p.tilt + Math.sin(time * 0.9 + P[i]) * 0.05, y = p.y + Math.sin(time * 1.1 + P[i]) * 0.06; // bobbing on its strand
+        if (m === SNAG && age < 3) { const e = Math.exp(-age * 2); lean += Math.sin(age * 8) * 0.35 * e; y -= Math.sin(age * 6) * 0.15 * e; } // the jolt of being caught
+        if (m === WIG) { const w = Math.min(1, age / WD[i]); lean += Math.sin(age * 23) * (0.1 + 0.25 * w); y += Math.sin(age * 17) * 0.05 * w; }
+        X[i] = p.x; Y[i] = y; Z[i] = p.z;
+        d.quaternion.setFromAxisAngle(axis.set(-p.dz, 0, p.dx), lean); d.rotateY(P[i]);
+      } else if (m === LOOSE) {
+        d.quaternion.setFromAxisAngle(axis.set(-DZ[i], 0, DX[i]), 0.3 * Math.max(0, 1 - age / 1.5) + Math.sin(age * 3) * 0.05); d.rotateY(P[i] + age * 0.12);
+      } else d.rotation.set(Math.sin(time * 0.7 + P[i]) * 0.08, P[i] + time * 0.12, Math.cos(time * 0.6 + P[i]) * 0.08);
+      if (!caught) f *= kv;
       F[i] = f;
       d.position.set(X[i], Y[i], Z[i]);
-      d.rotation.set(Math.sin(time * 0.7 + P[i]) * 0.08, P[i] + time * 0.12, Math.cos(time * 0.6 + P[i]) * 0.08);
       d.scale.setScalar(f > 0.01 ? S[i] * (0.6 + 0.4 * f) : 0); d.updateMatrix(); body.setMatrixAt(i, d.matrix);
-      c.copy(TINT[i % 3]).multiplyScalar(0.3 + 0.7 * f); body.setColorAt(i, c);
+      const lit = TINT[i % 3];
+      c.copy(UNLIT).lerp(lit, vis).multiplyScalar(0.3 + 0.7 * f); body.setColorAt(i, c);
       hp[i * 3] = X[i]; hp[i * 3 + 1] = Y[i] - 0.2 * S[i]; hp[i * 3 + 2] = Z[i];
-      hc[i * 3] = TINT[i % 3].r * f; hc[i * 3 + 1] = TINT[i % 3].g * f * 0.8; hc[i * 3 + 2] = TINT[i % 3].b * f * 0.55;
+      hc[i * 3] = lit.r * f; hc[i * 3 + 1] = lit.g * f * 0.8; hc[i * 3 + 2] = lit.b * f * 0.55;
     }
     body.instanceMatrix.needsUpdate = true; body.instanceColor.needsUpdate = true;
     hg.attributes.position.needsUpdate = hg.attributes.color.needsUpdate = true;
     for (let j = 0; j < 2; j++) { // the two lowest lanterns in town carry a real light
       let i = own[j];
-      if (i >= 0 && (Y[i] > 13 || F[i] < 0.15)) i = own[j] = -1;
-      if (i < 0) { let by = 13; for (let k = 0; k < N; k++) if (!outer(k) && k !== own[1 - j] && Y[k] < by && F[k] > 0.3) { i = k; by = Y[k]; } own[j] = i; }
+      if (i >= 0 && (MO[i] !== FALL || Y[i] > 13 || F[i] < 0.15)) i = own[j] = -1;
+      if (i < 0) { let by = 13; for (let k = 0; k < NT; k++) if (!outer(k) && MO[k] === FALL && k !== own[1 - j] && Y[k] < by && F[k] > 0.3) { i = k; by = Y[k]; } own[j] = i; }
       if (i >= 0) { lights[j].position.set(X[i], Y[i] - 0.6, Z[i]); lights[j].intensity = 10 * F[i] * vis; } else lights[j].intensity = 0;
     }
   };
+  // the caught lantern under a point on screen (generous on phones), or -1
+  step.pick = (cx, cy, slack) => {
+    const r = canvas.getBoundingClientRect(), fpx = r.height / (2 * Math.tan(camera.fov * Math.PI / 360));
+    let best = -1, bd = 1e9;
+    for (let i = 0; i < NT; i++) if (MO[i] === SNAG && F[i] > 0.2) {
+      v3.set(X[i], Y[i], Z[i]); const dist = v3.distanceTo(camera.position); v3.project(camera);
+      if (v3.z > 1) continue;
+      const dd = Math.hypot(r.left + (v3.x + 1) / 2 * r.width - cx, r.top + (1 - v3.y) / 2 * r.height - cy);
+      if (dd < Math.max(slack, 0.75 * S[i] * fpx / dist) && dd < bd) { best = i; bd = dd; }
+    }
+    return best;
+  };
+  step.free = i => loosen(i, TOD.lamps > 0.3 ? 0.45 : 0.6, TOD.lamps <= 0.3);
+  step.shake = shake;
+  step.peek = () => ({ held, NS, modes: [...MO].reduce((o, m) => (o[m] = (o[m] || 0) + 1, o), {}), caught: [...MO].map((m, i) => m === SNAG ? [i, X[i], Y[i], Z[i], F[i]] : null).filter(Boolean), spots: spots.length, front: spots.filter(p => p.front).length });
+  return step;
 })();
 
 // ---- time of day (bereonion: "make the town able to choose different times, like noon, and add night") ----
@@ -884,6 +972,19 @@ canvas.addEventListener('pointermove', e => {
 });
 const up = e => { pts.delete(e.pointerId); if (!pts.size) dragging = false; pinch0 = 0; if (pts.size === 1) { const [a] = [...pts.values()]; lx = a[0]; ly = a[1]; } };
 canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
+// tap or click a paper lantern caught in the cherry to set it free (a still tap only: drags and pinches still steer)
+let tap = null;
+canvas.addEventListener('pointerdown', e => { tap = pts.size === 1 ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp } : null; });
+canvas.addEventListener('pointermove', e => {
+  if (tap && tap.id === e.pointerId && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 10) tap = null;
+  if (e.pointerType === 'mouse' && !dragging) canvas.style.cursor = skyLanterns.pick(e.clientX, e.clientY, 18) >= 0 ? 'pointer' : '';
+});
+canvas.addEventListener('pointerup', e => {
+  const t = tap; tap = null;
+  if (!t || t.id !== e.pointerId || e.timeStamp - t.t > 600) return; // a quick tap, not a press-and-hold
+  const i = skyLanterns.pick(e.clientX, e.clientY, e.pointerType === 'mouse' ? 22 : 34);
+  if (i >= 0) skyLanterns.free(i);
+});
 canvas.addEventListener('wheel', e => { e.preventDefault(); goal.dist = THREE.MathUtils.clamp(goal.dist * (1 + Math.sign(e.deltaY) * 0.08), 14, 42); touched(); }, { passive: false });
 addEventListener('keydown', e => { if (e.key === 'ArrowLeft') goal.yaw += 0.15; else if (e.key === 'ArrowRight') goal.yaw -= 0.15; else if (e.key === 'ArrowUp') goal.dist = Math.max(14, goal.dist - 3); else if (e.key === 'ArrowDown') goal.dist = Math.min(42, goal.dist + 3); else return; touched(); });
 
