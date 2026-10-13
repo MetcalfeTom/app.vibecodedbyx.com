@@ -453,6 +453,8 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
 - optional firework bang sounds after a tap
 - real phone test of the touch stick + look; real GPU fps (v1.14 adaptive sharpness: ask phone users if it looks soft)
 - the monkey rub buttons still sit bottom-left on narrow phones (only near the monkey)
+- speed ideas left (v1.24/25 pass): mesher emit into growable typed arrays (load ~0.9 s headless); 2D greedy merge
+  needs fract() on the v axis in blockMat's map_fragment (uv.y is clamped now); landscape Königstuhl view is ~320k tris (world itself)
 
 ## art direction
 - 1 block ≈ 1 m-ish but the bridge is shortened: 9 arches of span 7 + piers of 3 = river 87 blocks wide (z -43..43).
