@@ -55,3 +55,27 @@ with open(path + '.tmp', 'w') as fh:   # written aside and swapped in, so a page
     json.dump(doc, fh, ensure_ascii=False, separators=(',', ':'))
 os.replace(path + '.tmp', path)
 print(len(out), 'apps changed in', DAYS, 'days;', len(top), 'on the board;', os.path.getsize(path), 'bytes')
+
+# busy-msgs.json: the full commit message of every commit on the board, by short hash, fetched only when someone taps an
+# entry in the change log (hamburglar06 19:05: "clicking an entry in the change log focus it and show its full commit
+# message"). Attribution trailers are dropped; a message that looks like it holds a secret keeps only its subject.
+want = {c[4] for _, r in top for c in r['log']}
+rawb = subprocess.run(['git', '-C', ROOT, 'log', '--since=%d.days' % DAYS, '--format=%x01%h%x02%B', '--', 'apps/'],
+                      capture_output=True, text=True, check=True).stdout
+msgs = {}
+for block in rawb.split('\x01')[1:]:
+    sha, _, body = block.partition('\x02')
+    sha = sha.strip()[:7]
+    if sha not in want or sha in msgs:
+        continue
+    lines = [ln.rstrip() for ln in body.strip().split('\n') if not re.match(r'\s*(Co-Authored-By|Signed-off-by):', ln, re.I)]
+    full = re.sub(r'\n{3,}', '\n\n', '\n'.join(lines)).strip()
+    if skip.search(full):
+        full = lines[0] if lines and not skip.search(lines[0]) else ''
+    if full:
+        msgs[sha] = full
+mpath = ROOT + '/apps/app-directory/busy-msgs.json'
+with open(mpath + '.tmp', 'w') as fh:
+    json.dump({'asof': doc['asof'], 'm': msgs}, fh, ensure_ascii=False, separators=(',', ':'))
+os.replace(mpath + '.tmp', mpath)
+print(len(msgs), 'full messages,', os.path.getsize(mpath), 'bytes')
