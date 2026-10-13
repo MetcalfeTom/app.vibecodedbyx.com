@@ -12,6 +12,7 @@ Never use Minecraft names, textures or assets: inspiration only. The name must n
 - Budget: one merged mesh (1 draw call) + sea floor + water + ghost.
 
 ## How the world works
+- Walk physics: cellAt(x,z) gives the cell + corner weights; probeAt → highest surface ≤ feet+STEP(.36) and whether a cell fills the body band [feet+STEP, feet+PH 1.2]; body() samples 5 points (radius .2). Gravity 22, jump 7.2.
 - Triangular lattice of vertical prisms. Lattice point (i,j) at x = i + j/2, z = j*√3/2. Cell (q,r,s): s=0 up (q,r)(q+1,r)(q,r+1), s=1 down (q+1,r)(q+1,r+1)(q,r+1). Edge k joins corner k and k+1; NB table gives the neighbour across each edge.
 - Layer height LH = .75 (triangle side 1). World q -24..51, r 0..51, y 0..27, sea level 4. Cells stored in M (material) and S (shape) Uint8Arrays.
 - Shapes: 0 full, 1-3 peak (one high corner), 4-6 ramp (one low corner). wedge(…, hi) picks the shape from which corners are high: one = peak, two = ramp, three = full.
@@ -26,12 +27,12 @@ Never use Minecraft names, textures or assets: inspiration only. The name must n
 
 ## log
 - v1.0 2026-10-13: first playable. Island, cottage, trees, 12 blocks, block/peak/ramp shapes, dig, undo, new island, reset, sound.
+- v1.1 2026-10-13: Walk mode: Wick, a villager in a pointy three-sided hat (🚶 Walk button / F). WASD or touch stick to walk, Space / jump button to jump (1.2 high, a block is .75), walks up ramps and peaks smoothly (surface height = barycentric blend of the cell's corner heights), Q/E turn, swims, falls back to the cottage door from the sea floor. Camera follows and pulls in before roofs/hills; squeezed under 1.5 it goes first-person. A block placed on Wick lifts him on top. Tiered pine trees (two hex wedge skirts) next to the round 'mushroom' trees.
 
 ## issues
 
 ## todos
 - Hamburglar's wishes first when they come back.
-- A walking little character (first person or a small hero) to explore what you built.
 - Day/night, clouds made of wedges, water you can place.
 - Stamp tools: a cottage, a tree, a hex tower.
 - Save several islands; share an island as a code.
