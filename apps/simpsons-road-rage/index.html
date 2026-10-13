@@ -136,7 +136,7 @@
     <div class="card-wrap" id="cardWrap">
       <div class="card" role="dialog" aria-modal="true" aria-labelledby="cardTitle">
         <h1 id="cardTitle">Springfield Road Rush</h1>
-        <p id="cardLede">Grab donuts before your shift ends. Every donut buys two more seconds, glowing rods at the power plant give turbo. Buses hurt.</p>
+        <p id="cardLede">Grab donuts before your shift ends. Every donut buys two more seconds, glowing rods at the power plant give turbo, and the ramp by the donut shop flies you through a giant donut. Buses hurt.</p>
         <p class="keys" id="keysHint">WASD or arrows to drive · S brakes, then backs up · Space for turbo · Shift handbrake · brake while turning to drift</p>
         <form class="save" id="submitCard" hidden>
           <input id="playerName" maxlength="24" placeholder="Your name" aria-label="Your name" autocomplete="nickname" />
@@ -149,7 +149,7 @@
           <p class="muted" id="lbStatus">Loading…</p>
           <div id="leaderboard" class="leaderboard-list"></div>
         </div>
-        <p class="stamp" id="buildstamp" role="note" aria-label="Build information">v3.1 · 2026-10-13</p>
+        <p class="stamp" id="buildstamp" role="note" aria-label="Build information">v3.1.1 · 2026-10-13</p>
       </div>
     </div>
 
@@ -315,6 +315,77 @@
       // everything solid the car can bump into: boxes {x0,x1,z0,z1} and round towers {cx,cz,r}; the edge of town is a wall too
       const solids = [[197, 400, -400, 400], [-400, -197, -400, 400], [-400, 400, 197, 400], [-400, 400, -400, -197]]
         .map(([x0, x1, z0, z1]) => ({ x0, x1, z0, z1, edge: true }));
+
+      // ---- the donut jump: a kicker ramp lined up with a giant donut statue. Fly through the hole for a big reward; clip it and you
+      // bonk off the rim. A jump is built along one of the four grid directions; s runs along it from the foot of the ramp, q to its left.
+      const JUMP = { H: 1.5, Lr: 14, w: 2.6, skirt: 2.6, gap: 10, R: 3.9, tube: 1.2, yc: 3.4, base: 0.05, lane: 3.4 };
+      const HOLE = JUMP.R - JUMP.tube, OUTER = JUMP.R + JUMP.tube, SKIRT_MAX = JUMP.H * JUMP.skirt;
+      const stunts = [];
+      function rampH(s) { const k = s / JUMP.Lr; return JUMP.base + JUMP.H * k * k; }
+      // the ramp's height at (s, q): a curved deck, with sloping skirts down each side so a wheel off the edge never meets a cliff
+      // (-1 off the ramp and off its lane, so the town's own ground shows through)
+      function jumpGround(s, q) {
+        const aq = Math.abs(q);
+        if (s > 0 && s < JUMP.Lr) {
+          const rise = rampH(s) - JUMP.base, out = aq - JUMP.w;
+          if (out <= 0) return JUMP.base + rise;
+          const sk = rise * JUMP.skirt + 0.01;
+          if (out < sk) return JUMP.base + rise * (1 - out / sk);
+        }
+        return aq <= JUMP.lane ? JUMP.base : -1;
+      }
+      // the ground of a stunt lane (run-up, ramp, landing strip), or -1 when (x, z) is not on one
+      function stuntGround(x, z) {
+        for (let i = 0; i < stunts.length; i++) {
+          const st = stunts[i], bb = st.bb;
+          if (x < bb.x0 || x > bb.x1 || z < bb.z0 || z > bb.z1) continue;
+          const dx = x - st.ox, dz = z - st.oz, g = jumpGround(dx * st.fx + dz * st.fz, dx * st.fz - dz * st.fx);
+          if (g >= 0) return g;
+        }
+        return -1;
+      }
+      // a solid with a `top` (the ramp, the statue's foot) only stops a car whose underside is below its top, read at the point of the
+      // solid nearest the car's centre: a car riding up the ramp is never pushed off it, one coming at its high sides or back is
+      function overTop(o) {
+        if (o.top === undefined) return false;
+        const p = car.pos, nx = Math.max(o.x0, Math.min(p.x, o.x1)), nz = Math.max(o.z0, Math.min(p.z, o.z1));
+        return car.drv.Y - DRV.cgH > o.top(nx, nz) - 0.6;
+      }
+      // after each physics step: a little help holding the ramp's line, then the moment the nose reaches the donut: through, or bonk
+      function stuntStep(h) {
+        const p = car.pos, v = car.velocity, d = car.drv;
+        for (const st of stunts) {
+          const dx = p.x - st.ox, dz = p.z - st.oz, s = dx * st.fx + dz * st.fz, q = dx * st.fz - dz * st.fx;
+          const prev = st.prevS;
+          st.prevS = s;
+          if (st.cool > 0) st.cool -= h;
+          if (Math.abs(q) > OUTER + 4 || s < -4 || s > st.ringS + 8) continue;
+          let vf = v.x * st.fx + v.z * st.fz;
+          if (!d.air && s > 0 && s < JUMP.Lr && Math.abs(q) < JUMP.w && vf > 6) {
+            const e = 1 - Math.exp(-3.5 * h), dp = Math.atan2(Math.sin(st.psi - car.heading), Math.cos(st.psi - car.heading)) * e;
+            const c = Math.cos(dp), sn = Math.sin(dp), vx = v.x * c + v.z * sn, vz = -v.x * sn + v.z * c;
+            car.heading = wrapAngle(car.heading + dp);
+            const vq = (vx * st.fz - vz * st.fx) * (1 - Math.exp(-5 * h)), k = q * (1 - Math.exp(-1.2 * h));
+            v.x = vx - st.fz * vq;
+            v.z = vz + st.fx * vq;
+            p.x -= st.fz * k;
+            p.z += st.fx * k;
+            d.r *= Math.exp(-4 * h);
+          }
+          if (prev === undefined || st.cool > 0 || Math.abs(s - prev) > 3) continue; // a reset/teleport is not a crossing
+          const reach = 2.6, near = st.ringS - JUMP.tube, far = st.ringS + JUMP.tube;
+          const dir = prev + reach < near && s + reach >= near ? 1 : prev - reach > far && s - reach <= far ? -1 : 0;
+          if (!dir) continue;
+          // the car as a box in the statue's plane: its width (wider when it arrives at an angle), its height (taller when pitched)
+          const base = d.Y - DRV.cgH, yaw = car.heading - st.psi, pt = 2.1 * Math.abs(Math.sin(d.th));
+          const hw = 0.92 * Math.abs(Math.cos(yaw)) + 2.1 * Math.abs(Math.sin(yaw));
+          const lo = base + 0.15 - pt - JUMP.yc, hi = base + 1.5 + pt - JUMP.yc, aq = Math.abs(q);
+          const far2 = Math.hypot(aq + hw, Math.max(Math.abs(lo), Math.abs(hi)));
+          const near2 = Math.hypot(Math.max(0, aq - hw), lo > 0 ? lo : hi < 0 ? -hi : 0);
+          if (far2 < HOLE) { st.cool = 1; onDonutPass(st, q, dir); }
+          else if (near2 < OUTER) { st.cool = 0.6; onDonutBonk(st, q, dir, hi + lo); }
+        }
+      }
       const buildings = buildBuildings();
       world.add(buildings);
       const signJobs = []; // canvas signs, redrawn once the cartoon font has loaded
@@ -339,6 +410,7 @@
       world.add(car.mesh);
 
       const carFx = makeCarFx();
+      const shower = makeShower(); // the donut-jump reward burst
 
       const clock = new THREE.Clock();
       let elapsed = 0;
@@ -493,6 +565,8 @@
         populateDonuts();
         populateRods();
         state.glow = 0;
+        state.slowT = 0;
+        state.jumps = 0;
         resetCar();
         car.boosting = false;
         state.shake = 0;
@@ -517,7 +591,7 @@
         Object.keys(keyState).forEach((k) => (keyState[k] = false));
         document.getElementById('cardTitle').textContent = 'Shift over!';
         document.getElementById('cardLede').textContent =
-          state.donuts > 0 ? `${state.donuts} donut${state.donuts === 1 ? '' : 's'} delivered · best combo ${state.bestCombo}` : 'Not a single donut? The donut shop is heartbroken.';
+          state.donuts > 0 ? `${state.donuts} donut${state.donuts === 1 ? '' : 's'} delivered · best combo ${state.bestCombo}${state.jumps ? ` · ${state.jumps} donut jump${state.jumps === 1 ? '' : 's'}` : ''}` : 'Not a single donut? The donut shop is heartbroken.';
         document.getElementById('keysHint').hidden = true;
         document.getElementById('submitMsg').textContent = '';
         submitCard.hidden = state.donuts <= 0;
@@ -606,6 +680,10 @@
 
       // ground under a point: road top, kerb / sidewalk top, or grass
       function groundAt(x, z) {
+        const sg = stuntGround(x, z), tg = townGround(x, z);
+        return sg > tg ? sg : tg; // a stunt lane or ramp sits on the town, never sinks into a kerb
+      }
+      function townGround(x, z) {
         const ax = Math.abs(x), az = Math.abs(z);
         if (ax < 9 || az < 9) return 0.215;
         if ((ax <= 15 && az >= 15) || (az <= 15 && ax >= 15)) return 0.4;
@@ -1527,6 +1605,251 @@
         return m;
       }
 
+
+      // a donut jump: a run-up lane with chevrons, the kicker ramp, the giant donut statue on its plinth (a donut floats in its hole),
+      // a sign at the start. Lane coordinates: s along the jump from the foot of the ramp, q to its left; psi is one of the grid headings.
+      function makeDonutJump(g, kit, ox, oz, psi, s0, s1) {
+        const fx = Math.round(Math.sin(psi)), fz = Math.round(Math.cos(psi)), L = JUMP.Lr, ringS = L + JUMP.gap, half = JUMP.w + SKIRT_MAX;
+        const W = (s, q) => [ox + fx * s + fz * q, oz + fz * s - fx * q];
+        const box = (a, b, c) => {
+          const p1 = W(a, -c), p2 = W(b, c);
+          return { x0: Math.min(p1[0], p2[0]), x1: Math.max(p1[0], p2[0]), z0: Math.min(p1[1], p2[1]), z1: Math.max(p1[1], p2[1]) };
+        };
+        const local = (x, z) => [(x - ox) * fx + (z - oz) * fz, (x - ox) * fz - (z - oz) * fx];
+        const [rx, rz] = W(ringS, 0);
+        const st = { ox, oz, psi, fx, fz, ringS, rx, rz, cool: 0, prevS: undefined, donut: null, bb: box(s0, s1, half) };
+        const place = (m, s, y, q, turn = 0) => {
+          const [x, z] = W(s, q);
+          m.position.set(x, y, z);
+          m.rotation.y = psi + turn;
+          g.add(m);
+          return m;
+        };
+        const grain = (x, w, h, n, a) => {
+          for (let i = 0; i < n; i++) {
+            x.fillStyle = Math.random() < 0.5 ? `rgba(255,255,255,${a})` : `rgba(0,0,0,${a})`;
+            x.fillRect(Math.random() * w, Math.random() * h, 2, 2);
+          }
+        };
+
+        // the run-up and landing lane: asphalt, white edges, yellow chevrons pointing at the ramp
+        const laneTex = canvasTex(128, 256, (x, w, h) => {
+          x.fillStyle = '#4b4853';
+          x.fillRect(0, 0, w, h);
+          grain(x, w, h, 900, 0.07);
+          x.fillStyle = '#f4efe2';
+          x.fillRect(5, 0, 5, h);
+          x.fillRect(w - 10, 0, 5, h);
+          x.fillStyle = '#ffd23f';
+          x.beginPath();
+          x.moveTo(w / 2, h * 0.8);
+          x.lineTo(w * 0.85, h * 0.5);
+          x.lineTo(w * 0.85, h * 0.34);
+          x.lineTo(w / 2, h * 0.64);
+          x.lineTo(w * 0.15, h * 0.34);
+          x.lineTo(w * 0.15, h * 0.5);
+          x.closePath();
+          x.fill();
+        });
+        laneTex.wrapS = laneTex.wrapT = THREE.RepeatWrapping;
+        laneTex.repeat.set(1, (s1 - s0) / 9);
+        const laneGeo = new THREE.PlaneGeometry(JUMP.lane * 2, s1 - s0);
+        laneGeo.rotateX(-Math.PI / 2);
+        const lane = place(new THREE.Mesh(laneGeo, new THREE.MeshStandardMaterial({ map: laneTex, roughness: 0.92 })), (s0 + s1) / 2, JUMP.base - 0.005, 0);
+        lane.receiveShadow = true;
+
+        // the ramp: a curved plank deck with a checked lip, sloping hazard-striped skirts, a straight back
+        const deckTex = canvasTex(128, 512, (x, w, h) => {
+          for (let y = 0; y < h; y += 16) {
+            x.fillStyle = ['#c98b4f', '#bf8247', '#d39657', '#c48650'][(y / 16) % 4];
+            x.fillRect(0, y, w, 16);
+            x.fillStyle = 'rgba(60,30,10,0.45)';
+            x.fillRect(0, y, w, 2);
+          }
+          grain(x, w, h, 1400, 0.06);
+          x.fillStyle = '#ffd23f';
+          x.fillRect(0, 0, 9, h);
+          x.fillRect(w - 9, 0, 9, h);
+          for (let i = 0; i < 8; i++) { // the lip (canvas top): a red and white check
+            x.fillStyle = i % 2 ? '#fff8e1' : '#e8322f';
+            x.fillRect((i * w) / 8, 0, w / 8 + 1, 14);
+            x.fillStyle = i % 2 ? '#e8322f' : '#fff8e1';
+            x.fillRect((i * w) / 8, 14, w / 8 + 1, 14);
+          }
+          x.fillStyle = 'rgba(255,111,174,0.9)';
+          for (let k = 0; k < 3; k++) { // pink arrows up the deck
+            const y0 = h * (0.3 + k * 0.22);
+            x.beginPath();
+            x.moveTo(w / 2, y0 - 34);
+            x.lineTo(w * 0.72, y0);
+            x.lineTo(w * 0.6, y0);
+            x.lineTo(w * 0.6, y0 + 26);
+            x.lineTo(w * 0.4, y0 + 26);
+            x.lineTo(w * 0.4, y0);
+            x.lineTo(w * 0.28, y0);
+            x.closePath();
+            x.fill();
+          }
+        });
+        const hazardTex = canvasTex(64, 64, (x, w, h) => {
+          x.fillStyle = '#ffd23f';
+          x.fillRect(0, 0, w, h);
+          x.fillStyle = '#1d1b33';
+          for (let k = -2; k < 3; k++) {
+            x.beginPath();
+            x.moveTo(k * 32, h);
+            x.lineTo(k * 32 + 16, h);
+            x.lineTo(k * 32 + 16 + h, 0);
+            x.lineTo(k * 32 + h, 0);
+            x.closePath();
+            x.fill();
+          }
+        });
+        hazardTex.wrapS = hazardTex.wrapT = THREE.RepeatWrapping;
+        const N = 20, deck = [], deckUv = [], skirt = [], skirtUv = [];
+        const tri = (arr, uvs, pts, uv) => { for (const k of [0, 2, 1, 0, 3, 2]) { arr.push(...pts[k]); uvs.push(...uv[k]); } };
+        for (let i = 0; i < N; i++) {
+          const sa = (L * i) / N, sb = (L * (i + 1)) / N, ha = rampH(sa), hb = rampH(sb);
+          const ka = (ha - JUMP.base) * JUMP.skirt + 0.01, kb = (hb - JUMP.base) * JUMP.skirt + 0.01, w = JUMP.w, b0 = JUMP.base;
+          tri(deck, deckUv, [[-w, ha, sa], [w, ha, sa], [w, hb, sb], [-w, hb, sb]], [[0, sa / L], [1, sa / L], [1, sb / L], [0, sb / L]]);
+          tri(skirt, skirtUv, [[w, ha, sa], [w + ka, b0, sa], [w + kb, b0, sb], [w, hb, sb]], [[sa / 1.4, 1], [sa / 1.4, 0], [sb / 1.4, 0], [sb / 1.4, 1]]);
+          tri(skirt, skirtUv, [[-w - ka, b0, sa], [-w, ha, sa], [-w, hb, sb], [-w - kb, b0, sb]], [[sa / 1.4, 0], [sa / 1.4, 1], [sb / 1.4, 1], [sb / 1.4, 0]]);
+        }
+        {
+          const hL = rampH(L), kL = (hL - JUMP.base) * JUMP.skirt, w = JUMP.w, b0 = JUMP.base;
+          const P = [[-w - kL, b0, L], [w + kL, b0, L], [w, hL, L], [-w, hL, L]];
+          for (const k of [0, 1, 2, 0, 2, 3]) { skirt.push(...P[k]); skirtUv.push(P[k][0] / 1.4, P[k][1] / 1.4); }
+        }
+        const geoOf = (p, u) => {
+          const geo = new THREE.BufferGeometry();
+          geo.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
+          geo.setAttribute('uv', new THREE.Float32BufferAttribute(u, 2));
+          geo.computeVertexNormals();
+          return geo;
+        };
+        const deckMesh = place(new THREE.Mesh(geoOf(deck, deckUv), new THREE.MeshStandardMaterial({ map: deckTex, roughness: 0.75 })), 0, 0, 0);
+        const skirtMesh = place(new THREE.Mesh(geoOf(skirt, skirtUv), new THREE.MeshStandardMaterial({ map: hazardTex, roughness: 0.6 })), 0, 0, 0);
+        deckMesh.castShadow = deckMesh.receiveShadow = skirtMesh.castShadow = skirtMesh.receiveShadow = true;
+        // the lip's back is a wall to anyone coming the other way (a car riding up the deck never meets it)
+        solids.push(Object.assign(box(L - 0.3, L, half), {
+          top: (x, z) => { const [s, q] = local(x, z); return s < L - 0.01 ? -99 : jumpGround(L - 0.001, q); },
+        }));
+
+        // the giant donut, upright, half a metre of it sunk into a stone plinth
+        const big = new THREE.Group();
+        const ringGeo = new THREE.TorusGeometry(JUMP.R, JUMP.tube, 20, 60);
+        const dough = new THREE.Mesh(ringGeo, kit.doughMat);
+        dough.castShadow = true;
+        big.add(dough);
+        [-1, 1].forEach((side) => {
+          const frost = new THREE.Mesh(ringGeo, kit.frostMat);
+          frost.scale.set(1.02, 1.02, 0.72);
+          frost.position.z = side * JUMP.tube * 0.36;
+          frost.castShadow = true;
+          big.add(frost);
+        });
+        place(big, ringS, JUMP.yc, 0);
+        const plinth = place(new THREE.Mesh(new THREE.BoxGeometry(9.4, 0.6, 2.9), plainMat(0xcfc3b0, { roughness: 0.9 })), ringS, 0.3, 0);
+        plinth.receiveShadow = true;
+        solids.push(Object.assign(box(ringS - 1.45, ringS + 1.45, 4.7), { top: () => 0.9 })); // its foot; anything higher is the hole test's call
+        landmarkTicks.push((t) => { big.rotation.z = Math.sin(t * 0.9) * 0.025; });
+
+        // a sign at the start of the run-up, on its right
+        const signMat = canvasMat((x, w, h) => {
+          x.fillStyle = '#ffd23f';
+          x.fillRect(0, 0, w, h);
+          x.strokeStyle = '#1d1b33';
+          x.lineWidth = 12;
+          x.strokeRect(6, 6, w - 12, h - 12);
+          signText(x, 'JUMP THE', w / 2, h * 0.33, 70, '#e8322f', '#1d1b33', w - 60);
+          signText(x, 'DONUT!', w / 2, h * 0.7, 96, '#ff6fae', '#1d1b33', w - 60);
+        }, 512, 256);
+        const yellow = plainMat(0xffd23f);
+        place(new THREE.Mesh(new THREE.BoxGeometry(4.8, 2.4, 0.16), faceMats([4], signMat, yellow)), s0 + 9, 3.3, -(JUMP.lane + 2.2), Math.PI);
+        const postGeo = mergeParts([-1.9, 1.9].map((d) => new THREE.BoxGeometry(0.22, 4.4, 0.22).translate(d, 2.2, -0.14)));
+        place(new THREE.Mesh(postGeo, plainMat(0x6b6b78)), s0 + 9, 0, -(JUMP.lane + 2.2), Math.PI);
+        for (const d of [-1.9, 1.9]) { const [px, pz] = W(s0 + 9, -(JUMP.lane + 2.2) - d); solids.push({ cx: px, cz: pz, r: 0.3 }); }
+        return st;
+      }
+
+      // the reward: a burst of little donuts from the rim (one pooled mesh), a slow-motion beat, the camera swings out to the side
+      function makeShower() {
+        const cols = [0xff6fae, 0xfff5e6, 0x7fd6ff, 0x6b3a22, 0xe0a15a, 0x9cff8a].map((c) => new THREE.Color(c));
+        const n = 72, mesh = new THREE.InstancedMesh(new THREE.TorusGeometry(0.42, 0.2, 8, 18), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.45 }), n);
+        mesh.frustumCulled = false;
+        mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        const dm = carFx.dummy;
+        dm.position.set(0, -50, 0);
+        dm.rotation.set(0, 0, 0);
+        dm.scale.setScalar(0);
+        dm.updateMatrix();
+        for (let i = 0; i < n; i++) { mesh.setMatrixAt(i, dm.matrix); mesh.setColorAt(i, cols[i % cols.length]); }
+        world.add(mesh);
+        const items = [];
+        for (let i = 0; i < n; i++) items.push({ age: 0, life: 0, live: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, s: 1, a: 0, len: 0 });
+        return { mesh, n, next: 0, items, dirty: false };
+      }
+      function showerShape(it, k, dm, dt) {
+        it.vy -= 15 * dt;
+        it.x += it.vx * dt;
+        it.y += it.vy * dt;
+        it.z += it.vz * dt;
+        const floor = groundAt(it.x, it.z) + 0.2;
+        if (it.y < floor) { it.y = floor; it.vy = Math.abs(it.vy) * 0.3; it.vx *= 0.5; it.vz *= 0.5; }
+        it.a += dt * 7;
+        dm.position.set(it.x, it.y, it.z);
+        dm.rotation.set(it.a, it.a * 0.6, 0);
+        dm.scale.setScalar(it.s * Math.min(1, (1 - k) * 5));
+      }
+      // n little donuts from the rim, flung outwards and along the way the car was going
+      function burstShower(st, n, dir, at) {
+        for (let i = 0; i < n; i++) {
+          const a = at === undefined ? Math.random() * Math.PI * 2 : at + (Math.random() - 0.5) * 0.9;
+          const r = HOLE + Math.random() * JUMP.tube * 1.6, out = 3 + Math.random() * 6, cq = Math.cos(a), cy = Math.sin(a), fw = dir * (Math.random() * 7 - 1);
+          fxEmit(shower, st.rx + st.fz * cq * r, JUMP.yc + cy * r, st.rz - st.fx * cq * r,
+            st.fz * cq * out + st.fx * fw, cy * out + 3 + Math.random() * 3, -st.fx * cq * out + st.fz * fw, 2.2 + Math.random() * 0.8, 0.75 + Math.random() * 0.5);
+        }
+      }
+      function slowMo(dt) {
+        if (!(state.slowT > 0)) return 1;
+        state.slowT = Math.max(0, state.slowT - dt);
+        return state.slowT > 0.4 ? 0.28 : 0.28 + 0.72 * (1 - state.slowT / 0.4);
+      }
+      function onDonutPass(st, q, dir) {
+        state.jumps = (state.jumps || 0) + 1;
+        let bonus = 3, msg = 'Through the donut again! +3s';
+        if (st.donut && st.donut.parent) { // the donut floating in the hole is yours
+          donutsGroup.remove(st.donut);
+          state.donuts += 1;
+          state.combo += 1;
+          state.bestCombo = Math.max(state.bestCombo, state.combo);
+          donutsEl.textContent = `${state.donuts}`;
+          bonus = 6;
+          msg = '🍩 Through the donut! +6s';
+        }
+        elapsed = Math.max(0, elapsed - bonus);
+        toast(msg);
+        blip([523, 659, 784, 1046, 1318, 1568], 'triangle', 0.32, 0.13, 0.055);
+        burstShower(st, 48, dir);
+        state.slowT = 1.4;
+        state.swingSide = state.jumps % 2 ? 1 : -1;
+      }
+      function onDonutBonk(st, q, dir, mid) {
+        const v = car.velocity, d = car.drv, p = car.pos;
+        const vf = v.x * st.fx + v.z * st.fz, vq = (v.x * st.fz - v.z * st.fx) * 0.5, nf = -0.3 * vf;
+        v.x = st.fx * nf + st.fz * vq;
+        v.z = st.fz * nf - st.fx * vq;
+        d.Yv = Math.min(d.Yv, 0) * 0.3;
+        d.r = clampAbs(d.r + Math.sign(q || 1) * dir * 1.6, 4);
+        d.thv += clampAbs(mid, 1) * 1.5; // the roof hits: nose down; the wheels catch the bottom: nose up
+        car.speed = v.x * Math.sin(car.heading) + v.z * Math.cos(car.heading);
+        thud(1);
+        if (!calmMotion) state.shake = Math.max(state.shake, 0.8);
+        spawnDustEffect(new THREE.Vector3(p.x + st.fx * dir * 2.6, d.Y - 0.4, p.z + st.fz * dir * 2.6));
+        burstShower(st, 8, -dir, Math.atan2(mid / 2, q));
+        toast('Bonk! Off the rim 🍩');
+      }
+
       function buildLandmarks() {
         const g = new THREE.Group();
         const ink = '#1d1b33';
@@ -1588,6 +1911,7 @@
         lmBox(g, 0.7, 2.2, 0.7, metal, -35, 7.6, 66.6);
         lmBox(g, 0.7, 2.2, 0.7, metal, -35, 7.6, 73.4);
         landmarkTicks.push((t) => { big.rotation.y = Math.PI / 2 + Math.sin(t * 0.7) * 0.3; });
+        stunts.push(makeDonutJump(g, kit, -21, 60, 0, -45, 128)); // beside the donut shop: run-up from the cross street, the statue just past the shop
 
         // the school: red brick, a bell tower with a clock, a flag out front
         const facade = canvasMat((x, w, h) => {
@@ -1692,7 +2016,7 @@
         const trunkGeo = new THREE.CylinderGeometry(0.35, 0.5, 3, 8), leafGeo = new THREE.IcosahedronGeometry(2.6, 0);
         const trunkMat = plainMat(0x8a5a35);
         const leafMats = [0x58c24a, 0x3fa845, 0x7fd35a].map((c) => plainMat(c, { flatShading: true }));
-        const keepClear = [[15, 27, 24, 56], [15, 27, -80, -58], [-60, -15, -176, -84]]; // the parking lot, the school's front yard, the plant yard
+        const keepClear = [[15, 27, 24, 56], [15, 27, -80, -58], [-60, -15, -176, -84], [-30, -11, 10, 194]]; // the parking lot, the school's front yard, the plant yard, the jump lane
         for (let tries = 0, placed = 0; tries < 400 && placed < 18; tries++) {
           const x = (Math.random() < 0.5 ? -1 : 1) * THREE.MathUtils.randFloat(18, 55);
           const z = (Math.random() < 0.5 ? -1 : 1) * THREE.MathUtils.randFloat(18, 188);
@@ -1810,8 +2134,10 @@
             frost.position.z = side * 0.16;
             donut.add(frost);
           });
-          const spot = pickDonutSpot();
-          donut.position.set(spot.x, 2.4, spot.z);
+          const st = stunts[i - (DONUT_COUNT - stunts.length)]; // the last ones float in the giant donuts' holes
+          const spot = st ? { x: st.rx, z: st.rz } : pickDonutSpot();
+          donut.position.set(spot.x, st ? JUMP.yc : 2.4, spot.z);
+          if (st) { st.donut = donut; donut.userData.y0 = JUMP.yc; donut.userData.stunt = true; }
           donut.rotation.y = Math.random() * Math.PI * 2;
           donut.userData.phase = Math.random() * 6.28;
           donutsGroup.add(donut);
@@ -1846,7 +2172,7 @@
       function spinDonuts(delta, t) {
         donutsGroup.children.forEach((d) => {
           d.rotation.y += delta * 1.8;
-          d.position.y = 2.4 + Math.sin(t * 2.2 + d.userData.phase) * 0.35;
+          d.position.y = (d.userData.y0 || 2.4) + Math.sin(t * 2.2 + d.userData.phase) * (d.userData.stunt ? 0.2 : 0.35);
         });
       }
 
@@ -2241,7 +2567,7 @@
         const p = car.pos, sn = Math.sin(car.heading), cs = Math.cos(car.heading);
         let worst = 0;
         for (const off of CAR_CIRC) {
-          for (let i = 0; i < solids.length; i++) if (hitTest(solids[i], p.x + sn * off, p.z + cs * off, CAR_RAD) && hit.pen > worst) worst = hit.pen;
+          for (let i = 0; i < solids.length; i++) if (hitTest(solids[i], p.x + sn * off, p.z + cs * off, CAR_RAD) && !overTop(solids[i]) && hit.pen > worst) worst = hit.pen;
         }
         return worst;
       }
@@ -2256,7 +2582,7 @@
             for (let i = 0, n = solids.length + movers.length; i < n; i++) {
               const bus = i >= solids.length ? movers[i - solids.length] : null, o = bus ? bus.box : solids[i];
               const sn = Math.sin(car.heading), cs = Math.cos(car.heading), cx = p.x + sn * off, cz = p.z + cs * off;
-              if (!hitTest(o, cx, cz, CAR_RAD)) continue;
+              if (!hitTest(o, cx, cz, CAR_RAD) || overTop(o)) continue;
               const nx = hit.nx, nz = hit.nz;
               p.x += nx * hit.pen;
               p.z += nz * hit.pen;
@@ -2285,7 +2611,7 @@
               const fsn = Math.sin(car.heading), fcs = Math.cos(car.heading);
               d.thv += clampAbs(-(nx * fsn + nz * fcs) * j * 0.05, 1.2);
               d.phv += clampAbs((nx * fcs - nz * fsn) * j * 0.05, 1.2);
-              d.Yv += Math.min(0.8, j * 0.015);
+              if (o.top === undefined) d.Yv += Math.min(0.8, j * 0.015); // (the ramp's back never pops it up)
               if (-vn > worst) { worst = -vn; hx = px; hz = pz; }
             }
           }
@@ -2333,7 +2659,7 @@
       // chase camera: a damped spring follows a point behind the car (partly along the slide, so a drift stays on screen), looks a little
       // ahead of it, and widens the view with speed
       const calmMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
-      const cam = { vel: new THREE.Vector3(), lookVel: new THREE.Vector3(), want: new THREE.Vector3(), look: new THREE.Vector3(), fov: 0 };
+      const cam = { vel: new THREE.Vector3(), lookVel: new THREE.Vector3(), want: new THREE.Vector3(), look: new THREE.Vector3(), fov: 0, swing: 0 };
       function resetCam() {
         const p = car.mesh.position, sn = Math.sin(car.heading), cs = Math.cos(car.heading);
         camera.position.set(p.x - sn * view.back, p.y + view.up, p.z - cs * view.back);
@@ -2341,6 +2667,7 @@
         cam.vel.set(0, 0, 0);
         cam.lookVel.set(0, 0, 0);
         cam.fov = view.fov;
+        cam.swing = 0;
       }
       function springTo(pos, vel, want, w, dt) { // critically damped, split into short steps so a slow frame can't overshoot
         const n = Math.ceil(dt / (1 / 60));
@@ -2358,8 +2685,11 @@
           const dv = Math.atan2(v.x, v.z) - yaw;
           yaw += Math.atan2(Math.sin(dv), Math.cos(dv)) * 0.55 * Math.min(1, (spd - 4) / 8);
         }
+        // through a giant donut: swing out to the side for the slow-motion beat
+        cam.swing += ((state.slowT > 0.35 && !calmMotion ? 1 : 0) - cam.swing) * (1 - Math.exp(-5 * dt));
+        yaw += cam.swing * 1.15 * (state.swingSide || 1);
         const sn = Math.sin(yaw), cs = Math.cos(yaw), back = view.back * (1 + 0.1 * k), air = car.drv.air ? Math.min(2, car.drv.Y - p.y) * 0.5 : 0;
-        cam.want.set(p.x - sn * back, p.y + view.up * (1 - 0.06 * k) + (car.boosting ? 0.6 : 0) + air, p.z - cs * back);
+        cam.want.set(p.x - sn * back, p.y + view.up * (1 - 0.06 * k) + (car.boosting ? 0.6 : 0) + air + cam.swing * 1.2, p.z - cs * back);
         // a bus pulled up right behind: rise over it instead of looking at its windscreen
         for (const m of movers) {
           const bx = m.box;
@@ -2412,7 +2742,8 @@
       function checkCollisions(delta) {
         const carPos = car.pos;
         donutsGroup.children.slice().forEach((donut) => {
-          if (Math.hypot(donut.position.x - carPos.x, donut.position.z - carPos.z) < 3) {
+          // (the one in the giant donut's hole is only won by flying through; flying high over a donut misses it)
+          if (!donut.userData.stunt && Math.hypot(donut.position.x - carPos.x, donut.position.z - carPos.z) < 3 && Math.abs(car.drv.Y - DRV.cgH + 0.8 - donut.position.y) < 2.8) {
             donutsGroup.remove(donut);
             state.donuts += 1;
             chomp(state.combo);
@@ -2480,18 +2811,21 @@
         }
 
         if (state.playing) {
-          simAcc += dt;
+          const slow = slowMo(dt); // a donut jump's slow-motion beat (the shift clock keeps real time)
+          simAcc += dt * slow;
           for (let n = 0; simAcc >= STEP - 1e-7; n++) {
             if (n === 16) { simAcc = 0; break; }
             car.prevPos.copy(car.pos);
             car.prevHeading = car.heading;
             updateCar(STEP);
+            stuntStep(STEP);
             updateTraffic(STEP);
             checkCollisions(STEP);
             simAcc -= STEP;
           }
           poseCar(Math.max(0, simAcc) / STEP);
-          updateCarFx(dt);
+          updateCarFx(dt * slow);
+          fxStep(shower, dt * slow, showerShape);
           resetIfOutOfBounds();
           updateCamera(dt);
           drawGauges();

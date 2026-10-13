@@ -75,6 +75,14 @@
   - the retired `/sloppy-header/sloppy-bar.js` tag stays out (removed by 96735917b).
   - tested: node sim harness (accel, brakes, coast, steady steer, drifts, handbrake, lift-off, slaloms, walls, kerb, ramp) + headless srrp5 (new physics probe: 0-30 in 2.4 s, 50 in 6.6 s; 50→0 in 1.9 s with nose dip and 4:1 front load; reverse cap; tight low-speed turns with the rear tracking; lean out of turns; steering eases at speed; brake-drift 0.85 rad slide that recovers in 0.38 s; camera keeps the car on screen in the drift; handbrake locks the rears; kerb climb; 3 m drop; square / corner-clip (yaw 2.2 rad/s) / graze wall hits; identical end state at 30/60/144 fps; even motion at 144 fps), srrp2/3/4/6 updated to `placeCar`, srrp7 (no reload loop, no leftover flag). 0 JS errors at 1280×720 and 390×844 touch.
 
+- 2026-10-13 18:34 — v3.1.1 donut jump (fela 17:01: "a ramp to jump through the donut statue"):
+  - a run-up lane (asphalt, white edges, yellow chevrons) starts at the cross street beside the donut shop (x −21, s from z 60); a curved plank kicker (`JUMP`: 1.5 m over 14 m, 5.2 m deck, checked lip, hazard-striped sloping skirts at 1:2.6) launches the car through a giant frosted donut statue (R 3.9, tube 1.2, centre 3.4 m up, on a plinth 10 m past the lip) with a donut floating in its hole. A sign by the lane: "JUMP THE DONUT!".
+  - `stuntStep(h)` runs after each 120 Hz step: on the deck it eases the heading/velocity onto the ramp's line (assist), and when the nose crosses the statue's plane it tests the car's box (width grows with yaw, height with pitch) against the hole: clean → `onDonutPass` (first time: the hole donut + 6 s, later +3 s; chime, 48-donut shower, 1.4 s slow-mo beat at 0.28× with the shift clock on real time, camera swings out to the side and back); clips the tube → `onDonutBonk` (bounces back at 0.3× with a spin, thud, shake, a few donuts). A teleport (>3 m in one step) never counts as a crossing.
+  - ground: `groundAt` = max(stunt lane/ramp, town); solids may have a `top(x, z)` (`overTop`): the back of the lip and the statue's plinth stop a car on the ground but not one above them.
+  - pickups: the hole donut can only be had by flying through; donut pickups now also need the car's height near the donut's.
+  - end card counts donut jumps. Lede mentions the ramp. #buildstamp v3.1.1.
+  - tested: node sim (every gas speed from a standstill makes it, coasting from 18 m/s at the lip, aim within ~1.5 m / 0.05 rad) + headless srrp8 (passes at 20/30/40 and ±0.9 m off the line, +6 then +3, airtime peak 3.6 m with pitch 0.14 and an upright landing, slow-mo step ratio 0.27, camera swing 0.99 → 0, shower 48, bonks both sides bounce back, too slow never passes, plinth/lip are walls from the ground and from behind, slow climb never shoved, side crossing lands on its wheels, no phantom events on reset) at 30/60/144 fps; srrp2–5/7 + srrp8 at 1280×720 and 390×844 touch, 0 errors; 97–160 draw calls in the jump views.
+
 ## issues
 - probes teleport the car with `placeCar(x, z, heading, speed)` (resets the drive state, springs and gear); never set `car.mesh.position` directly any more: the simulation lives in `car.pos`/`car.heading`/`car.drv` and the mesh is only drawn from them.
 - the HUD speed is mph now (game speed × 2.237); `car.speed` is still metres per second.
@@ -83,6 +91,9 @@
 - Top-level call order matters (TDZ): `buildLandmarks`, `populateRods`, `spawnTraffic` run at load, so their helpers are function declarations and `LANE`/`ROD_COUNT` sit near the top. `var donutKit = null` further down resets the kit after the first populate (harmless, rebuilt lazily).
 - A car parked against a bus keeps that bus stopped (by design: buses stop on contact); traffic behind it queues.
 - Headless probe: scratch `gaunt/mkrr.sh` swaps the supabase import for a local stub (`sbstub.js`) so tests never write to the real table.
+
+- donut jump: crossing the ramp side-on at speed is a real kicker (16 m/s → a ~5 m hop that lands on its wheels; heading at the donut shop it bonks the shop wall mid-air, collisions are 2D). Gentler skirts would need much wider wedges.
+- donut jump probes: random donuts can lie on the run-up lane (pickDonutSpot ignores keepClear), so a jump run may also eat a regular donut (+2 s). The statue's `st.donut` stays set after pickup; check `.parent`.
 
 ## todos
 - real phones still untested: iOS Safari audio unlock, multi-touch feel of the analog pad, frame rate on low-end phones (each house has its own cloned texture), sign fonts on slow connections (they redraw once the font loads)
@@ -93,3 +104,4 @@
 - maybe: the camera could pull in when a house is between it and the car (it already rises over a bus right behind)
 - v3.1 real phones untested: thumbs on the new grip/drift/handbrake (phones have no handbrake button yet: brake + pad drifts), the rpm engine sound and squeal on iOS. Tuning knobs: `DRV` (mu, muRear, B/C, assist, turbo, susW/susZ, view). Next: v3.1.1 donut-statue ramp jump, v3.2 endless procedural town + textures, v3.3 audio.
 - never use show character names, likenesses, catchphrases or music
+- v3.1.1 real phones untested: hitting the ramp's line with the thumb pad, the slow-mo + camera swing on a small screen, the shower's cost on low-end GPUs. Knobs: `JUMP` (H, Lr, skirt, gap, R, tube, yc), the assist rates in `stuntStep`, `slowMo` (0.28×, 1.4 s). v3.2: make `makeDonutJump(g, kit, ox, oz, psi, s0, s1)` recur in the endless town.
