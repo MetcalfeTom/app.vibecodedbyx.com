@@ -11,6 +11,7 @@ Tatum's idea: 3D boxing against an AI made of sand (sandbox, get it?). Its speci
 - **Budget**: ~39 draw calls, ~37.7k triangles in a fight (desktop). One shadow light (2048 desktop / 1024 touch). Adaptive: pixel ratio 1 and no shadows if the first 2 s of fight run slow.
 
 ## Log
+- 2026-10-13 04:02 UTC: search title 'Sand Boxing — 3D boxing game against a fighter made of sand' (the rest of the SEO pass was already there).
 - v1 (2026-10-06): 3 rounds of 60 s, jab / swing / block, lock-on. Hits knock grains off, they land as piles; the fighter scoops piles back between attacks. Specials: ESCAPE (collapses, slithers behind you, re-forms for a sucker punch; hit it while re-forming = PERFECT), SWARM (stinging cloud, hold block, a swing scatters it), SACRIFICE (arm becomes a hard shield; swing to break it or walk round). Knock it toward the sea and it gets wet (slow, can't escape). KO = it slumps into a sandcastle with a white flag; lose = it builds a sandcastle of you. Phone: floating thumb pad + 3 buttons. WebAudio sounds, mute button.
 
 - v1.1 (2026-10-06): the ring is a circle of rope laid on the sand (Tatum: "to count as boxing there should be a ring, a circle of rope on the ground, preventing players from running away"). Flat beach, no platform; the sea comes up close on the west side. Nobody can leave the circle (soft wall, knockback bounces off the rope). Grains knocked over the rope are lost on the beach for good; inside the rope they pile up and can be scooped back. Four stakes hold the rope (red corner, blue corner).
