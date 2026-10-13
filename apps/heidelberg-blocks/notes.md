@@ -423,12 +423,19 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   Numbers (calls, SwiftShader ms): portrait 390x844 max calls 105 -> 90; philS 104 -> 69; summitN 894 -> 317 ms.
   Desktop 1280x720 max 142 -> 134 (bridge); philS 141 -> 117; frame times about 700-1700 -> 430-965 ms.
   Landscape 844x390 philS night 151 -> 100, bridge 141 -> 99, spawn 129 -> 96. Tris unchanged (summitN 320k landscape).
+- 2026-10-13 17:39 UTC v1.25 (helper, polish 2): short landscape phones (the bar iframe, ~844x300, media query
+  landscape + max-height 360 + min-width 700) put the place name and quest chip side by side under the compass, so the HUD
+  ends at 89 px instead of 123. The buskers' name tags no longer overlap seen from the side (Torch's tag a row higher,
+  y 2.66 vs Toni L's 2.3). Speech bubble clamp (v1.24) checked at 390x624 + 844x300. Probe $SP/hbpol/p/small.py checks
+  HUD overlaps/off-screen at 390x624 + 844x300 (bark, talk, Bergbahn stop, quest log): no overlaps except the
+  quest log, which is a panel over the HUD by design. 0 JS errors at 390x624, 844x300, 390x844 and 1280x720.
 
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
 - fannar22 2026-10-11 23:50: rising into the sky at the east/west map edge in the river (fixed v1.1, probe hb_edge.js).
 - pathLine drop walls: a one-block drop must not get a parapet (blocked the Snake Path entry from Brückenstraße).
 - Landscape 800x300: a long toast can sit over the ride/talk buttons for its few seconds (general HUD, not scope).
+  v1.25: the HUD is two rows there now (compass, then place + quest chip).
 - Castle walkability: run p/bfs.py (route search from the gate, no drops) after any castle change; the courtyard was
   split into closed pockets for days without anyone noticing (fixed v1.18).
 
