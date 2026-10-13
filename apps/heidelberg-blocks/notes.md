@@ -146,13 +146,29 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   Probe $SP/hb19s1/pq.js runs the whole chain (talkTo + teleports + tickTown) with no errors; shots s_qhud/qgroup/qdance/qlog.
   Budget philS 264k / 83 calls (+2: tourists in view). Untested on a real phone: tracker chip width with long texts.
 
+- v1.11 2026-10-13 ~02:50: vehicles (big round step 3). Professor Grübel's Denkmobil: a teal blocky car with a cream roof
+  and a book-laden roof rack parked on the Neuenheim road at (-8.5,-49.6); R or the 🚗 #ride button (bottom right, above the
+  jump button on phones) gets in/out, drive with WASD/arrows or the touch stick, the jump button becomes the 📯 horn.
+  vehTick: accel 4.2, top 11.5, brake 12, reverse 4, steering needs speed; vehFree samples a 1.64 x 3.2 box ('drop' = no
+  floor at TOWN-1, 'wall' = solid at TOWN/TOWN+1); glancing hits slide, head-on hits bump back (thunk). It brakes for folk
+  ahead (gap ~2.1) and honks once with a bark. Bollards at x -2/0/2, z -44 keep it off the Alte Brücke (toast); the quay
+  edge says "The Denkmobil is no boat". Chase camera vehCam() 6.2 behind, pulls in at walls, eases behind after 1.3 s
+  without look input (P.lookT). Headlight pool via LANT at night.
+  Kapitän Jupp's boat Liselotte runs again: he waits on the north quay (9.5,-45.5); talk = free 66 s tour (BOATR closed
+  Catmull-Rom loop: west through the north arch, round the Neckarwiese, back east through the south arch, round by
+  Neuenheim, home). Black fade on board/off, the player rides at the bow (look around freely), Jupp at the wheel, 8 narration
+  barks (BOATN), boat horn + putter engine. R aboard: at the dock = get off, mid-tour = jump in the Neckar (Mann über Bord!).
+  Fixes: speech bubbles of the first five townsfolk closed in the same frame (f.here!==false); Hilde's line updated.
+  Probes $SP/hb111/pv2.js + pv3.js (sync G.vehTick/G.boatTick loops: headless runs ~2 fps): route 0 voxel hits, bollard
+  front stops at z -44.00, overboard lands in the water, disembark/cancel ok, no errors. Budget philS 264.7k / 85.
+  Untested on real phones: driving with the touch stick, #ride button reach. Bergbahn not done (todo).
 ## issues
 - fannar22 2026-10-11 23:50: rising into the sky at the east/west map edge in the river (fixed v1.1, probe hb_edge.js).
 - pathLine drop walls: a one-block drop must not get a parapet (blocked the Snake Path entry from Brückenstraße).
 
 ## todos
-- big round (Flax, 2026-10-13): drivable car + Neckar ferry (+ Bergbahn?), café terraces, secrets
-  (Hortus Palatinus); later: German dialogue switch, secret behind the Great Barrel
+- big round (Flax, 2026-10-13): café terraces, secrets (Hortus Palatinus); later: Bergbahn up to the castle,
+  German dialogue switch, secret behind the Great Barrel
 - optional firework bang sounds after a tap
 - Jesuit church, Marstall, Karl Theodor statue on the bridge, castle garden (Hortus Palatinus), Königstuhl funicular
 - real phone test of the touch stick + look; real GPU fps
