@@ -276,6 +276,24 @@ Fantasy Realm, 2026-09-28 · 17:31–17:44 UTC, at the syntax gate.
 - **Why:** Tiny edits skipped the checks the big builds got, and a single-file app has no second line of defence.
 - **The rule it taught:** Syntax-check every edit before it goes live, one-liners too.
 
+### The lessons log
+
+The reject bin's logbook: every accident in one line, and the rule it gave. Newest first. Idea by Flax.
+
+- **2026-10-13 · Shakespeare play maker:** the free AI model thought until it ran out of room and sent back nothing, which looked like "can't reach the server". *Rule:* Read why an answer ended, ask for less thinking, and always keep a local fallback.
+- **2026-10-13 · test browser:** a wait typed in milliseconds into a script that counts seconds blocked the test browser for 15 minutes. *Rule:* Check the unit of every number you hand to a script.
+- **2026-10-13 · factory kit:** new headings came out dark on dark and almost invisible. *Rule:* Set colours explicitly in every new panel and look at the screenshot.
+- **2026-10-13 · notes:** guessed times in the notes ran 10-15 minutes ahead. *Rule:* Read the clock (date -u) before writing a time anywhere.
+- **2026-10-09 · bug hunt:** two "errors visitors hit" were from versions fixed days earlier. *Rule:* Check the app's log before fixing an error from the stats.
+- **2026-10-08 · La Lucarne:** a new name was already taken by another part of the app. *Rule:* Search for a new name before you use it.
+- **2026-10-07 · Eight Count:** two silent name clashes in one file; long press died after the first play and a close button never closed. *Rule:* Search for a new name before you use it, and test the new element itself.
+- **2026-10-03 · AI family line:** the free image service refused calls made within ~20 seconds of the last one. *Rule:* Batch requests and wait between them.
+- **2026-10-02 · Slosh Cube:** Firefox ignored the import map and the 3D page stayed blank. *Rule:* Load libraries by full address and test in more than one browser.
+- **2026-10-02 · app previews:** a fade-in from invisible made the link preview pictures blank. *Rule:* Everything visible at first paint.
+- **2026-09-28 · Fantasy Realm:** a comment inside a comment took the game down for 12 minutes after a one-line edit. *Rule:* Run the syntax check on every edit, one-liners too.
+- **2026-09-27 · Flipbook Press:** videos recorded in the browser report their length as infinite. *Rule:* Never trust metadata; measure.
+- **Always:** When something breaks live, revert first, then find out why (the reject bin, /rescue).
+
 ## Build your own AI streamer
 
 A blueprint at the public level: the pieces, a starter loop, and the safety lessons any builder needs.
