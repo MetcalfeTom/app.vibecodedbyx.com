@@ -178,15 +178,36 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   Probes $SP/hb112/pc.js (sync tick loop: sit, serve, eat, Stammgast, night close, river at night, collision) and
   pb.js (budget): philS unchanged 264.7k / 85, Marktplatz view +6k / +3 calls. Shots s1b-s4.
   Untested on real phones: sitting/standing with the ride button, bubble positions while seated.
+- v1.13 2026-10-13 ~04:55: Geheimnisse (big round step 5, Flax). Nine secrets, found through the talk button (spots are
+  FOLK entries with their own verb + icon: Bite / Step into / Pull / Lift / Read): 1 Hexenbiss (iron ring under a bronze
+  lion in the gate passage, 34.75,74.5), 2 Rittersprung (knight's boot print in the courtyard, sandstone block 46,47,93),
+  3 Perkeos Uhr (clock on the Fasskeller east wall 42.85,C+1.8,88.5: pull = fox tail slaps you, repeatable, Perkeo laughs),
+  4 Geheimgang (hatch behind the barrel at x 41-42 z 95-96: Lift from the hall or Push up from below; opens for good,
+  'hb-sec'.open; steps down under the hall wall, passage under the courtyard x 41-58 z 95-96 with 3 lamps, out through a
+  sally port into the dry moat), 5 Hortus Palatinus (new terrace garden x 68-116 z 77-100, walk level 50 = HG.Y: six
+  hedge parterres, gravel allée, fountain at 92.5,89.5, red sandstone retaining walls with ivy, blind arches on the north
+  wall; reached by a gate in the outer moat wall at x 66 z 95-96 and a stair trench x 67-74), 6 Elisabethentor (tree-trunk
+  pillars at x 75 with the FRIDERICUS V inscription both sides), 7 Goethes Ginkgo (golden tree 73,83 + bronze plaque on a
+  post 76,84), 8 Vater Rhein (reclining river god in the grotto in the south wall 92.5,102.6, talks; PATER RHENUS plinth),
+  9 Hölderlins Stein (Philosophenweg, picked at build time east of Clara, ~35,-87; emissive plate like Mike's stone).
+  Rumours: Lotte, Kowalski, Perkeo (2), Clara and Prof. Grübel drop a hint line while that secret is hidden; the quest log
+  shows 'Geheimnisse n/9' + the next rumour. All nine = Geheimrat (toast + sparkle): the fountain + 4 rim jets run and
+  Vater Rhein's urn pours (300 points, only visible within 150 of the fountain), water hiss loop. Place names Geheimgang /
+  Hortus Palatinus / Burggraben; passage = cave reverb, no birds. New block 'hedge' (noStep). State 'hb-sec' {f,gr,open}.
+  NOTE: reserve() of the garden shifted buildTrees' shared rng, so trees east of x~64 changed shape (same positions).
+  Mike's stone untouched, not part of the hunt. Probes $SP/hb113/p1.js (route hall->hatch->passage->moat->gate->stair->
+  garden both ways with G.physics, all spots, hints, Geheimrat, collision), p2.js (closed hatch from both sides),
+  pb.js (budget vs v1.12: philS 253.3k / 85, was 264.7k / 85; garden view 82.6k / 15, fountain 206k / 56), shots sh*.js.
+  Untested on real phones: the spots on touch, the hatch from below.
 ## issues
 - fannar22 2026-10-11 23:50: rising into the sky at the east/west map edge in the river (fixed v1.1, probe hb_edge.js).
 - pathLine drop walls: a one-block drop must not get a parapet (blocked the Snake Path entry from Brückenstraße).
 
 ## todos
-- big round (Flax, 2026-10-13): secrets (Hortus Palatinus); later: Bergbahn up to the castle,
-  German dialogue switch, secret behind the Great Barrel
+- big round (Flax, 2026-10-13) done through v1.13; later: Bergbahn up to the castle, German dialogue switch,
+  garden lanterns at night, a second garden terrace (the south wall is one tall cut)
 - optional firework bang sounds after a tap
-- Jesuit church, Marstall, Karl Theodor statue on the bridge, castle garden (Hortus Palatinus), Königstuhl funicular
+- Jesuit church, Marstall, Karl Theodor statue on the bridge, Königstuhl funicular
 - real phone test of the touch stick + look; real GPU fps
 
 ## art direction
