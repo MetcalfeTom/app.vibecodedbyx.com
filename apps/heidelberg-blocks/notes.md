@@ -278,6 +278,21 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   show and hides during a dialog (it overlapped the dialog box on 390 px). The stick centre follows a thumb that slides past the rim (quick turn-round), small dead zone .12.
   Probes p/n1.py + p/n2.py (drinks to done, Nele talk, stick follow), p/b1.py (live boat), p/b2.py + p/bs.py.
   Untested: a real thumb on the moved buttons, the horn level on real speakers, Café Nerd night light on a real GPU.
+- v1.17 2026-10-13 11:27 (helper): DER ALTAN + castle shapes (Flax: "a proper Schlossterrasse looking down on the
+  Altstadt and the river", "still not close to original"). buildAltan() runs after the castle stairs: a paved (quay)
+  terrace x 13..33 z 65..71 at walk 48 on a tall red wall with blind arches (north + west faces), joined to the strip
+  z 72..73 under the north wing (old z 72 parapet removed) and opened at x 33 onto the top of the Schlosstreppe.
+  The balustrade is a mesh (altanMesh, 1 draw call, ~3k tris): plinth, slim balusters every .4, handrail at .93,
+  pedestals with stone balls every 4 blocks; ALT_COL makes its row (z 65 + x 13) solid at y 48/49 in solidAt so you
+  can't climb over. Looking west from it: the Heiliggeistkirche tower, an Altstadt lane straight below, the Brückentor
+  and the Neckar; north: bridge + river + Neuenheim. Place name 'Altan · Schlossterrasse'.
+  Shapes: the north-west wing is now the Friedrichsbau with two stepped gables over each long wall (gable(), 3 deep into
+  the roof); the old 'Friedrichsbau' east of the gate is the Gläserner Saalbau; new Glockenturm at the NE corner
+  (x 51..56 z 73..78: square to C+18, then an open octagon with tall arches and a broken crown to C+27).
+  Loading line moved above the start card (it covered the card in the 800x450 auto preview).
+  Probes p/a1.py (views + walking into the balustrade: stops at z 66.3 / x 14.3), p/a2.py (walk from the stairs onto
+  the terrace), p/ld.py. 0 JS errors 1280x800 + 390x844 ?touch.
+  Untested: how the balustrade feels on a real phone (the handrail fills the bottom of the view if you look down).
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
 - fannar22 2026-10-11 23:50: rising into the sky at the east/west map edge in the river (fixed v1.1, probe hb_edge.js).
@@ -291,8 +306,8 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
 - optional firework bang sounds after a tap
 - Jesuit church, Marstall, Karl Theodor statue on the bridge
 - real phone test of the touch stick + look; real GPU fps (v1.14 adaptive sharpness: ask phone users if it looks soft)
-- Flax's 2026-10-13 list after Café Nerd: castle (a proper Schlossterrasse over the Altstadt + river, the
-  Schlossgarten park terrace with trees and paths, closer castle/park shapes), more room round the Fass in the cellar,
+- Flax's 2026-10-13 list after Café Nerd: castle (Altan done v1.17; next the Schlossgarten park terrace with trees
+  and paths = a Scheffelterrasse north of the Hortus, closer park shapes), more room round the Fass in the cellar,
   Torch + Toni L busking on the Alte Brücke (original beat only, no real lyrics/melodies), life in the west Altstadt
   (walkers, a stall/bench crowd, lit windows at night)
 - Café Nerd ideas: a board game you can join, Nele's daily special
@@ -318,6 +333,8 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
 - v1.15 step 2 (Fernrohr): +1 Frieda mesh; scope view phone 157k/34 max, desktop 155k/31 (p/sperf.py).
 - v1.16 (Café Nerd): views nerdL/nerdIn phone 115-126k/27-33, desktop 153-162k/38-48; max unchanged
   (Königstuhl north phone 250k/86, desktop 299k/103).
+- v1.17 (Altan + Glockenturm + gables): +3k tris/+1 call everywhere; Altan views phone 164-182k/42-43, desktop
+  212-214k/56-60; max phone 251k/87, desktop 302k/105.
 
 ## testing
 - scratch: $SP/hb (index.html + mk.sh injects window.__G/__E into gaunt/sw/hm43/hb). The live file only has a
