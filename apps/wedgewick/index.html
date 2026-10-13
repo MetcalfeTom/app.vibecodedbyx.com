@@ -78,6 +78,7 @@ button{font:inherit;color:inherit;cursor:pointer}
 #menu[hidden]{display:none}
 #menu button{border:0;background:transparent;text-align:left;padding:.55rem .6rem;border-radius:8px;font-size:.8rem}
 #menu button:hover,#menu button:focus-visible{background:#2b223614;outline:none}
+#mErupt[hidden]{display:none}
 #menu small{display:block;padding:.2rem .6rem .4rem;font-size:.66rem;opacity:.75;line-height:1.35}
 #count{position:fixed;right:max(.8rem, env(safe-area-inset-right, 0px));top:calc(var(--top) + 3.1rem);font-size:.68rem;
   background:#fff7eacc;border-radius:8px;padding:.15rem .45rem;pointer-events:none}
@@ -142,6 +143,7 @@ body.walking #count{display:none}
   <button type="button" role="menuitem" id="mSound">🔊 Sound: on</button>
   <button type="button" role="menuitem" id="mDN">🌗 Day and night: on</button>
   <button type="button" role="menuitem" id="mSkip">🌙 Jump to night</button>
+  <button type="button" role="menuitem" id="mErupt" hidden>🌋 Wake the volcano</button>
   <button type="button" role="menuitem" id="mUndo">↶ Undo last block</button>
   <button type="button" role="menuitem" id="mNew">🏝 A new island</button>
   <button type="button" role="menuitem" id="mReset">↺ Put this island back as it was</button>
@@ -1357,7 +1359,7 @@ function spawnAll(){
 }
 function pickTarget(v){
   const h = v.h, [dx, dz] = homeDoor(h);
-  if (NIGHT.value > .55){ v.tx = lx(h[0], h[1]) + (Math.random() - .5) * .8; v.tz = lz(h[0], h[1]) + (Math.random() - .5) * .8; v.jumped = false; return; }
+  if (NIGHT.value > .55 || ERUPT.t >= 0){ v.tx = lx(h[0], h[1]) + (Math.random() - .5) * .8; v.tz = lz(h[0], h[1]) + (Math.random() - .5) * .8; v.jumped = false; return; }
   if (Math.random() < .2){ v.tx = lx(h[0], h[1]); v.tz = lz(h[0], h[1]); return; }
   for (let n = 0; n < 6; n++){
     const a = Math.random() * Math.PI * 2, rr = .8 + Math.random() * 4.5, tx = dx + Math.cos(a) * rr, tz = dz + Math.sin(a) * rr;
@@ -1372,7 +1374,7 @@ function villStep(v, dt, now){
   else if (v.tx === null) pickTarget(v);
   if (v.tx !== null && v.wait <= 0 && !talking){
     const dx = v.tx - v.x, dz = v.tz - v.z, d = Math.hypot(dx, dz);
-    if (d < .3){ v.tx = null; v.wait = NIGHT.value > .55 ? 6 + Math.random() * 8 : 1.5 + Math.random() * 4; }
+    if (d < .3){ v.tx = null; v.wait = NIGHT.value > .55 || ERUPT.t >= 0 ? 6 + Math.random() * 8 : 1.5 + Math.random() * 4; }
     else { mx = dx / d; mz = dz / d; }
   }
   let moving = false;
@@ -1508,10 +1510,10 @@ function stepSmoke(dt){
   const st = !CRATER && POND && POND[3] === 1, V = CRATER || (st ? [lx(POND[0], POND[1]), POND[2] - 1, lz(POND[0], POND[1])] : null);
   for (const p of smoke){
     p.visible = !!V; if (!V) continue;
-    const t = p.userData.t = (p.userData.t + dt / (st ? 5 : 10)) % 1;
+    const t = p.userData.t = (p.userData.t + dt / (st ? 5 : ERUPT.t >= 0 ? 3.5 : 10)) % 1;
     p.position.set(V[0] + Math.sin(t * 4 + p.id) * t * (st ? 1.2 : 1.6), (V[1] + 1.2) * LH + t * (st ? 2.6 : 10), V[2] + t * (st ? .6 : 3.5));
     p.scale.setScalar(st ? .22 + t * .7 : .5 + t * 2.4); p.rotation.set(t * 2, t * 3, 0); p.material.opacity = (st ? .6 : .55) * Math.sin(Math.PI * t);
-    p.material.color.setHex(st ? 0xf4f8ff : 0x8d8794);
+    p.material.color.setHex(st ? 0xf4f8ff : ERUPT.t >= 0 ? 0x4a434f : 0x8d8794);
   }
 }
 /* lily pads and a frog on the Dunes oasis and the Blossom pond; the frog hops pad to pad, and when you tap it */
@@ -1568,6 +1570,64 @@ function pickFrog(px, py){
   hopFrog(); say(FROGL[Math.floor(Math.random() * FROGL.length)]); sfx(5, false);
   return true;
 }
+/* Ember Isle's volcano wakes up now and then: a rumble, a shake, glowing lava bombs that fizzle into steam in the sea.
+   Pure show: bombs never break blocks. Villagers hurry indoors, Wick hops out of the way */
+const bombs = [];
+{
+  const g = new THREE.IcosahedronGeometry(.45, 0);
+  for (let k = 0; k < 16; k++){
+    const b = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: '#ff8a2a', transparent: true, depthWrite: false, fog: false }));
+    b.visible = false; b.userData = { v: new THREE.Vector3(), life: 0, fizz: 0 }; scene.add(b); bombs.push(b);
+  }
+}
+const ERUPT = { t: -1, next: 45 + Math.random() * 60, shot: 0 };
+const mErupt = document.getElementById('mErupt');
+function rumble(){
+  if (!soundOn) return;
+  try {
+    AC = AC || new (window.AudioContext || window.webkitAudioContext)();
+    const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
+    o.type = 'sawtooth'; o.frequency.setValueAtTime(52, t); o.frequency.linearRampToValueAtTime(33, t + 1.8);
+    g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.08, t + .35); g.gain.exponentialRampToValueAtTime(.0001, t + 2);
+    o.connect(g).connect(AC.destination); o.start(t); o.stop(t + 2.1);
+  } catch (e) {}
+}
+function erupt(){
+  if (!CRATER || ERUPT.t >= 0) return false;
+  ERUPT.t = 0; ERUPT.shot = 0; ERUPT.next = 70 + Math.random() * 80;
+  say('Ember Isle rumbles... lava bombs! Everybody indoors.'); rumble();
+  return true;
+}
+function stepErupt(dt){
+  const on = !!CRATER;
+  if (mErupt.hidden === on) mErupt.hidden = !on;
+  if (!on){ ERUPT.t = -1; for (const b of bombs) b.visible = false; return; }
+  if (ERUPT.t < 0){ if (!document.hidden && (ERUPT.next -= dt) <= 0) erupt(); }
+  else {
+    ERUPT.t += dt;
+    /* bombs fly between 1.2 s and 4.5 s */
+    while (ERUPT.t > 1.2 && ERUPT.shot < bombs.length && ERUPT.shot < (ERUPT.t - 1.2) / 3.3 * bombs.length){
+      const b = bombs[ERUPT.shot++], u = b.userData, a = Math.random() * Math.PI * 2, sp = 3.5 + Math.random() * 5;
+      b.position.set(CRATER[0], (CRATER[1] + 1.5) * LH, CRATER[2]);
+      u.v.set(Math.cos(a) * sp, 11 + Math.random() * 6, Math.sin(a) * sp); u.life = 0; u.fizz = 0;
+      b.visible = true; b.scale.setScalar(1); b.material.color.setHex(0xff8a2a); b.material.opacity = 1;
+    }
+    if (ERUPT.t > 9) ERUPT.t = -1;
+  }
+  for (const b of bombs){
+    if (!b.visible) continue;
+    const u = b.userData;
+    if (u.fizz > 0){ u.fizz += dt; b.scale.setScalar(1 + u.fizz * 5); b.material.opacity = Math.max(0, .9 - u.fizz * 1.5); b.position.y += dt * 1.2; if (u.fizz > .6) b.visible = false; continue; }
+    u.v.y -= 16 * dt; b.position.addScaledVector(u.v, dt); b.rotation.x += dt * 5; b.rotation.y += dt * 3; u.life += dt;
+    const x = b.position.x, z = b.position.z, wet = b.position.y < seaY + .05;
+    if (wet || u.v.y < 0 && b.position.y < probeAt(x, z, 99)[0] + .1 || u.life > 6){
+      /* a puff of steam in the sea, a little spark on land */
+      u.fizz = .001; b.material.color.setHex(wet ? 0xf4f8ff : 0xffd27a);
+      if (WK.on && WK.ground && Math.hypot(x - WK.x, z - WK.z) < 1.4){ WK.vy = 6; WK.ground = false; say('Yikes! Wick hops out of the way of a lava bomb.'); }
+    }
+  }
+}
+mErupt.addEventListener('click', () => { openMenu(false); if (!erupt()) say('The volcano is already busy.'); });
 let sailing = false;
 function enterIsle(){
   edits = new Map(); undo = []; homes = [];
@@ -1607,7 +1667,8 @@ renderer.setAnimationLoop(now => {
   for (const k in cam) cam[k] += (camGoal[k] - cam[k]) * f;
   placeCam();
   saveSpot(now);
-  stepSmoke(dt); stepLily(dt);
+  stepSmoke(dt); stepLily(dt); stepErupt(dt);
+  if (ERUPT.t >= 0 && ERUPT.t < 5 && !RM){ const k = .14 * Math.sin(Math.PI * ERUPT.t / 5); camera.position.x += (Math.random() - .5) * k; camera.position.y += (Math.random() - .5) * k; }
   if (hoverXY && !gest && now - hoverAt > 50){
     hoverAt = now;
     const hit = pick(hoverXY[0], hoverXY[1]);
