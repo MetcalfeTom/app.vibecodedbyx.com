@@ -1,5 +1,13 @@
 # Springfield Road Rush (simpsons-road-rage) — notes
 
+## art direction (v3.3 endless town, written before building)
+- **golden hour, always**: the sun sits low (about 20° up), warm amber light (#ffc887), long shadows. The sun's shadow box follows the car so shadows never run out.
+- **sky**: a gradient dome, dusky blue at the top through a pink band to a peach horizon, plus a soft glow around the sun. No skybox images.
+- **fog**: peach (the horizon colour), starting about 50 m out, so the endless grid melts into the haze instead of ending at a hard edge.
+- **town**: cartoon suburb. Pastel walls (peach, pink, mint, sky, butter, lilac, cream), red/slate/teal/brown roofs, bold coloured doors, round flat-shaded trees. Roads dark asphalt with white crosswalks; avenues get a double yellow line.
+- **landmarks are generic**: a corner shop, a donut shop, a school, a power plant. No names, no logos, no brands.
+- **budget**: under 120 draw calls in the busiest view, instanced pools, one sky, one ground.
+
 ## log
 - 2026-09-26 — polish pass (one of the most-voted apps):
   - **visual bugs fixed**: `material.clone()` shares its map, so the shared `repeat` squashed the north-south road's lane dashes into stripes and gave every building the last building's window size → `texMat(base, rx, ry, rot)` clones the texture per surface (vertical road = rotation π/2). Sidewalks were 400-long strips running *across* the other road → split into 4 segments per road that stop at the crossing. Shadow acne (no bias) hatched the ground; three r167 uses physical light units, so the old 0.9 intensities left the town grey → hemi 2.1, sun 2.6, bias -0.0004 / normalBias 0.04. Skid marks disposed the *shared* skid texture every time one faded — removed.
@@ -89,21 +97,34 @@
   - on top on `fxBus`: tyre squeal (two wobbling triangles + bandpassed noise, 0.42·slide²), wind with speed, wall-scrape grind (`car.scrapeA`, a decaying hold of `scrapeV` captured in updateCarFx), crunch on hits (thump + lowpassed noise, bigger with impact), donut chime = little bell climbing a pentatonic scale with the combo, two-tone bus horn. Master → DynamicsCompressor.
   - context only made inside the start tap; resumed on later taps/keys if a phone suspends it; suspended while the tab is hidden. Mute (button + M) unchanged. #buildstamp v3.2.
   - tested: offline render through the real graph (idle/launch/shift/lift/slide/crunch): idle heard level 0.15× full, lift-off 0.39× on-throttle at the same revs, shift dip 0.28× then ×2.85 climb, squeal 2.9× engine, crunch 9× engine, scrape 4.5× engine, peak 0.65 (no clipping), engine 0.9× the old one at full and 0.63× at idle (150 Hz+ weighted). Pitch curve 30/144 vs 60 fps within 0.8%, no backsteps. srrp2-5, 7, 8 (30/144 fps), 9 at both sizes: 0 fails, 0 JS errors.
+- 2026-10-13 23:02 UTC — **v3.3 the endless town, step 1** (fela's ask; helper session; plan in todos):
+  - **look** (art direction above): a gradient sky dome shader that rides with the camera, peach fog 55–165 m (also the scene and page background), warm hemi 0xffd9b0/0x5d5378, a low amber sun 0xffc887 whose shadow box (±54 m desktop / ±44 m touch, map 2048 / 1024) follows a point 18 m ahead of the car, snapped to shadow texels so edges don't crawl.
+  - **endless grid** (`pB`): blocks `BLOCK` 80 m, roads ±9 (`ROAD_Y` 0.215), sidewalks to ±15 (`WALK_Y` 0.4), grass 0. Every 4th line is an avenue (double yellow). `segOn(ax, i, j)` drops ~16% of side-street pieces by a seeded hash (only the lowest-scored arm at both end crossings, never on avenues or the four home streets), so crossings keep 3 or 4 arms (T-junctions, never a dead end: 0 bad of 14641). A left-out piece is a grass strip with trees and a sidewalk across its mouth. `townGround` / `nearestRoad` are analytic; `groundAt` still adds the jump ramp.
+  - **chunks**: one per block, built ≤2 a frame within reach, dropped beyond 236 m (max 49 alive). Houses (pastel walls, gable roofs, coloured doors), trees, road pieces, crossings and sidewalk slabs are slots in global InstancedMesh pools (`townPool`, update ranges only). Same town every load (seeded `townRng`), so the home blocks are always the same.
+  - **home**: the Quick-Stop, the donut shop with the jump, the school and the power plant (rods) stay around (0,0), baked once into a few merged meshes (`bakeStatic`: vertex colours + one mesh per textured material). Buses: one merged, vertex-coloured InstancedMesh; they still run the two home streets but wrap around the car's position along their lane, so they turn up wherever you cross those streets.
+  - **donuts ahead**: one dough InstancedMesh + frosting, 16 slots recycled. They spawn on streets 45–130 m ahead (cone ±60°, some on your own street), 9 m apart, out of the jump lane; the far/behind ones (>240 m, or >100 m behind) respawn ahead, 3 a frame. They get scarcer as you eat (`donutGoal`: 16 out, one fewer every 4 eaten, never under 4; reach and spread grow) so a shift still ends. +1 and +2 s per donut unchanged.
+  - **R / ⟳ = back on the road**: snaps to the middle of the nearest street, facing along it the way you were pointing, sliding up to 60 m to a spot clear of houses, trees, buses and the jump lane (`carFits`). Out-of-bounds now only means NaN or falling below -20.
+  - leaderboard: same table and columns; the score filter is `SCORE_CAP` 150 (was the 30 donuts). Page text: description/og say "endless town at golden hour", R key in the hint, #buildstamp v3.3, fresh og-image.png (the coupe on the home street with donuts and the jump donut).
+  - **bug found by the screenshots**: three uploads an attribute's pending update ranges at the next draw and clears them, so `flushPools` clearing them a second time before a draw (a teleport, a reset, the shift start) dropped the first batch: the town 500 m out was invisible. `growRange` widens the pending range instead.
+  - **numbers** (headless, `renderer.info` incl. the shadow pass): home with the card up 52 calls / 125k tris, shift start 47–51, max on a 4.2 km drive 45, a town street 41 / 134k, the jump 51, real loop at the home landmarks 57. v3.2 was 207 calls at the same spot. Frame CPU without rendering avg 0.2 ms, worst 5.4 ms (a chunk build); prime 66–264 ms. Swiftshader 1280×720 fps 1.5 vs 1.6 for v3.2 (software GL, fill-bound, not a phone number). Adaptive pixel ratio: 2 s average above 24 ms → −0.5, down to 1.
+  - balance bots (teleport along streets, no buses): casual 28 m/s with 3.5 m reach 41 donuts in 146 s, good 34 m/s 55 in 156 s, greedy 36 m/s turning toward donuts 128 in 281 s. Old real max was 27.
+  - tested: rr33p1 (graph, jump, start donuts, 4.2 km drive with streaming, pools, 40 resets, R key, 8 s of real gas = v3.1 physics, a pickup), p2 balance, p3 scenes at 390×844 and 1280×720 (start, half a km out, the jump: 26 air frames, through the donut +6 s), p4 30 s of the real loop: 0 fails, 0 JS errors.
 
 ## issues
 - probes teleport the car with `placeCar(x, z, heading, speed)` (resets the drive state, springs and gear); never set `car.mesh.position` directly any more: the simulation lives in `car.pos`/`car.heading`/`car.drv` and the mesh is only drawn from them.
 - the HUD speed is mph now (game speed × 2.237); `car.speed` is still metres per second.
-- `populateDonuts()` runs at top level before later `const`s exist → the donut kit is a lazily built `var`. Keep new top-level consts above their first use.
-- Building positions/sizes use Math.random (new town every load), so narrow car-width gaps between houses differ per load. Probes must not assume a layout.
+- v3.3 order: `primeTown()` runs just before `animate()` (landmarks, bake, donut pools, rods, buses, first chunks); `const car = buildCar()` sits after the init block. Function declarations hoist, consts don't (TDZ); a second `function` with the same name is a SyntaxError in the module.
+- v3.3 town is seeded (same layout every load); landmarks only around (0,0). `solids` near the car are refilled on chunk changes (`refillSolids`), `homeSolids` hold the landmarks.
+- pools: never call `mesh.instanceMatrix.clearUpdateRanges()` between draws; use `growRange` (see the v3.3 log). Probes that teleport must call `streamChunks(x, z, true)` + `flushPools()`.
 - Top-level call order matters (TDZ): `buildLandmarks`, `populateRods`, `spawnTraffic` run at load, so their helpers are function declarations and `LANE`/`ROD_COUNT` sit near the top. `var donutKit = null` further down resets the kit after the first populate (harmless, rebuilt lazily).
 - A car parked against a bus keeps that bus stopped (by design: buses stop on contact); traffic behind it queues.
 - Headless probe: scratch `gaunt/mkrr.sh` swaps the supabase import for a local stub (`sbstub.js`) so tests never write to the real table.
 
 - donut jump: crossing the ramp side-on at speed is a real kicker (16 m/s → a ~5 m hop that lands on its wheels; heading at the donut shop it bonks the shop wall mid-air, collisions are 2D). Gentler skirts would need much wider wedges.
-- donut jump probes: random donuts can lie on the run-up lane (pickDonutSpot ignores keepClear), so a jump run may also eat a regular donut (+2 s). The statue's `st.donut` stays set after pickup; check `.parent`.
+- donut jump: regular donuts stay 4 m clear of the jump's box (`donutSpotOK`); the stunt donut is a slot in the same donut pool (`d.stunt`), alive again each shift.
 
 ## todos
-- v3.3 ENDLESS TOWN plan (fela's ask, not started; written 2026-10-13 18:58 so a fresh session can build it):
+- v3.3 ENDLESS TOWN plan (fela's ask; step 1 v3.3 shipped 23:02: grid, streaming, donuts ahead, road reset, golden hour. Still to do: v3.3.1 districts + landmarks + buses on avenues near the car, v3.3.2 roundabouts + canal/bridges + park hills (needs a grass test that isn't `gnd === 0`), v3.3.3 textures pass (the grass is a bit too saturated for golden hour) + recurring donut jumps):
   - write the art direction at the top of these notes first: golden hour, gradient-sky shader, peach fog, low sun whose shadow camera follows the car.
   - grid: blocks B=80 m, roads ±9 and sidewalks to ±15 on x=i·B and z=j·B (keeps the current road/sidewalk/grass heights 0.215/0.4/0). Every 4th line is an avenue with buses. Seeded hash per (i,j): drop some side segments → T-junctions, some side nodes → roundabouts (island r 4.5), a mid-block canal in some rows (flush, parapet walls) with humpback bridges on the vertical roads, park lots with analytic hills (groundAt stays analytic).
   - districts from low-freq noise: suburb / downtown / industrial; landmarks per district (Quick-Stop, donut shop, school, power plant with rods). Generic names only.
@@ -117,7 +138,7 @@
 - real phones still untested: iOS Safari audio unlock, multi-touch feel of the analog pad, frame rate on low-end phones (each house has its own cloned texture), sign fonts on slow connections (they redraw once the font loads)
 - real phones untested for v2.4: paint/env look on mobile GPUs, frame rate with the clearcoat paint
 - real phones untested for v2.5: how the new grip/drift feels with thumbs; tuning knobs are `GRIP`, `SLIP_PEAK`, the drift multipliers (0.42 / 7 / 1.25 / 2.4) and the 0.6 camera blend
-- town draw calls: a phone view down the main road can hit ~185 calls (each house is its own mesh); merging the houses would help low-end phones
+- v3.3 real phones untested: the frame rate and the adaptive pixel ratio, the 1024 shadow map on touch, first frame time (headless prime 66–264 ms), how often you need R; ask fela how the endless town feels to drive.
 - v3.0: the new car looks smaller/lower than the old box in the same framing; the v3.1 chase cam should frame it closer on a phone. Real phones untested: the PMREM env + clearcoat on mobile GPUs. Next: v3.1 physics rewrite, v3.2 endless procedural town + textures, v3.3 audio.
 - maybe: the camera could pull in when a house is between it and the car (it already rises over a bus right behind)
 - v3.1 real phones untested: thumbs on the new grip/drift/handbrake (phones have no handbrake button yet: brake + pad drifts), the rpm engine sound and squeal on iOS. Tuning knobs: `DRV` (mu, muRear, B/C, assist, turbo, susW/susZ, view). Next: v3.1.1 donut-statue ramp jump, v3.2 endless procedural town + textures, v3.3 audio.
