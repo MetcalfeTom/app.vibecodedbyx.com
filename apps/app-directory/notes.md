@@ -1,6 +1,7 @@
 # App Directory
 
 ## log
+- 2026-10-13 22:47 (hamburglar06): the git log board's heading now says 'app activity' (was 'git log · busiest apps'), sort group aria-label 'Sort app activity'.
 - 2026-10-13 19:32 UTC: the commit window's hash moved down beside its +/- graph, the same gl-h chip as the change log rows (hamburglar06); the date line is just the date again.
 - 2026-10-13 19:26 UTC: commit window message smaller and tighter (0.8rem / 1.45) and the hash leads the date line in bold amber (one tap selects it); the corner label just says COMMIT (hamburglar06).
 - 2026-10-13 19:21 UTC: commit window bigger (min(46rem, 100vw-1.5rem) wide, up to 88vh, larger text; max-width overrides the UA dialog cap on phones) and no yellow: the picked row has no highlight and the frame is cyan like the log (hamburglar06 19:20). Counts on the board do update: rebake after every commit (checked 19:20, asof matched the last commit).
