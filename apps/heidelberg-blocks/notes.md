@@ -387,6 +387,13 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   Funkjoker: Toni L's first talk line is "Servus! Toni L, the Funkjoker, at your service.", a bark "Servus! The Funkjoker
   is in the house.", his tag reads "Toni L · Funkjoker" (bkTag uses a 512 canvas for text longer than 8 characters).
   Probes p/d1.py + p/d3.py: ducks at the blanket, night picnics, reflections, busk tag + talk. 0 JS errors at 1280 and 390 ?touch.
+- v1.22 2026-10-13 13:57 (helper): LANTERNS IN THE SCHLOSSGARTEN AT NIGHT (Flax's queue). GLAMP / glampBuild after wieseBuild,
+  glampTick after wieseTick, code before wegSign. Six iron lanterns on every other Scheffelterrasse balustrade post
+  (x 71.82 + 8k, z 69.82, on the post tops at Y+1.34) and six on posts along the Hortus walks: the axis to the fountain
+  (89.5/95.5, 80.5 and 97.5) and inside the Elisabethentor (76.5, 93.5 and 97.5); the posts are solid (ALT_COL cell -> 50).
+  Four draw calls: iron (Lambert), glass (Basic, colour x.18 by day, x.26 golden hour, x1 at night), halos (one Points,
+  additive, fog off, within 160 m) and pools of light on the gravel (one additive mesh, within 70 m), night only.
+  Probe p/l1.py: views + collision. 0 JS errors at 1280 and 390 ?touch. World tris unchanged (307k; the lamps are ~1.5k).
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
 - fannar22 2026-10-11 23:50: rising into the sky at the east/west map edge in the river (fixed v1.1, probe hb_edge.js).
@@ -396,19 +403,19 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   split into closed pockets for days without anyone noticing (fixed v1.18).
 
 ## todos
+- Flax's queue, what's left, in this order (13:57):
+  1. Stückgarten west of the Dicker Turm (castle)
+  2. more room round the Großes Fass in the cellar
+  3. Jesuit church, Marstall, Karl Theodor statue on the bridge
+  4. German dialogue switch
+  5. Café Nerd: a board game you can join (and Nele's daily special)
+  6. life in the west Altstadt: lit windows at night, a stall or a bench crowd (Manuel + Petra already walk there, v1.18.2)
+  (garden lanterns DONE v1.22; Neckarwiese + ducks DONE v1.21; busking DONE v1.20, Funkjoker v1.21; Karzer DONE v1.19)
 - Fernrohr ideas: more friends to spot later (Anselm on his night round, Hilde at a window), a postcard of the view
-- big round (Flax, 2026-10-13) done through v1.13; later: German dialogue switch,
-  garden lanterns at night, a second garden terrace (the south wall is one tall cut)
+- a second garden terrace (the south wall is one tall cut)
 - optional firework bang sounds after a tap
-- Jesuit church, Marstall, Karl Theodor statue on the bridge
 - real phone test of the touch stick + look; real GPU fps (v1.14 adaptive sharpness: ask phone users if it looks soft)
-- Flax's 2026-10-13 list after Café Nerd: castle (Altan v1.17, Scheffelterrasse + park access v1.18; next maybe the
-  Stückgarten west of the Dicker Turm), Studentenkarzer (11:33, see the queue below), more room round the Fass in the cellar,
-  Torch + Toni L busking on the Alte Brücke (original beat only, no real lyrics/melodies), life in the west Altstadt
-  (walkers, a stall/bench crowd, lit windows at night)
-- Flax 12:08-13:15 queue, in this order: (1) named crew DONE v1.18.2; (2) university + Karzer DONE v1.19;
-  (2b) Torch + Toni L busking DONE v1.20 (Funkjoker intro v1.21); (3) Neckarwiese at night + ducks DONE v1.21
-- Café Nerd ideas: a board game you can join, Nele's daily special
+- the secret-found sparks (PointsMaterial, no map) draw as big pale squares close to the camera; give them a round map
 - the monkey rub buttons still sit bottom-left on narrow phones (only near the monkey)
 
 ## art direction
