@@ -1,6 +1,7 @@
 # App Directory
 
 ## log
+- 2026-10-13 19:33 UTC: the commit window's hash moved down beside its +/- graph, the same gl-h chip as the change log rows (hamburglar06); the date line is just the date again.
 - 2026-10-13 19:26 UTC: commit window message smaller and tighter (0.8rem / 1.45) and the hash leads the date line in bold amber (one tap selects it); the corner label just says COMMIT (hamburglar06).
 - 2026-10-13 19:21 UTC: commit window bigger (min(46rem, 100vw-1.5rem) wide, up to 88vh, larger text; max-width overrides the UA dialog cap on phones) and no yellow: the picked row has no highlight and the frame is cyan like the log (hamburglar06 19:20). Counts on the board do update: rebake after every commit (checked 19:20, asof matched the last commit).
 - 2026-10-13 19:16 UTC: the tapped commit now opens in its own window (dialog#cmtd over the change log: 'commit · hash', app name, full date, whole message, its +/− line; ✕, backdrop or Esc closes it and focus goes back to the row; closing the log closes it too). Replaces the 19:07 in-place expansion (hamburglar06 19:13).
