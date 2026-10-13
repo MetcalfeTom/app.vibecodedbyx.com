@@ -34,6 +34,15 @@
   - **layout**: stick + buttons lifted to 52 px (42 px on short landscape) + safe-area, clear of the 36 px site strip at the bottom; buttons 66 px, stick 128 px with a 22 px invisible margin; **⟳ moved to the top-right corner** (it sat right next to brake); mute chip 44 px wide.
   - **no camera swinging while driving**: `orbit.enableRotate/enableZoom` off during a shift (a thumb that missed the pad rotated the camera, which then fought the chase cam), back on behind the card.
   - tested headless (srrp3): fov/view at both sizes, every control inside the screen, nothing overlapping, all ≥44 px, controls ≥40 px off the bottom, toast below the HUD, the car never under a control, analog steering (small push turns ~1/6 as much as a full push, tiny wobble = no steer, left mirrors right), sideways drives, down backs up, release clears, brake + pad drifts, ⟳ resets, shift-over card fits at 390×844 and 1280×720; 0 JS errors at both.
+- 2026-10-13 15:12 UTC — **v2.4 the car** (fela: "make the car stunning", helper session):
+  - **authored car** replaces the box car: `buildCar()` extrudes a side profile with real wheel arches (hood, cabin, trunk), A/B/C pillars, mirrors, a glass cabin, a cream roof cap with twin cream stripes over hood/roof/trunk, chrome capsule bumpers, a grille with slats, round headlamps in chrome rings, door handles, a tailpipe and a plate. Static parts are merged per material (`mergeParts`, `mergeGeometries` import): ~3.3k tris counting the 4 wheels, 20 meshes/sprites.
+  - **paint**: `MeshPhysicalMaterial` with clearcoat, reflecting a tiny PMREM'd gradient sky with a sun and two soft boxes (`makeCarEnv`); chrome, rims and glass use the same env. `textures.carBodyPink` = the paint (the rod glow still tints it green).
+  - **lights**: headlamps glow (emissive + additive halo sprites); tail lamps go 0.35 → 2.95 emissive and their halos grow while braking.
+  - **wheels**: lathe tyres + five-spoke rims; `pivot` (steer) → `spin` (roll). They roll with `car.speed`, fronts steer with the input (less at speed: 0.48 rad × (1 − 0.45·speed/60)).
+  - **contact shadow**: soft blob plane under the car. **Ride height**: `groundAt(x,z)` (road 0.215, kerb/sidewalk 0.4, grass 0); the old car sat sunk into the road top.
+  - **effects** (`makeCarFx`, InstancedMesh pools, 1 draw call each): exhaust puffs (idle 4/s, gas 15/s, turbo 28/s), skid trails from the rear wheels when sliding (`car.slide` = sideways speed over the tyres or locked-up braking above 14; joined segments, 7 s life, 400 pool), tyre smoke when sliding hard. The old per-mark skid meshes (one draw call each) are gone. Bumps (bus hits, wall thuds) now puff a ring of smoke from the pool instead of the big see-through ball around the car (`spawnDustEffect`; `dustGroup`/`updateDust` removed).
+  - frame cost: desktop beauty view ~160-180 calls / 25-35k tris; phone drive view 69-91 calls / 12-29k tris.
+  - tested headless (srrp4 on the stubbed test copy): tri/mesh budget, 4 wheels with 2 steering, clearcoat + env on paint and chrome, wheels roll with speed, exhaust puffs on the gas, rides on the road top / up on the kerb, fronts steer left and rears stay straight, wheels straighten, brake lights 2.9 → 0.35, a brake-drift lays joined trails on the road surface with smoke, smoke fades out; srrp2 regressions (landmarks, donuts, rods, 6 buses over 90 s, bus ram, rod turbo) all pass; 0 JS errors at 1280×720 and 390×844 (touch).
 
 ## issues
 - `populateDonuts()` runs at top level before later `const`s exist → the donut kit is a lazily built `var`. Keep new top-level consts above their first use.
@@ -45,5 +54,7 @@
 ## todos
 - real phones still untested: iOS Safari audio unlock, multi-touch feel of the analog pad, frame rate on low-end phones (each house has its own cloned texture), sign fonts on slow connections (they redraw once the font loads)
 - a bus right behind the camera can fill the bottom of the screen
+- the chase cam turns slowly, so in a hard drift the car slides toward the screen edge on a phone (v2.5 physics pass: maybe follow the velocity a bit)
+- real phones untested for v2.4: paint/env look on mobile GPUs, frame rate with the clearcoat paint
 - maybe: the camera could pull in when something is between it and the car
 - never use show character names, likenesses, catchphrases or music
