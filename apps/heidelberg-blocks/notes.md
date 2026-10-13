@@ -102,6 +102,7 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   ruin glows deep red. One uniform hbGlow (GLOW, eased in over ~1.8 s and out over ~2.6 s, flicker .8-1 unless reduced motion) in the
   block shader adds diffuse*vec3(1.55,.3,.08) + a little red emissive inside a soft box (x 7..71, z 66..111, from CASTLE_Y-10 up),
   brighter at the foot of the walls like fire from below. The Fasskeller's own lantern light overrides it inside. No extra draw calls.
+  Budget after v1.8 (hb_p5.js, 11 views): busiest philS 262k tris / 78 calls, world 305k tris, __E [].
   Shots $SP/hb18/g0.png (off) / g2.png (on) from the bridge at night.
 
 ## issues
