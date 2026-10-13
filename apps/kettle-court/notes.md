@@ -74,7 +74,7 @@ A watch-only cutaway apartment block (Pushed's Little Computer People idea): tin
 
 - v1.41.1 (2026-10-13 19:24): pushedbutton asked if the long-coat clue really means waiting till 00:49 (to share KC with people at work). Not a bug: a game day is one real hour, stranger(d) = d % 5 === 4, so he drops by every 5 real hours at minute 1188 (xx:49) for ~40 s. The casebook hint now lists the next three visits (nextStranger), so a work crew can pick one in office hours.
 
-- v1.41.2 (2026-10-13 19:39): the Now chip retires a line once it has been up 40 s or was tapped (nowRead Map keyed day|id|act, nowDone in nowPick), then shows the next thing or rests. Pushed: Fancy's thunderstorm line stayed up the whole storm after they'd read it. Probe hm/kcnow2.js (fake candidate through nowPick).
+- v1.41.2 (2026-10-13 19:38): the Now chip retires a line once it has been up 40 s or was tapped (nowRead Map keyed day|id|act, nowDone in nowPick), then shows the next thing or rests. Pushed: Fancy's thunderstorm line stayed up the whole storm after they'd read it. Probe hm/kcnow2.js (fake candidate through nowPick).
 
 ## Issues
 - Sprites are small on phones (the building is ~374 px wide): tapping someone zooms in (v1.1); pinch zoom + pan since v1.33 (untested on real phones).
