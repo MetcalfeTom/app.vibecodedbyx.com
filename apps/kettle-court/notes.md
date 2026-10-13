@@ -76,6 +76,8 @@ A watch-only cutaway apartment block (Pushed's Little Computer People idea): tin
 
 - v1.41.2 (2026-10-13 19:38): the Now chip retires a line once it has been up 40 s or was tapped (nowRead Map keyed day|id|act, nowDone in nowPick), then shows the next thing or rests. Pushed: Fancy's thunderstorm line stayed up the whole storm after they'd read it. Probe hm/kcnow2.js (fake candidate through nowPick).
 
+- v1.41.3 (2026-10-13 19:49): Pushed, at the residents' meeting: the chip kept naming each resident in turn and sat on the lobby. nowKey is now one key per NOW_PRI kind (or the act text), so the whole meeting is one line that retires after 40 s; and when its subject is in the lower half of the view the chip moves to the top (.up, below #tapHint when that shows). Probe hm/kcnow3.js.
+
 ## Issues
 - Sprites are small on phones (the building is ~374 px wide): tapping someone zooms in (v1.1); pinch zoom + pan since v1.33 (untested on real phones).
 - The café sign clips to "THE KETTL" — kept on purpose, the voice made it a joke.
