@@ -14,7 +14,7 @@ Everything starts here: a message from chat is the raw material. Your job at thi
 
 ## Steps
 
-1. Read the new lines. Group messages that ask for the same thing, and note who asked first.
+1. Read the new lines. Skip what your moderators removed: a `"removed"` line names a message `id`, a user (skip that user's earlier lines) or `"*"` (skip everything before it). Group messages that ask for the same thing, and note who asked first.
 2. Sort every message into one bin:
    - **idea**: something to build or add
    - **bug**: something that is broken, ideally with what they did and what they saw

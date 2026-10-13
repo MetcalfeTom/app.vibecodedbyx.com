@@ -25,8 +25,9 @@ The tested copy goes live, and git records it as one small step that can be undo
    git push
    ```
 
-5. If the push is refused because the remote moved: `git pull --rebase`, then push again. If the rebase hits a conflict in someone else's files, stop and sort it out by hand.
-6. Check that it is live: open the app's address (`curl -s https://<your-host>/<app>/ | grep "<a word from your change>"`) or take one screenshot of the live page.
+5. A new app, or a new title or description? Update the front page right after that commit: `node scripts/index.mjs`, then `git add -- apps/index.html`, `git commit -m "App list: <App>" -- apps/index.html` and `git push`.
+6. If the push is refused because the remote moved: `git pull --rebase`, then push again. If the rebase hits a conflict in someone else's files, stop and sort it out by hand.
+7. Check that it is live: open the app's address (`curl -s https://<your-host>/<app>/ | grep "<a word from your change>"`) or take one screenshot of the live page.
 
 ## Guardrails
 
@@ -38,7 +39,7 @@ The tested copy goes live, and git records it as one small step that can be undo
 
 ## Done when
 
-- The commit is pushed, and the live page shows the change.
+- The commit is pushed, the live page shows the change, and a new app is on the front page.
 
 ## Next station
 
