@@ -484,6 +484,15 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   downstairs; the spot becomes 'Admire your mark'; Riegel's last line becomes "Somebody painted behind the stove
   ... I saw nothing." Budget desktop night: fountain 296k/140, Hauptstraße 245k/125, door 170k/84; phone 390x844:
   198k/76, 183k/89, 126k/44. 0 JS errors.
+- 2026-10-13 22:20 UTC v1.29 (helper, step 4, last of this run): students on the Universitätsplatz, by day + golden
+  hour only (generic new folk, NOT Max/Marco/Ramona/Josie): Mira (law, 4th semester) sits on the bench (-84.5,79.5)
+  with the red Schönfelder binder and a highlighter; Aylin (medicine) paces Neue Uni door (-82.5,87.2) <-> Alte Uni
+  portal (-73.4,77.5) with flashcards, arrival barks; Hannes (physics, first week, beanie, map of "Mannheim") stands
+  by the fountain (-74.6,74.4). Quest "Hannes's Ersti list": talk to him -> Q.ersti=1 (saved in hb-quest); the list
+  reads existing state: Karzer = KZS.seen, Brückenaffe = any luck rub, Studentenkuss = Q.found.length>0. Quest log
+  erstiSide() (appended after karzSide) shows ✓/☐ per item; all three + talk -> Q.ersti=2 + toast. Mira and Aylin
+  point at Hannes and react to the list. Probe p/stu.py (reloads with saved state for the finish). Budget day:
+  plaza 122k/26 desktop, 105k/20 phone. 0 JS errors.
 
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
@@ -510,6 +519,15 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   carpet, hatch, clock, Perkeo all hang on those numbers; the south wall could move to z 98 now the back walk is there)
 - castle: only terrace 1 (the Kräutergarten, v1.27) has a way in; terraces 2-4 behind it are still for looking at
 - Ansgar ideas: he could sit on his stool with soup after his round; a 'don't tell Ansgar' mini quest
+- NEXT RUN (main 22:13, for Flax): Karlstor; a busier east and west Altstadt (stalls, a bench crowd, lit windows);
+  Flax 21:54: Kapitän Jupp asks "Heidelberg cruise or ride to Mannheim?", and Mannheim becomes a whole new scene
+  later (the boat ride down the Neckar as the way there).
+- Ruderboote race under the Alte Brücke (plan only): rent a rowing boat on the Neckarwiese bank, race a rival rower
+  (generic name) round buoys under the bridge arches and back; phone = two big oar buttons, desktop = A/D strokes;
+  each stroke an impulse + drag, steering from stroke imbalance; timer + best time in localStorage; start from
+  Jupp's boat code (boatTick) for the water height and the camera.
+- Students: at night Mira/Aylin/Hannes are gone; they could sit on the fountain rim singing, or Hannes could turn
+  up in the Karzer after his list is done
 - Karzer: the bare patch sits over a random graffiti tile (a silhouette shows round it); an OV entry for face
   '-57,25,78,1' could give it a quieter tile. Player name on the mark instead of 'Gast' if the app ever gets names
 - optional firework bang sounds after a tap
