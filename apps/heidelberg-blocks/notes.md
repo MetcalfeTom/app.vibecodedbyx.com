@@ -407,6 +407,23 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
 
 - 2026-10-13 14:38 UTC v1.23.1 (Flax 14:37): Max, Marco, Ramona and Josie are NOT students; Ramona and Josie are yoga teachers. Ramona's 'then the library' bark is now 'then sunset yoga', Josie tells you about their sunrise yoga class on the Neckarwiese and tells Max to drop his shoulders. Flax played it through and loved the secret at the Fass.
 
+- 2026-10-13 17:28 UTC v1.24 (helper, fela 16:53 "polish and optimize"): SPEED PASS 1 + freshness guard.
+  Freshness guard (script#hbfresh right after #buildstamp, key 'heidelberg-fresh', copied from Peach Pitch): fetches
+  the page with cache:'no-cache'; if the server's buildstamp differs it reloads ONCE, but only while the start screen
+  shows (#intro not hidden); once walking it does nothing (the fresh copy is then in the cache for next time).
+  Tested: walking -> no reload; same stamp -> no reload; newer stamp -> one reload, then stable. BUMP #buildstamp EVERY RELEASE.
+  Speed: sky drawn after the town (renderOrder 1, it sits on the far plane) so only uncovered pixels run the sky shader;
+  the emissive atlas lookup is skipped while blockMat.emissive is black (day); drawScene()/farcOff(): small props
+  (signs, benches, lamps, folk, Studentenkuss, Uni bits...) are hidden for the frame once under ~3 px
+  (distance > max(40, r * screenH/2/tan(fov/2)/3)), put back right after render; never during the Fernrohr; world,
+  sky, water, clouds and anything with frustumCulled=false skip it; Mike's stone has userData.keep and ALWAYS draws.
+  Ducks (4 InstancedMesh) now frustum-culled with one sphere around their loop (were drawn even behind you), garden
+  lantern halos/pools too. Mesher merge pass walks only the chunk's face heights. Speech bubbles stay on screen
+  (Josie's ran off the right edge at 390 px).
+  Numbers (calls, SwiftShader ms): portrait 390x844 max calls 105 -> 90; philS 104 -> 69; summitN 894 -> 317 ms.
+  Desktop 1280x720 max 142 -> 134 (bridge); philS 141 -> 117; frame times about 700-1700 -> 430-965 ms.
+  Landscape 844x390 philS night 151 -> 100, bridge 141 -> 99, spawn 129 -> 96. Tris unchanged (summitN 320k landscape).
+
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
 - fannar22 2026-10-11 23:50: rising into the sky at the east/west map edge in the river (fixed v1.1, probe hb_edge.js).
@@ -454,6 +471,9 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   212-214k/56-60; max phone 251k/87, desktop 302k/105.
 - v1.18 (Scheffelterrasse + Gartenbrücke + Viktor): max phone 257k/88, desktop 307k/105 (Königstuhl north); garden
   view 81k/13 phone, 90k/16 desktop; altan 186k/43 phone, 218k/60 desktop.
+- v1.24 (speed pass 1, probe $SP/hbpol/p/perf.py, 11 views x golden/night): portrait 390x844 max 258k/90 calls
+  (was 105), desktop 1280x720 max 315k/134 (was 142), landscape 844x390 max 320k/118 (was 151). Tris are the world
+  itself (chunks 307k + skirts 69k), the busiest is the Königstuhl north view.
 
 ## testing
 - scratch: $SP/hb (index.html + mk.sh injects window.__G/__E into gaunt/sw/hm43/hb). The live file only has a
