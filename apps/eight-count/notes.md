@@ -2,6 +2,28 @@
 
 A choreography tool for dance instructors: load a song, the beat is found, the song splits into eight-counts, and each count gets a move. A 3D toon dancer performs the routine on the beat. Asked for by pushedbutton (Twitch) on 2026-10-05, inspired by Harmony's 8-count window: "a 3D dancer with editable moves, beat matched to a song with a wave form. No need for a crate or playlist".
 
+## demo checklist (Wed 2026-10-14: real Emma meets robot Emma)
+Written by the v2.59-2.63 polish helper after a headless sweep at 390x844, 360x740, 844x390, 768x1024 and 1280x800 (no JS errors anywhere).
+Shows well:
+- First visit: tap the pill on the stage ("tap for music"), she dances the demo groove. Works upright and (v2.63) sideways.
+- Party shelf: Macarena, YMCA, Cha Cha Slide (turn on 🗣 call moves), Time Warp, Ketchup, Achy Breaky, Big Fish, famous medley. All sampled: feet never below the floor (lowest -3 mm), no arm or prop collisions worth seeing.
+- 📰 newspaper routine: Pushed's own ten eights for the December show, with the prop.
+- A real song: ♫ load a song, check the bpm, mark the 1 if needed, then 💃 Emma makes a routine → put it on → ▶ watch her.
+- 🎓 teach me on a chosen move (feet, then arms, then hips/head slowly, then full speed).
+- Move maker: 🎲 Emma invents a move, ↶/↷, save, and it shows in the wheel. Count sheet and share link (the link is fine for WhatsApp, too long for Twitch chat).
+- Offline copy: after one online visit the page opens with the server down (retested on v2.63, 2026-10-13).
+Avoid or rehearse first:
+- 🙋 spot the mistake: in that game she gets moves wrong on purpose. Leave it off unless it's meant as a joke.
+- 🎥 camera recording (record a move / record these eights) has never been tried on a real camera. Skip it unless it's tested on the demo device first.
+- Songs whose tempo drifts (Come On Eileen) can slip the 1 by a beat. Use a steady song and check the 1 beforehand.
+- Load the song and build the routine on the device and browser you'll use for the demo: songs and routines live in that browser. A share link moves the routine, not the song.
+- Emma's impatient bubbles appear after 20 s idle. Switch them to 🤫 in the timing drawer if they'd get in the way while you're talking.
+- iPhone: if there's no sound, check the silent switch and the volume (the audio session setting is untested on a real iPhone).
+Known quirks (looks, not bugs to fix before Wednesday):
+- Hands raised high can cover the 'her left / her right / palm' legend at the top of a phone stage.
+- YMCA: her left forearm passes through her head on the way into the Y. Hands on hips sink ~5 cm into the hip. A hanging bent arm with a big forearm roll can look twisted backwards.
+- On a slow phone, moving into an eight that changes the prop (cane/parasol/newspaper on or off) still rebuilds the move list: one hitch, ~100 ms with the CPU slowed 4x, ~25 ms at full speed. Other eights stopped hitching in v2.60.
+
 ## log
 - v2.63 (2026-10-13 UTC) phone on its side: 844x390 is wider than the 46rem phone query, so the first visit showed the desktop welcome card with its ▶ music on button below the fold and no stage pill (Emma danced in silence until you scrolled). @media (max-height:30rem) now shows the same stage pill (.hpill, first visit and the shared-link .on state). CSS only; portrait phones and desktop unchanged. Tested 844x390: pill visible, tap plays.
 - v2.62 (2026-10-13 UTC) move maker split views: the stage-edge water bottle stood on the front/side split line and the towel lay over the 'side · her left' label on phones. viewsRender() now hides bottle + towel (heldDraw sets their visibility again at the start of every draw, so the stage keeps them). Ghost views go through the same render, also prop-free.
