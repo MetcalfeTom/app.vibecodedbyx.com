@@ -324,6 +324,16 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   Ottheinrichsbau' beside the Fass arch facing the gate, 'Schlossgarten · Hortus Palatinus' over the doorway.
   Probe p/f1.py: physics walk up the stairs onto the footprint + talk (secret found), gate -> garden walk at 1280 and
   390 ?touch, stick walk east from the gate. 0 JS errors both sizes.
+- v1.18.2 2026-10-13 12:28 (helper): FLAX'S CREW + LIFE IN THE WEST ALTSTADT (Flax 12:08 + 12:17). The picnic on the
+  Neckarwiese (id 'studis', lifeSpot ~(-39.5,-55.5)) is now Max (guitar, the old Jonas look), Marco (the old Aylin look:
+  green shirt, pink headphones; he sings: head parts nod on swing channel 1, open mouth, three little note meshes float up
+  as kids of the group mesh, hidden under reduced motion), Ramona (blonde, pink top, sits next to Marco) and Josie
+  (blonde, teal top). Lena left the picnic (the market still has 'Lena & Can'). croon(): Marco hums three soft made-up
+  notes, a random walk on a pentatonic scale, every other strum (never a real tune). Manuel rides a red bike with a
+  bread basket on a loop: Hauptstraße x -45.5..-109 (z 71), lane x -109, back street z 84.5, Augustinergasse x -45.5
+  (day + golden, speed 3.4, legs pedal on the walk channel, f.bike keeps him facing the road when he stops for you).
+  Petra walks to and fro: z 58.5 street x -40.5..-77.5, the lane x -77.5, Hauptstraße to x -104.5 (all times).
+  Probe p/c1.py: 240 s tickTown sim (both stay at y 19, all route legs), talk lines, views. 0 JS errors both sizes.
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
 - fannar22 2026-10-11 23:50: rising into the sky at the east/west map edge in the river (fixed v1.1, probe hb_edge.js).
@@ -343,9 +353,7 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   Stückgarten west of the Dicker Turm), Studentenkarzer (11:33, see the queue below), more room round the Fass in the cellar,
   Torch + Toni L busking on the Alte Brücke (original beat only, no real lyrics/melodies), life in the west Altstadt
   (walkers, a stall/bench crowd, lit windows at night)
-- Flax 12:08-12:16 queue, in this order: (1) named crew: the guitar player is Max, the one next to him Marco, add
-  Ramona + Josie (both blonde) sitting with them, Manuel on a bicycle looping the old-town lanes, Petra walking the
-  lanes; (2) Universitätsplatz in the west Altstadt (Alte Universität baroque front, lion fountain, Neue Universität)
+- Flax 12:08-12:16 queue, in this order: (1) named crew DONE v1.18.2; (2) Universitätsplatz in the west Altstadt (Alte Universität baroque front, lion fountain, Neue Universität)
   + the Studentenkarzer behind it in Augustinergasse (graffiti canvas on the cell walls + stairwell: invented
   initials/years, silhouette heads, shields, a made-up line like "3 Tage, 2 Nächte"; one candle in a cell);
   (3) Neckarwiese on the north bank (night: blankets, lanterns/string lights, a speaker glow) + a flock of blocky
