@@ -1,6 +1,7 @@
 # App Directory
 
 ## log
+- 2026-10-13 18:49 UTC: refresh animation: each turn of the ↻ eases in and settles (cubic-bezier .55,0,.3,1, 0.75 s), it always stops on a whole turn (stop on animationiteration, 1.6 s fallback), an amber ring pulses out when done, and the rows dim while it reads (ol.hd-wait) then slide in staggered (ol.hd-in). Reduced motion: no spin/pulse/slide. Probe gl6.js samples the angle (hamburglar06 18:47).
 - 2026-10-13 18:44 UTC: ↻ glyph sits in its own span.hd-rf-g that spins (the box stays still) and is 1.25rem, a touch bigger than the ✕ (hamburglar06 18:43).
 - 2026-10-13 18:40 UTC: fix: the ✕ handler was bound with querySelector('.hd-x'), which now found the ↻ first (it shares the class), so ↻ closed the window and ✕ did nothing; bound to .hd-x:not(.hd-rf). Probe gl4.js checks both buttons (hamburglar06 18:39).
 - 2026-10-13 18:35 UTC: change log window gets a ↻ refresh button beside the ✕ (spins while it re-reads), and the logs now re-bake by themselves: .git/hooks/post-commit + post-merge (not versioned; rebake.sh's header has the hook lines to reinstall them) start rebake.sh in the background after every commit on main, which runs build-busy.py + build-changes.py (about 20 s, one at a time, writes swapped in atomically). So a reload shows commits minutes old, like the fresh row. Footers say 'updated Xm ago' (hamburglar06 18:31).
