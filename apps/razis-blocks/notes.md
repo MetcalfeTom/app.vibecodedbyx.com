@@ -37,7 +37,10 @@ Credit line "idea by Flax" on the title card. Never use Tetris branding or music
   - Run-over card now scrolls (max-height 100%) with a sticky AGAIN button, so AGAIN stays on screen on short phones. Fixed: the COPY SCORE fallback textarea was always visible (.shtx display:block beat [hidden]).
   - Tests (fake supabase module, *.supabase.co + jsdelivr blackholed, no real writes): insert payload, weekly-best skip, cap (5e9 at 3 lines -> 605000), score 0 posts nothing, offline + RETRY, module missing, Twitch name, rename + cleaning, HTML name renders as text, junk rows filtered, week tab, keys still move/drop/pause, 0 page errors. Shots 390x844, 375x667, 1280x800.
 
+- v5.1 (2026-10-13 10:02 UTC): name box fix. Flax 09:56 (Galaxy S24): "i cant write on galaxy s24 a name". Reproduced at 384x740 inside a copy of the top-bar iframe: the box sat at the bottom of the run-over card, under the sticky AGAIN and below the card's fold (tap hit nothing), and it came prefilled with RUNNER-xxx + maxlength 16, so only 6 more letters fit. Now: status line, name row and name box come first in the panel (box on screen without scrolling), the box starts empty with your current name as the placeholder (✎ NAME the same), maxlength 24 (saved name still cut to 16) so keyboard composition has room, and the box scrolls itself into view on focus and when the keyboard resizes the page (lbKeep). Android-style typing (keyCode 229 'Unidentified' + insertText) checked: nothing prevented, the game keys stay off while typing, Enter and SAVE both save, controls (tap AGAIN, drag, keys) unchanged.
+
 ## issues
+- Name box on phones: keep it near the top of the run-over card and empty (placeholder), never under the sticky AGAIN; test inside the top-bar iframe at ~384x740 (gaunt/sw/hm43/razi/bar.html + k2.json).
 - Leaderboard scores come from the browser, so they can be faked (and players can update their own rows). Accepted for a client-side game: the client caps scores and skips implausible rows on read, nothing more.
 - Flax read HOLD as "hold to drop": keep the stash label + the SOFT/DROP buttons.
 
