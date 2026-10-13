@@ -34,6 +34,7 @@ Never use Minecraft names, textures or assets: inspiration only. The name must n
 - v1.3 2026-10-13: Villagers. Every stamped cottage, tower or pagoda is a home (saved as h: [i, j, g, kind, ux, uz, name]) and gets a villager (max 12): Wick-style body with baked vertex colours (one merged mesh + 2 feet), pointy hat (cottage), tall indigo wizard hat (tower), wide straw hat (pagoda). They wander up to ~5 from their door, sometimes go inside, jump once when blocked, swim. Tap one in build mode (or walk up as Wick) for a speech bubble: an intro, then lines about triangles. Pip lives in the starter cottage (not saved, comes from HUT). Undoing a stamp moves its villager out. New og.png: a little wedge village with Trix talking.
 
 - v1.4 2026-10-13: Day and night. A day takes ~6 min (DN.len 380 s; day 52%, dusk, night 20%, dawn); sky gradient, fog, sun and hemisphere lights blend between 4 keyframes; glass windows glow (a per-vertex `glow` attribute added to the emissive via onBeforeCompile; gold glows a little); stars and a low moon follow the camera. Villagers head home after dark and wait in their doorways. Menu: 🌗 Day and night on/off (saved), 🌙 Jump to night / ☀ Jump to morning. Fix (Tatum): right-drag and two-finger pan had up/down reversed, and W/S panned backwards; pan now follows the hand on both axes.
+- v1.5 2026-10-13: Lanterns. New Lantern block (14, in the palette, no number key) glows amber after dark (glow 1.7 → its own orange emissive in the shader) with a soft additive halo (one Points object, rebuilt from M in build()). Lamp post stamp (6th stamp: two wood, a lantern, a tiled peak cap; ghost is a small hex round the cell). The starter cottage gets lamp posts either side of its path (hutLamps: flat cells 3-4 out; 1 on seed 20261013, 2 on others). Lanterns hugging the cottage walls looked like glowing earmuffs, so cottages themselves don't get any. Wick's spot and the camera are remembered (localStorage 'wedgewick-v1-spot', per seed, saved every 1.5 s and on pagehide); a refresh drops you back where you were, walking if you were (Tatum asked). Smaller moon.
 
 ## issues
 - Headless runs at ~5 fps with dt capped at .05, so the villager sim crawls there: test with __WG.stepVillagers(1/30, t) in a loop.
@@ -41,7 +42,8 @@ Never use Minecraft names, textures or assets: inspiration only. The name must n
 
 ## todos
 - Hamburglar's wishes first when they come back.
-- Clouds made of wedges, water you can place, lanterns along paths, a stargazing tower stamp.
+- Biomes (Tatum): other islands - snowy, desert, volcano, autumn - each its own terrain and trees from mostly existing blocks.
+- Clouds made of wedges, water you can place, a stargazing tower stamp.
 - More stamps: a bridge, a well, a windmill with turning sails, a lighthouse; a spiral stair inside the tower (blocks one layer apart, Wick jumps 1.2).
 - The 'blocks placed' chip counts every cell a stamp changed (896 after six stamps); maybe count stamps separately.
 - Save several islands; share an island as a code.
