@@ -83,6 +83,19 @@ button{font:inherit;color:inherit;cursor:pointer}
 #count{position:fixed;right:max(.8rem, env(safe-area-inset-right, 0px));top:calc(var(--top) + 3.1rem);font-size:.68rem;
   background:#fff7eacc;border-radius:8px;padding:.15rem .45rem;pointer-events:none}
 #count:empty{display:none}
+.tri em{position:absolute;right:-.15rem;bottom:-.1rem;min-width:1.05rem;padding:0 .2rem;border-radius:9px;background:var(--ink);color:var(--paper);
+  font:700 .58rem/1.05rem 'Spline Sans Mono',monospace;text-align:center;font-style:normal;pointer-events:none}
+.tri.none i{opacity:.28;filter:grayscale(.7)}
+.tri.got em{animation:got .35s ease-out}
+@keyframes got{40%{transform:scale(1.5);background:var(--clay)}}
+.tri.short{animation:short .3s}
+@keyframes short{25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+#toast{position:fixed;left:50%;bottom:calc(var(--bot) + 8.6rem);transform:translate(-50%,8px);background:var(--paper);color:var(--ink);
+  border:2px solid var(--ink);box-shadow:0 3px 0 var(--ink);font-size:.74rem;font-weight:700;padding:.4rem .8rem;border-radius:999px;
+  opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;max-width:calc(100vw - 1.5rem);text-align:center;z-index:12}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+@media (max-width:560px){#toast{bottom:calc(var(--bot) + 7.9rem);font-size:.7rem}}
+.fly{position:fixed;z-index:15;width:1.1rem;height:1.1rem;clip-path:polygon(50% 4%,98% 92%,2% 92%);background:var(--c);pointer-events:none}
 #walkBtn{position:fixed;right:calc(max(.8rem, env(safe-area-inset-right, 0px)) + 3.1rem);top:var(--top);height:2.6rem;border-radius:12px;
   border:2px solid var(--ink);background:#fff7eae6;box-shadow:0 3px 0 var(--ink);font-weight:700;font-size:.78rem;display:flex;align-items:center;gap:.35rem;padding:0 .7rem}
 #walkBtn b{font-size:1.05rem;font-weight:400}
@@ -144,6 +157,7 @@ body.walking #count{display:none}
   <button type="button" role="menuitem" id="mDN">🌗 Day and night: on</button>
   <button type="button" role="menuitem" id="mSkip">🌙 Jump to night</button>
   <button type="button" role="menuitem" id="mErupt" hidden>🌋 Wake the volcano</button>
+  <button type="button" role="menuitem" id="mBag">🎒 Gather mode: off</button>
   <button type="button" role="menuitem" id="mUndo">↶ Undo last block</button>
   <button type="button" role="menuitem" id="mNew">🏝 A new island</button>
   <button type="button" role="menuitem" id="mReset">↺ Put this island back as it was</button>
@@ -163,6 +177,7 @@ body.walking #count{display:none}
   <div class="row" id="stamps" aria-label="Stamps" hidden></div>
 </div>
 <div id="count" aria-hidden="true"></div>
+<div id="toast" aria-hidden="true"></div>
 <div id="bubble" hidden aria-hidden="true"><b></b><span></span></div>
 <div id="err" hidden role="alert"></div>
 <div class="sr" aria-live="polite" id="live"></div>
@@ -687,6 +702,58 @@ function save(now){
 }
 function applyEdits(){ for (const [c, v] of edits){ M[c] = v >> 4; S[c] = v & 15; } }
 
+/* ---------- gather mode: dig blocks into Wick's bag, build only with what is in it; the bag sails with you ---------- */
+const BAG = { on: false, n: {} };
+try {
+  const o = JSON.parse(localStorage.getItem(KEY + '-bag') || 'null');
+  if (o && typeof o === 'object'){ BAG.on = !!o.on; if (o.n && typeof o.n === 'object') for (const k in o.n) if (MATS[+k] && o.n[k] > 0) BAG.n[+k] = Math.min(9999, o.n[k] | 0); }
+} catch (e) {}
+let bagT = 0, toastT = 0;
+const bagSave = () => { clearTimeout(bagT); bagT = setTimeout(() => { try { localStorage.setItem(KEY + '-bag', JSON.stringify(BAG)); } catch (e) {} }, 300); };
+const inBag = m => BAG.n[m] | 0;
+function bagAdd(m, k){ BAG.n[m] = Math.min(9999, Math.max(0, inBag(m) + k)); if (!BAG.n[m]) delete BAG.n[m]; bagSave(); }
+/* what a change costs: +1 for every block that comes out, -1 for every block that goes in (lava is too hot to carry) */
+function bagDelta(list){
+  const d = {};
+  for (const [c, m0] of list){ const m1 = M[c]; if (m1 === m0) continue; if (m0 && m0 !== LAVA) d[m0] = (d[m0] | 0) + 1; if (m1 && m1 !== LAVA) d[m1] = (d[m1] | 0) - 1; }
+  return d;
+}
+const bagLack = d => Object.keys(d).filter(k => inBag(+k) + d[k] < 0).map(Number);
+function bagApply(d){ for (const k in d) if (d[k]) bagAdd(+k, d[k]); bagFresh(); }
+function toast(t){
+  const el = document.getElementById('toast'); el.textContent = t; el.classList.add('on'); say(t);
+  document.getElementById('hint').classList.add('gone');
+  clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove('on'), 2800);
+}
+/* the badges on the block buttons; a block you carried in from another island gets a button too */
+function bagFresh(pop){
+  countEl();
+  if (!BAG.on) return;
+  const have = new Set([...matsEl.querySelectorAll('.tri')].map(b => +b.dataset.m));
+  if (Object.keys(BAG.n).some(k => BAG.n[k] > 0 && !have.has(+k))){ buildPalette(); return; }
+  matsEl.querySelectorAll('.tri').forEach(b => {
+    const m = +b.dataset.m, n = inBag(m), em = b.querySelector('em');
+    if (em) em.textContent = n > 999 ? '999+' : n;
+    b.classList.toggle('none', !n);
+    b.setAttribute('aria-label', b.dataset.l + ', ' + n + ' in your bag');
+    if (m === pop){ b.classList.remove('got'); void b.offsetWidth; b.classList.add('got'); }
+  });
+}
+function bagShort(m){ const b = matsEl.querySelector('.tri[data-m="' + m + '"]'); if (b){ b.classList.remove('short'); void b.offsetWidth; b.classList.add('short'); } }
+/* a little triangle flies from where you dug into its button */
+function bagFly(m, px, py){
+  const b = matsEl.querySelector('.tri[data-m="' + m + '"]');
+  if (!b || matsEl.hidden || matchMedia('(prefers-reduced-motion:reduce)').matches){ bagFresh(m); return; }
+  b.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  const r = b.getBoundingClientRect(), f = document.createElement('i');
+  f.className = 'fly'; f.style.setProperty('--c', MATS[m].top); f.style.left = (px - 9) + 'px'; f.style.top = (py - 9) + 'px';
+  document.body.append(f);
+  const tx = r.left + r.width / 2 - px, ty = r.top + r.height / 2 - py;
+  const a = f.animate([{ transform: 'translate(0,0) rotate(0) scale(1.2)' }, { transform: 'translate(' + tx * .35 + 'px,' + (ty * .2 - 60) + 'px) rotate(200deg) scale(1)', offset: .4 },
+    { transform: 'translate(' + tx + 'px,' + ty + 'px) rotate(360deg) scale(.6)', opacity: .7 }], { duration: 560, easing: 'ease-in' });
+  a.onfinish = a.oncancel = () => { f.remove(); bagFresh(m); };
+}
+
 /* ---------- renderer ---------- */
 const cv = document.getElementById('cv');
 let renderer;
@@ -979,12 +1046,16 @@ function act(px, py, dig){
   const hit = pick(px, py); if (!hit) return;
   if (dig){
     const [, , , y] = unidx(hit.cell); if (y === 0) { say('That is the bottom of the world. Even triangles need a floor.'); return; }
-    const m = M[hit.cell]; setEdit(hit.cell, 0, 0); puff(hit.cell, m); sfx(m, true); say('Dug out ' + MATS[m].n.toLowerCase());
+    const m = M[hit.cell]; setEdit(hit.cell, 0, 0); puff(hit.cell, m); sfx(m, true);
+    if (!BAG.on) say('Dug out ' + MATS[m].n.toLowerCase());
+    else if (m === LAVA) toast('Too hot to carry. The lava fizzles away.');
+    else { bagAdd(m, 1); bagFly(m, px, py); say(MATS[m].n + ' in the bag: ' + inBag(m)); }
   } else if (shape === 3){
     if (!stampAt(hit)) return;
   } else {
     const t = target(hit); if (!t) return;
-    setEdit(t.c, matSel, t.sh); sfx(matSel, false); say('Placed ' + MATS[matSel].n.toLowerCase() + (t.sh ? (t.sh < 4 ? ' peak' : ' ramp') : ''));
+    if (BAG.on && !inBag(matSel)){ bagShort(matSel); toast('No ' + MATS[matSel].n.toLowerCase() + ' in your bag. Hold to dig some up.'); return; }
+    setEdit(t.c, matSel, t.sh); sfx(matSel, false); if (BAG.on){ bagAdd(matSel, -1); bagFresh(); } say('Placed ' + MATS[matSel].n.toLowerCase() + (t.sh ? (t.sh < 4 ? ' peak' : ' ramp') : ''));
   }
   ghost.visible = sghost.visible = false;
   if (++placed === 3) document.getElementById('hint').classList.add('gone');
@@ -992,7 +1063,7 @@ function act(px, py, dig){
 }
 const live = document.getElementById('live');
 let sayT = 0; function say(t){ clearTimeout(sayT); sayT = setTimeout(() => { live.textContent = t; }, 50); }
-const countEl = () => { let n = 0; for (const [, v] of edits) if (v) n++; document.getElementById('count').textContent = n ? n + (n === 1 ? ' block' : ' blocks') + ' placed' : ''; };
+const countEl = () => { if (BAG.on){ let t = 0; for (const k in BAG.n) t += BAG.n[k]; document.getElementById('count').textContent = '🎒 ' + (t ? t + ' in your bag' : 'empty bag'); return; } let n = 0; for (const [, v] of edits) if (v) n++; document.getElementById('count').textContent = n ? n + (n === 1 ? ' block' : ' blocks') + ' placed' : ''; };
 
 /* dust when you dig: a few little triangles that fall */
 const bits = [];
@@ -1101,18 +1172,20 @@ const matsEl = document.getElementById('mats');
 /* the shared blocks, then the island's own few */
 function buildPalette(){
   const list = [...PALETTE, ...BIOMES[BIOME].extra];
+  if (BAG.on) for (const k in BAG.n) if (BAG.n[k] > 0 && !list.includes(+k)) list.push(+k);
   if (!list.includes(matSel)) matSel = 1;
   matsEl.textContent = '';
   list.forEach((m, n) => {
     const b = document.createElement('button');
     b.type = 'button'; b.className = 'tri'; b.dataset.m = m; b.style.setProperty('--c', MATS[m].top);
-    b.setAttribute('aria-label', MATS[m].n + (n < 10 ? ' (key ' + ((n + 1) % 10) + ')' : '')); b.title = MATS[m].n;
-    b.setAttribute('aria-pressed', m === matSel); b.innerHTML = '<i></i>';
+    b.dataset.l = MATS[m].n + (n < 10 ? ' (key ' + ((n + 1) % 10) + ')' : ''); b.setAttribute('aria-label', b.dataset.l); b.title = MATS[m].n;
+    b.setAttribute('aria-pressed', m === matSel); b.innerHTML = '<i></i>' + (BAG.on ? '<em></em>' : '');
     b.addEventListener('click', () => selMat(m));
     matsEl.append(b);
   });
+  if (BAG.on) bagFresh();
 }
-function selMat(m){ matSel = m; setDig(false); matsEl.querySelectorAll('.tri').forEach(b => b.setAttribute('aria-pressed', +b.dataset.m === m)); say(MATS[m].n); }
+function selMat(m){ matSel = m; setDig(false); matsEl.querySelectorAll('.tri').forEach(b => b.setAttribute('aria-pressed', +b.dataset.m === m)); say(MATS[m].n + (BAG.on ? ', ' + inBag(m) + ' in your bag' : '')); }
 function setShape(n){
   shape = n; setDig(false); document.querySelectorAll('.sh').forEach(b => b.setAttribute('aria-pressed', +b.dataset.shape === n));
   matsEl.hidden = n === 3; document.getElementById('stamps').hidden = n !== 3;
@@ -1124,6 +1197,13 @@ function setDig(on){ digMode = on; digBtn.setAttribute('aria-pressed', on); }
 digBtn.addEventListener('click', () => setDig(!digMode));
 function doUndo(){
   const u = undo.pop(); if (!u) return;
+  if (BAG.on){
+    const d = {};
+    for (const [c, m0] of u){ const m1 = M[c]; if (m1 === m0) continue; if (m1 && m1 !== LAVA) d[m1] = (d[m1] | 0) + 1; if (m0 && m0 !== LAVA) d[m0] = (d[m0] | 0) - 1; }
+    const lack = bagLack(d);
+    if (lack.length){ undo.push(u); bagShort(lack[0]); toast('Can\u2019t undo that: the ' + MATS[lack[0]].n.toLowerCase() + ' already left your bag.'); return; }
+    bagApply(d);
+  }
   for (const [c, m, sh] of u){ M[c] = m; S[c] = sh; edits.set(c, (m << 4) | sh); }
   if (u.home) removeHome(u.home);
   save(); build(); countEl(); if (WK.on) unstick();
@@ -1155,8 +1235,19 @@ function stampAt(hit){
   const M0 = M.slice(), S0 = S.slice();
   if (!stampBuild(stampSel, sp.i, sp.j, sp.g, sp.u)){ say('No room up here for a whole ' + st.n.toLowerCase() + '. Try lower down.'); return false; }
   const grp = [];
-  for (let c = 0; c < NC; c++) if (M[c] !== M0[c] || S[c] !== S0[c]){ grp.push([c, M0[c], S0[c]]); edits.set(c, (M[c] << 4) | S[c]); }
+  for (let c = 0; c < NC; c++) if (M[c] !== M0[c] || S[c] !== S0[c]) grp.push([c, M0[c], S0[c]]);
   if (!grp.length) return false;
+  /* gather mode: a stamp is a blueprint, built from your bag; whatever it clears goes into the bag */
+  if (BAG.on){
+    const d = bagDelta(grp), lack = bagLack(d);
+    if (lack.length){
+      M.set(M0); S.set(S0); bagShort(lack[0]);
+      toast('A ' + st.n.toLowerCase() + ' needs ' + lack.map(k => (-d[k] - inBag(k)) + ' more ' + MATS[k].n.toLowerCase()).join(', ') + '.');
+      return false;
+    }
+    bagApply(d);
+  }
+  for (const [c] of grp) edits.set(c, (M[c] << 4) | S[c]);
   undo.push(grp); if (undo.length > 200) undo.shift();
   save(); build(); if (WK.on) unstick();
   if (st.home) grp.home = addHome(sp, stampSel);
@@ -1176,6 +1267,15 @@ const sndLabel = () => { mSound.textContent = soundOn ? '🔊 Sound: on' : '🔇
 sndLabel();
 mSound.addEventListener('click', () => { soundOn = !soundOn; try { localStorage.setItem(KEY + '-snd', soundOn ? '1' : '0'); } catch (e) {} sndLabel(); });
 document.getElementById('mUndo').addEventListener('click', () => { doUndo(); openMenu(false); });
+const mBag = document.getElementById('mBag');
+const bagLabel = () => { mBag.textContent = '🎒 Gather mode: ' + (BAG.on ? 'on' : 'off'); };
+bagLabel();
+mBag.addEventListener('click', () => {
+  BAG.on = !BAG.on; bagSave(); bagLabel(); buildPalette(); countEl(); openMenu(false); setDig(false); undo = [];
+  if (!BAG.on) toast('Free building again. Your bag waits for you.');
+  else if (Object.keys(BAG.n).length) toast('Gather mode. Your bag is just as you left it.');
+  else toast('Gather mode: your bag is empty. Hold to dig blocks into it, then build with what you carry.');
+});
 const mDN = document.getElementById('mDN'), mSkip = document.getElementById('mSkip');
 const dnLabel = () => { mDN.textContent = DN.on ? '🌗 Day and night: on' : '🌗 Day and night: off'; mSkip.textContent = NIGHT.value > .5 ? '☀ Jump to morning' : '🌙 Jump to night'; };
 dnLabel();
