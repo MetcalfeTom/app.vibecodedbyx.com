@@ -83,6 +83,7 @@
       .error { color: #b00020; font-weight: 600; font-size: 0.9rem; }
       .success { color: #056608; font-weight: 600; font-size: 0.9rem; }
       #submitMsg:empty { display: none; }
+      .stamp { margin: -4px 0 0; font: 0.68rem/1 ui-monospace, Menlo, monospace; opacity: 0.55; }
 
       /* touch controls */
       .touch-controls { position: fixed; bottom: 18px; right: 20px; display: none; gap: 10px; pointer-events: none; }
@@ -123,7 +124,7 @@
       <div class="card" role="dialog" aria-modal="true" aria-labelledby="cardTitle">
         <h1 id="cardTitle">Springfield Road Rush</h1>
         <p id="cardLede">Grab donuts before your shift ends. Every donut buys two more seconds. Buses hurt.</p>
-        <p class="keys" id="keysHint">WASD or arrows to drive · Space for turbo · brake while turning to drift</p>
+        <p class="keys" id="keysHint">WASD or arrows to drive · S brakes, then backs up · Space for turbo · brake while turning to drift</p>
         <form class="save" id="submitCard" hidden>
           <input id="playerName" maxlength="24" placeholder="Your name" aria-label="Your name" autocomplete="nickname" />
           <button id="submitScoreBtn" type="submit">Save</button>
@@ -135,6 +136,7 @@
           <p class="muted" id="lbStatus">Loading…</p>
           <div id="leaderboard" class="leaderboard-list"></div>
         </div>
+        <p class="stamp" id="buildstamp" role="note" aria-label="Build information">v2.1 · 2026-10-13</p>
       </div>
     </div>
 
@@ -279,6 +281,9 @@
       const road = buildRoadNetwork();
       world.add(road);
 
+      // everything solid the car can bump into: boxes {x0,x1,z0,z1} and round towers {cx,cz,r}; the edge of town is a wall too
+      const solids = [[197, 400, -400, 400], [-400, -197, -400, 400], [-400, 400, 197, 400], [-400, 400, -400, -197]]
+        .map(([x0, x1, z0, z1]) => ({ x0, x1, z0, z1, edge: true }));
       const buildings = buildBuildings();
       world.add(buildings);
 
@@ -337,7 +342,7 @@
       const startBtn = document.getElementById('startBtn');
       const timeChip = document.getElementById('timeChip');
       if (matchMedia('(hover: none)').matches) {
-        document.getElementById('keysHint').textContent = 'Left pad drives · ▲ turbo · ⭕ brake (brake + turn to drift) · ⟳ back to start';
+        document.getElementById('keysHint').textContent = 'Left pad drives · ▲ turbo · ⭕ brake, then back up (brake + turn to drift) · ⟳ back to start';
       }
       let toastTimer = 0;
       function toast(text) {
@@ -403,6 +408,7 @@
           o.start(t); o.stop(t + len + 0.02);
         });
       }
+      const thud = (v) => blip([90, 55], 'sine', 0.2, 0.1 + 0.22 * v, 0.05);
       const chomp = (combo) => blip([660 * Math.pow(1.06, Math.min(combo, 12)), 990 * Math.pow(1.06, Math.min(combo, 12))], 'square', 0.09, 0.12, 0.06);
       function honk() {
         if (!sfx.ac) return;
@@ -428,6 +434,8 @@
         donutsGroup.clear();
         populateDonuts();
         resetCar();
+        car.boosting = false;
+        state.shake = 0;
         camera.position.set(0, 8, -13);
         orbit.target.set(0, 2.5, 0);
         orbit.autoRotate = false;
@@ -449,7 +457,7 @@
         Object.keys(keyState).forEach((k) => (keyState[k] = false));
         document.getElementById('cardTitle').textContent = 'Shift over!';
         document.getElementById('cardLede').textContent =
-          state.donuts > 0 ? `${state.donuts} donut${state.donuts === 1 ? '' : 's'} delivered · best combo ${state.bestCombo}` : 'Not a single donut? Homer would be ashamed.';
+          state.donuts > 0 ? `${state.donuts} donut${state.donuts === 1 ? '' : 's'} delivered · best combo ${state.bestCombo}` : 'Not a single donut? The donut shop is heartbroken.';
         document.getElementById('keysHint').hidden = true;
         document.getElementById('submitMsg').textContent = '';
         submitCard.hidden = state.donuts <= 0;
@@ -469,6 +477,9 @@
         saved: false,
         gameOverShown: false,
         skidTimer: 0,
+        t: 0,
+        shake: 0,
+        lastThud: -9,
         endedAt: -1e9,
       };
 
@@ -722,6 +733,7 @@
           mesh.castShadow = true;
           mesh.receiveShadow = true;
           group.add(mesh);
+          solids.push({ x0: pos.x - width / 2, x1: pos.x + width / 2, z0: pos.z - depth / 2, z1: pos.z + depth / 2 });
 
           if (idx % 12 === 0) {
             const billboard = new THREE.Mesh(new THREE.BoxGeometry(width * 0.6, height * 0.4, 1), textures.nuclear);
@@ -737,6 +749,7 @@
             new THREE.MeshStandardMaterial({ color: 0xd0d0d0, roughness: 0.6 })
           );
           tower.position.set(-40 + i * 20, 14, -80);
+          solids.push({ cx: -40 + i * 20, cz: -80, r: 6.4 });
           tower.castShadow = true;
           tower.receiveShadow = true;
           plantTowers.add(tower);
@@ -788,13 +801,37 @@
             frost.position.z = side * 0.16;
             donut.add(frost);
           });
-          const angle = Math.random() * Math.PI * 2;
-          const radius = THREE.MathUtils.randFloat(20, 140);
-          donut.position.set(Math.cos(angle) * radius, 2.4, Math.sin(angle) * radius);
+          const spot = pickDonutSpot();
+          donut.position.set(spot.x, 2.4, spot.z);
           donut.rotation.y = Math.random() * Math.PI * 2;
           donut.userData.phase = Math.random() * 6.28;
           donutsGroup.add(donut);
         }
+      }
+
+      // true when a spot is at least `margin` away from every building, tower and the edge of town
+      function freeSpot(x, z, margin) {
+        return !solids.some((o) => o.r !== undefined
+          ? Math.hypot(x - o.cx, z - o.cz) < o.r + margin
+          : x > o.x0 - margin && x < o.x1 + margin && z > o.z0 - margin && z < o.z1 + margin);
+      }
+      // most donuts sit on the two roads, the rest on the open lots beside them; never in a wall, never in a clump
+      function pickDonutSpot() {
+        const R = THREE.MathUtils.randFloat;
+        for (let tries = 0; tries < 300; tries++) {
+          let x, z;
+          if (Math.random() < 0.7) {
+            const along = (Math.random() < 0.5 ? -1 : 1) * R(18, 182), lat = R(-7, 7);
+            if (Math.random() < 0.5) { x = along; z = lat; } else { x = lat; z = along; }
+          } else {
+            x = (Math.random() < 0.5 ? -1 : 1) * R(17, 44);
+            z = R(-182, 182);
+          }
+          if (!freeSpot(x, z, 3.5)) continue;
+          if (donutsGroup.children.some((d) => (d.position.x - x) ** 2 + (d.position.z - z) ** 2 < 81)) continue;
+          return { x, z };
+        }
+        return { x: R(-180, 180), z: R(-6, 6) };
       }
 
       function spinDonuts(delta, t) {
@@ -881,67 +918,165 @@
         if (state.playing) toast("Back on the road!");
       }
 
-      function updateCar(delta) {
-        const forward = new THREE.Vector3(Math.sin(car.heading), 0, Math.cos(car.heading));
-        const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0));
+      // ---- driving: runs in small steps (at most 1/60 s) and every rate is per second, so it feels the same at any frame rate ----
+      const TOP_SPEED = 60, TURBO_SPEED = 74, REVERSE_SPEED = 16;
+      const CAR_R = 1.45, CAR_OFF = 1.1; // for bumping, the car is two circles: nose and tail
+      const fwdV = new THREE.Vector3(), rightV = new THREE.Vector3(), upV = new THREE.Vector3(0, 1, 0), wantV = new THREE.Vector3(), lastGood = new THREE.Vector3();
+      function updateCar(h) {
+        const forward = fwdV.set(Math.sin(car.heading), 0, Math.cos(car.heading));
+        const gas = !!(keyState["ArrowUp"] || keyState["KeyW"]);
+        const back = !!(keyState["ArrowDown"] || keyState["KeyS"]);
+        const boosting = !!keyState["Space"];
+        const steer = (keyState["ArrowLeft"] || keyState["KeyA"] ? 1 : 0) - (keyState["ArrowRight"] || keyState["KeyD"] ? 1 : 0);
+        const turningActive = steer !== 0;
+        const brakingActive = back && car.speed > 0.5;
 
-        // More punchy acceleration and much stronger braking
-        const accel = keyState["ArrowUp"] || keyState["KeyW"] ? 80 : 0;
-        const brake = keyState["ArrowDown"] || keyState["KeyS"] ? 120 : 0;
-        const boost = keyState["Space"] ? 12 : 0;
-        const brakingActive = brake > 0;
+        let s = car.speed;
+        const top = boosting ? TURBO_SPEED : TOP_SPEED;
+        if (gas || boosting) {
+          if (s < 0) s = Math.min(0, s + 50 * h); // rolling backwards: the gas brakes first
+          else s += (boosting ? 38 : 26) * Math.max(0, 1 - (s / top) * (s / top)) * h;
+        }
+        if (back) {
+          if (s > 0.5) s = Math.max(0, s - (turningActive ? 18 : 48) * h); // softer while turning, so drifts keep sliding
+          else s = Math.max(-REVERSE_SPEED, s - 20 * h); // stopped: back up
+        }
+        if (!gas && !boosting && !back) { // hands off: roll to a stop
+          const d = (4 + 0.05 * Math.abs(s)) * h;
+          s = Math.abs(s) <= d ? 0 : s - Math.sign(s) * d;
+        }
+        if (s > top) s = top + (s - top) * Math.exp(-1.5 * h); // turbo let go: ease back down
+        car.speed = s;
 
-        const turn = (keyState["ArrowLeft"] || keyState["KeyA"] ? 1 : 0) - (keyState["ArrowRight"] || keyState["KeyD"] ? 1 : 0);
-        // Turning state used in both yaw and drift sections
-        const turningActive = (keyState["ArrowLeft"] || keyState["KeyA"] || keyState["ArrowRight"] || keyState["KeyD"]);
+        // steering needs rolling wheels (no spinning on the spot), and backing up steers the other way
+        let turnGain = THREE.MathUtils.lerp(4.1, 2.0, Math.min(1, Math.abs(s) / TOP_SPEED));
+        if (brakingActive && turningActive) turnGain *= 1.6;
+        const rolling = Math.min(1, Math.abs(s) / 9) * (s < 0 ? -1 : 1);
+        const headingBefore = car.heading;
+        lastGood.copy(car.mesh.position);
+        car.heading = THREE.MathUtils.euclideanModulo(car.heading + steer * turnGain * rolling * h, Math.PI * 2);
+        forward.set(Math.sin(car.heading), 0, Math.cos(car.heading));
+        const right = rightV.crossVectors(forward, upV);
 
-        const topSpeed = 60;
-        const targetSpeed = Math.max(0, Math.min(topSpeed, car.speed + (accel + boost - brake) * delta));
-        // Snappier response towards target speed
-        car.speed = THREE.MathUtils.damp(car.speed, targetSpeed, 9.0, delta);
-
-        // Smaller base turn radius; much tighter when braking (handbrake feel)
-        const speedNorm = Math.min(1, car.speed / topSpeed);
-        let turnGain = THREE.MathUtils.lerp(4.1, 2.0, speedNorm); // slightly reduced base turn rate
-        if (brakingActive && turningActive) turnGain *= 1.6; // toned-down extra yaw while braking
-        car.heading += turn * delta * turnGain;
-        car.heading = THREE.MathUtils.euclideanModulo(car.heading, Math.PI * 2);
-
-        // Drifting: when braking while turning, reduce traction so velocity doesn't align with heading quickly
-        const desiredVel = forward.clone().multiplyScalar(car.speed);
-        const gripRate = (brakingActive && turningActive) ? 1.6 : 6.5; // lower = more slide; stronger drift when braking
-        const lerpT = 1 - Math.exp(-gripRate * delta);
-        car.velocity.lerp(desiredVel, lerpT);
-        const movement = car.velocity.clone().multiplyScalar(delta);
-        car.mesh.position.add(movement);
+        // drifting: brake while turning and the tyres let go, so the car keeps sliding the old way for a moment
+        const gripRate = brakingActive && turningActive ? 1.6 : 6.5;
+        car.velocity.lerp(wantV.copy(forward).multiplyScalar(s), 1 - Math.exp(-gripRate * h));
+        // move in slices of under half a unit, so a fast car can't poke its nose past the corners into a gap narrower than itself
+        const slices = Math.max(1, Math.ceil(car.velocity.length() * h / 0.45));
+        for (let j = 0; j < slices; j++) {
+          car.mesh.position.addScaledVector(car.velocity, h / slices);
+          collideCar(forward);
+        }
+        // squeezed somewhere it can't fit (turning in a gap shorter than the car): undo this step instead of sinking into a wall
+        if (carOverlap(forward) > 0.15) {
+          car.mesh.position.copy(lastGood);
+          car.heading = headingBefore;
+          forward.set(Math.sin(car.heading), 0, Math.cos(car.heading));
+          right.crossVectors(forward, upV);
+          car.velocity.multiplyScalar(-0.2);
+          car.speed *= -0.2;
+        }
         car.mesh.rotation.y = car.heading;
+        car.boosting = boosting;
 
-        // Visual skid marks when drifting (brake + turn + slip)
-        state.skidTimer -= delta;
+        // skid marks while drifting
+        state.skidTimer -= h;
         if (brakingActive && turningActive && car.velocity.length() > 1) {
-          const velDir = car.velocity.clone().normalize();
-          const slip = 1 - Math.max(-1, Math.min(1, velDir.dot(forward.clone().normalize())));
+          const slip = 1 - Math.max(-1, Math.min(1, wantV.copy(car.velocity).normalize().dot(forward)));
           if (slip > 0.12 && state.skidTimer <= 0) {
             spawnSkidMarks(car.mesh.position, forward, right, car.heading, Math.min(1, slip * 2));
-            state.skidTimer = 0.045; // throttle spawning
+            state.skidTimer = 0.045;
           }
         }
+      }
 
-        car.mesh.position.x = THREE.MathUtils.clamp(car.mesh.position.x, -190, 190);
-        car.mesh.position.z = THREE.MathUtils.clamp(car.mesh.position.z, -190, 190);
+      // push the car out of anything solid: a head-on hit stops it with a little bounce, a glancing one slides along the wall
+      // how deep the car (nose and tail circles) sits inside anything; 0 when it is clear
+      function carOverlap(forward) {
+        const p = car.mesh.position;
+        let worst = 0;
+        for (let c = 0; c < 2; c++) {
+          const cx = p.x + forward.x * (c ? -CAR_OFF : CAR_OFF), cz = p.z + forward.z * (c ? -CAR_OFF : CAR_OFF);
+          for (let i = 0; i < solids.length; i++) {
+            const o = solids[i];
+            let d;
+            if (o.r !== undefined) d = o.r + CAR_R - Math.hypot(cx - o.cx, cz - o.cz);
+            else if (cx > o.x0 && cx < o.x1 && cz > o.z0 && cz < o.z1) d = CAR_R + 1;
+            else d = CAR_R - Math.hypot(cx - Math.max(o.x0, Math.min(cx, o.x1)), cz - Math.max(o.z0, Math.min(cz, o.z1)));
+            if (d > worst) worst = d;
+          }
+        }
+        return worst;
+      }
 
-        // car.velocity already updated via drift model
+      function collideCar(forward) {
+        const p = car.mesh.position, v = car.velocity;
+        let worst = 0, hx = 0, hz = 0;
+        for (let pass = 0, touched = true; pass < 3 && touched; pass++) {
+          touched = false;
+          for (let c = 0; c < 2; c++) {
+            const off = c ? -CAR_OFF : CAR_OFF;
+            for (let i = 0; i < solids.length; i++) {
+              const o = solids[i];
+              const cx = p.x + forward.x * off, cz = p.z + forward.z * off;
+              let nx, nz, pen;
+              if (o.r !== undefined) {
+                const dx = cx - o.cx, dz = cz - o.cz, d = Math.hypot(dx, dz);
+                if (d >= o.r + CAR_R) continue;
+                if (d > 1e-6) { nx = dx / d; nz = dz / d; } else { nx = 1; nz = 0; }
+                pen = o.r + CAR_R - d;
+              } else {
+                if (cx < o.x0 - CAR_R || cx > o.x1 + CAR_R || cz < o.z0 - CAR_R || cz > o.z1 + CAR_R) continue;
+                const dx = cx - Math.max(o.x0, Math.min(cx, o.x1)), dz = cz - Math.max(o.z0, Math.min(cz, o.z1));
+                const d = Math.hypot(dx, dz);
+                if (d > 1e-6) {
+                  if (d >= CAR_R) continue;
+                  nx = dx / d; nz = dz / d; pen = CAR_R - d;
+                } else { // the circle's centre got inside: leave by the nearest side
+                  const l = cx - o.x0, r = o.x1 - cx, b = cz - o.z0, t = o.z1 - cz, m = Math.min(l, r, b, t);
+                  nx = m === l ? -1 : m === r ? 1 : 0;
+                  nz = nx ? 0 : m === b ? -1 : 1;
+                  pen = m + CAR_R;
+                }
+              }
+              p.x += nx * pen;
+              p.z += nz * pen;
+              touched = true;
+              const vn = v.x * nx + v.z * nz;
+              if (vn < 0) {
+                const k = -vn > 6 ? 1.25 : 1; // a real hit bounces back a little, a scrape just slides
+                v.x -= nx * vn * k;
+                v.z -= nz * vn * k;
+                car.speed -= k * vn * (forward.x * nx + forward.z * nz);
+                if (-vn > worst) { worst = -vn; hx = cx - nx * CAR_R; hz = cz - nz * CAR_R; }
+              }
+            }
+          }
+        }
+        if (worst > 0) onWallHit(worst, hx, hz);
+      }
 
-        camera.position.lerp(
-          car.mesh.position
-            .clone()
-            .add(new THREE.Vector3(Math.sin(car.heading) * -12, 7 + boost * 0.1, Math.cos(car.heading) * -12)),
-          0.08
-        );
-        orbit.target.lerp(car.mesh.position.clone().add(new THREE.Vector3(0, 2.5, 0)), 0.12);
+      function onWallHit(impact, x, z) {
+        if (impact < 7 || state.t - state.lastThud < 0.3) return;
+        state.lastThud = state.t;
+        thud(Math.min(1, impact / 40));
+        if (!calmMotion) state.shake = Math.max(state.shake, Math.min(0.9, impact / 45));
+        spawnDustEffect(new THREE.Vector3(x, -0.6, z));
+        if (impact > 30) toast("Bonk! 🧱");
+      }
 
-        speedEl.textContent = Math.round(car.speed).toString();
-        engineTick(car.speed, boost > 0, true);
+      const camWant = new THREE.Vector3(), camLook = new THREE.Vector3();
+      const calmMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+      function updateCamera(dt) {
+        const p = car.mesh.position;
+        camWant.set(p.x - Math.sin(car.heading) * 12, 7 + (car.boosting ? 1.2 : 0), p.z - Math.cos(car.heading) * 12);
+        camera.position.lerp(camWant, 1 - Math.exp(-5 * dt));
+        orbit.target.lerp(camLook.set(p.x, 2.5, p.z), 1 - Math.exp(-7.7 * dt));
+        if (state.shake > 0.01) {
+          camera.position.x += (Math.random() - 0.5) * state.shake;
+          camera.position.y += (Math.random() - 0.5) * state.shake;
+          state.shake *= Math.exp(-9 * dt);
+        } else state.shake = 0;
       }
 
       function updateTraffic(delta) {
@@ -955,7 +1090,7 @@
       function checkCollisions(delta) {
         const carPos = car.mesh.position;
         donutsGroup.children.slice().forEach((donut) => {
-          if (donut.position.distanceTo(carPos) < 3) {
+          if (Math.hypot(donut.position.x - carPos.x, donut.position.z - carPos.z) < 3) {
             donutsGroup.remove(donut);
             state.donuts += 1;
             chomp(state.combo);
@@ -970,7 +1105,7 @@
           if (bus.position.distanceTo(carPos) < 4.5) {
             if (car.speed > 4 && clock.elapsedTime - (state.lastHonk || -9) > 1.2) { honk(); state.lastHonk = clock.elapsedTime; }
             car.speed *= 0.4;
-            if (state.combo || car.speed > 4) toast("D'oh! Watch the buses");
+            if (state.combo || car.speed > 4) toast("Honk! Watch the buses");
             state.combo = 0;
             spawnDustEffect(bus.position);
           }
@@ -1057,10 +1192,12 @@
         }
       }
 
-      function animate() {
-        const delta = Math.min(clock.getDelta(), 0.033);
+      // one frame of the game. dt is real time (clamped to 1/8 s, so only a stall or a hidden tab is skipped);
+      // the shift clock and the car keep their pace down to 8 fps. Physics runs in steps of at most 1/60 s.
+      function frame(dt) {
+        state.t += dt;
         if (state.playing) {
-          elapsed += delta;
+          elapsed += dt;
           const timeLeft = Math.max(0, TOTAL_TIME - elapsed);
           timerEl.textContent = timeLeft < 10 ? timeLeft.toFixed(1) : Math.ceil(timeLeft);
           timeChip.classList.toggle('low', timeLeft < 10);
@@ -1070,15 +1207,25 @@
         }
 
         if (state.playing) {
-          updateCar(delta);
-          updateTraffic(delta);
-          checkCollisions(delta);
-          updateDust(delta);
-          updateSkids(delta);
+          const n = Math.max(1, Math.ceil(dt * 60 - 1e-6)), h = dt / n;
+          for (let i = 0; i < n; i++) {
+            updateCar(h);
+            updateTraffic(h);
+            checkCollisions(h);
+          }
+          updateDust(dt);
+          updateSkids(dt);
           resetIfOutOfBounds();
+          updateCamera(dt);
+          speedEl.textContent = Math.round(Math.abs(car.speed)).toString();
+          engineTick(Math.abs(car.speed), car.boosting, true);
         }
 
-        spinDonuts(delta, clock.elapsedTime);
+        spinDonuts(dt, state.t);
+      }
+
+      function animate() {
+        frame(Math.min(clock.getDelta(), 0.125));
         orbit.update();
         renderer.render(scene, camera);
         requestAnimationFrame(animate);
