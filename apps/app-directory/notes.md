@@ -1,6 +1,7 @@
 # App Directory
 
 ## log
+- 2026-10-13 18:49 UTC: plainer per hamburglar06 18:49 'let's not make it fancy': dropped the ring pulse and the row slide-in; kept the eased whole-turn spin and the dim-while-reading list.
 - 2026-10-13 18:49 UTC: refresh animation: each turn of the ↻ eases in and settles (cubic-bezier .55,0,.3,1, 0.75 s), it always stops on a whole turn (stop on animationiteration, 1.6 s fallback), an amber ring pulses out when done, and the rows dim while it reads (ol.hd-wait) then slide in staggered (ol.hd-in). Reduced motion: no spin/pulse/slide. Probe gl6.js samples the angle (hamburglar06 18:47).
 - 2026-10-13 18:44 UTC: ↻ glyph sits in its own span.hd-rf-g that spins (the box stays still) and is 1.25rem, a touch bigger than the ✕ (hamburglar06 18:43).
 - 2026-10-13 18:40 UTC: fix: the ✕ handler was bound with querySelector('.hd-x'), which now found the ↻ first (it shares the class), so ↻ closed the window and ✕ did nothing; bound to .hd-x:not(.hd-rf). Probe gl4.js checks both buttons (hamburglar06 18:39).
