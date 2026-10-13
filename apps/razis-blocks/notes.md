@@ -27,10 +27,22 @@ Credit line "idea by Flax" on the title card. Never use Tetris branding or music
   - Title: dropped the one-line controls text (now in the popup); boosters legend stays.
   - Tests: rz5.js (open on first PLAY, backdrop/Esc/✕ close, pause path, keys ignored), tt5.json real touch scroll inside the popup reaches the bottom (#ui has touch-action:none, .hcard sets pan-y), shots at 390x844 (top + scrolled) and 1280x800; rz2 bots unchanged, 0 errors. rz4.js = forced top-out run-over card.
 
+- v5 (2026-10-13 09:44 UTC): ONLINE LEADERBOARD (Flax, chat 09:27: "razi needs a leaderboard").
+  - Supabase table `razis_scores` (id bigserial, name text, score int, lines int, level int + auto user_id/created_at/updated_at; default RLS: everyone reads, you write only your own rows; indexes score, user_id). Stored per row: the display name, score, lines, level. Nothing else.
+  - Loading: dynamic import of the app's own copy `/razis-blocks/supabase-config-fixed.js` (same file as bracket-link/black-hole-billiards, never edit or print it), falling back to `/supabase-config.js`; default client or supabaseSession().client; 15 s timeouts; a failed load is retried next time (lbMod/lbSess/lbClient, same pattern as bracket-link v2.0).
+  - Game over (gameOver -> lbGameOver, wrapped in try/catch): score > 0 is capped (lbCap: whole number, <= 5000 + lines x 200000, <= 99,999,999) and inserted only when it beats your own best since Monday 00:00 UTC (keeps the table small). Then the run-over card shows the board inline: ALL TIME / THIS WEEK tabs, top 10 = best row per player (ties to the earlier run), your row highlighted in acid yellow, your rank with a ⋯ row when you are below 10, a status line (posted + ranks / your weekly best is higher / offline + RETRY).
+  - Names: Twitch users show their Twitch name (user_metadata preferred_username, max 25). Anonymous players post as RUNNER-xxx (first 3 chars of the user id) and get a name box on the run-over card until they pick one (max 16, control/zero-width/<> stripped, localStorage `razis-name`); ✎ NAME renames later and updates their own rows. Names are only ever rendered with textContent.
+  - Reads are checked too (lbOk: integers, score within lbCap, level == floor(lines/10)+1, non-empty name), so junk rows are skipped.
+  - 🏆 TOP 10 button next to BEST on the title card opens #lbov (same panel moved between #lbSlot and #lbHome); ✕ / Esc / backdrop close; game keys ignored while it is open or while typing in the name box.
+  - Run-over card now scrolls (max-height 100%) with a sticky AGAIN button, so AGAIN stays on screen on short phones. Fixed: the COPY SCORE fallback textarea was always visible (.shtx display:block beat [hidden]).
+  - Tests (fake supabase module, *.supabase.co + jsdelivr blackholed, no real writes): insert payload, weekly-best skip, cap (5e9 at 3 lines -> 605000), score 0 posts nothing, offline + RETRY, module missing, Twitch name, rename + cleaning, HTML name renders as text, junk rows filtered, week tab, keys still move/drop/pause, 0 page errors. Shots 390x844, 375x667, 1280x800.
+
 ## issues
+- Leaderboard scores come from the browser, so they can be faked (and players can update their own rows). Accepted for a client-side game: the client caps scores and skips implausible rows on read, nothing more.
 - Flax read HOLD as "hold to drop": keep the stash label + the SOFT/DROP buttons.
 
 ## todos
+- leaderboard: not yet seen with a real insert, a real Twitch session or on a real phone. Ask Flax how the board feels and whether he wants a daily board or a name shown on the title.
 - difficulty: gravity 0.85 s x 0.82^(level-1), floor 0.04 s at level 16; gentler than guideline at 10+. Ask Flax if late levels feel too easy/hard.
 - refresh og.png with boosters on the board (still the v1 shot)
 - real phone: hear the music on iPhone (silent switch mutes Web Audio), check the popup scroll
@@ -45,3 +57,4 @@ Credit line "idea by Flax" on the title card. Never use Tetris branding or music
 - Touch: razis/touchrun.sh <page> 390,844 <steps.json> [shot.png] drives real CDP touch events (cdptouch.py: tap/hold/drag/eval). tt3.json = hold/soft/drop/board-hold/tap/drag/flick check.
 - Audio: tt4.json (touchrun) with an analyser tap added to the test copy (window.__AUD); first tap must not hit the SOUND button.
 - Probe hm/rz2.js: unit tests (blast chain, bomb, laser, rainbow, overdrive) + bots with boosters. hm/rz1.js: greedy bot plays 2x400 pieces + a random bot tops out, then touch (tap/drag/flick/swipe) and key tests. v1: 0 errors, 158 lines per 400 pieces, game over works.
+- Leaderboard: $SP/razi (patch.py + lb.js applied to a fresh copy, build.py makes gaunt/sw/hm43/razi/t.html with ./fakedb.js in place of the config, t2.html with no module). run.sh <page> <WxH> <steps.json> [shot] on ports 8931/9391. Probes t1 (main), t3 (rename), t4 (no module), t8 (keys); shots t5/t6/t7.
