@@ -466,6 +466,24 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   garden reachable via the bridge, moat under the arch too. Budget golden 1280x720: tunnelOut 215/76, courtE
   269/127, aerialSW 280/116 (v1.26: 212/76, 265/125, 275/114). Phone 390x844 night: 112k/26 court, 196k/74 beds.
   0 JS errors.
+- 2026-10-13 22:11 UTC v1.28 (helper, step 3 of Flax's run): the way to the Karzer (Flax 19:30 couldn't find it).
+  kzPosts(): a fingerpost on the Universitätsplatz NE corner (-72.7,73.3; block -73,73 solid via ALT_COL) with one
+  arm east "Studentenkarzer / Hauptstraße · Augustinergasse", and a hanging sign on an iron bracket off the Karzer's
+  north wall over the Hauptstraße (-47.35, z 71.5..72.9, both faces, readable from both ends, arrows point into the
+  Augustinergasse). Arms are wegTex both sides (+z face dir 1, -z face dir -1, ry=atan2(-dz,dx)), emissive .3 so
+  they read at night. (A post at the gasse mouth hid half its arm behind the Karzer corner, so it became the hanging
+  sign.) Door lamp: a lantern hanging from a wall bracket right of the door (-46.62, T+2.12, 76.3), part of GLAMP
+  (lit with the castle lamps, pool at (-45.9,76.6) r 2); glampTick now also shows halo + pool within 70 of (-47,77).
+  Quest log karzSide: directions from the lion fountain (up to the Hauptstraße, right, past the Alte Uni, right into
+  the Augustinergasse, the door with the lamp); after the visit it hints at the stove cell; after painting it says
+  your name is on the wall. Cells: jug, tin cup, boots (A); red student cap + red/white/green sash on a peg (B);
+  beer stein on the table + chamber pot under the bed (C). Tiny quest "leave your mark": spot s_kzmark 'Paint the
+  bare patch' (cell A only: uniTick sets its .here from P), a plaster patch behind the stove (kzMarkBuild, canvas
+  plane at x -56.965, kzMat); painting draws a silhouette in a red cap + "Gast / <date> / 0 Tage", saves
+  localStorage 'hb-kzmark' (the date), plays kzBrush (3 bandpassed noise swishes), toast with Riegel shouting from
+  downstairs; the spot becomes 'Admire your mark'; Riegel's last line becomes "Somebody painted behind the stove
+  ... I saw nothing." Budget desktop night: fountain 296k/140, Hauptstraße 245k/125, door 170k/84; phone 390x844:
+  198k/76, 183k/89, 126k/44. 0 JS errors.
 
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
@@ -492,6 +510,8 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   carpet, hatch, clock, Perkeo all hang on those numbers; the south wall could move to z 98 now the back walk is there)
 - castle: only terrace 1 (the Kräutergarten, v1.27) has a way in; terraces 2-4 behind it are still for looking at
 - Ansgar ideas: he could sit on his stool with soup after his round; a 'don't tell Ansgar' mini quest
+- Karzer: the bare patch sits over a random graffiti tile (a silhouette shows round it); an OV entry for face
+  '-57,25,78,1' could give it a quieter tile. Player name on the mark instead of 'Gast' if the app ever gets names
 - optional firework bang sounds after a tap
 - real phone test of the touch stick + look; real GPU fps (v1.14 adaptive sharpness: ask phone users if it looks soft)
 - the monkey rub buttons still sit bottom-left on narrow phones (only near the monkey)
