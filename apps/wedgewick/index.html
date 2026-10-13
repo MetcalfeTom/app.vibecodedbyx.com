@@ -38,6 +38,8 @@ html,body{margin:0;height:100%;overflow:hidden;background:#f2d2a9;color:var(--in
   text-shadow:0 1px 0 #fff8,0 0 18px #fff6}
 .brand h1{margin:0;font:900 clamp(1.5rem,4.4vw,2.6rem)/.95 'Unbounded',sans-serif;letter-spacing:-.03em;color:var(--ink)}
 .brand h1 b{color:var(--clay)}
+body.night .brand{text-shadow:0 1px 0 #0009,0 0 18px #0007} body.night .brand h1{color:var(--paper)} body.night .brand p{color:#fff7eae0}
+.brand h1,.brand p{transition:color 1.2s}
 .brand p{margin:.35rem 0 0;font:300 .78rem/1.3 'Unbounded',sans-serif;max-width:20rem}
 .dock{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--bot) + .7rem);
   display:flex;flex-direction:column;align-items:center;gap:.45rem;max-width:calc(100vw - 1rem)}
@@ -122,6 +124,8 @@ body.walking #count{display:none}
 <button id="menuBtn" type="button" aria-label="Menu" aria-expanded="false" aria-controls="menu">≡</button>
 <div id="menu" hidden role="menu">
   <button type="button" role="menuitem" id="mSound">🔊 Sound: on</button>
+  <button type="button" role="menuitem" id="mDN">🌗 Day and night: on</button>
+  <button type="button" role="menuitem" id="mSkip">🌙 Jump to night</button>
   <button type="button" role="menuitem" id="mUndo">↶ Undo last block</button>
   <button type="button" role="menuitem" id="mNew">🏝 A new island</button>
   <button type="button" role="menuitem" id="mReset">↺ Put this island back as it was</button>
@@ -419,16 +423,18 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 const scene = new THREE.Scene();
 const HORIZON = new THREE.Color('#f4d6ae');
+const skyC = document.createElement('canvas'); skyC.width = 2; skyC.height = 256;
+const skyG = skyC.getContext('2d');
 {
-  const c = document.createElement('canvas'); c.width = 2; c.height = 256;
-  const g = c.getContext('2d'), gr = g.createLinearGradient(0, 0, 0, 256);
+  const gr = skyG.createLinearGradient(0, 0, 0, 256);
   gr.addColorStop(0, '#6fb0dc'); gr.addColorStop(.55, '#bcd9e6'); gr.addColorStop(.85, '#f4d6ae'); gr.addColorStop(1, '#f2c79a');
-  g.fillStyle = gr; g.fillRect(0, 0, 2, 256);
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; scene.background = t;
+  skyG.fillStyle = gr; skyG.fillRect(0, 0, 2, 256);
 }
+const skyTex = new THREE.CanvasTexture(skyC); skyTex.colorSpace = THREE.SRGBColorSpace; scene.background = skyTex;
 scene.fog = new THREE.Fog(HORIZON, 60, 150);
 const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, .1, 400);
-scene.add(new THREE.HemisphereLight('#e6f1ff', '#8a6a4a', 1.9));
+const hemi = new THREE.HemisphereLight('#e6f1ff', '#8a6a4a', 1.9);
+scene.add(hemi);
 const sun = new THREE.DirectionalLight('#ffe7c4', 2.6);
 sun.position.set(-22, 34, 16);
 sun.castShadow = true;
@@ -449,8 +455,69 @@ const seaY = (SEA + .78) * LH;
 const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
 let mesh = null, FC = null, FD = null, triCount = 0;
 const _c = new THREE.Color();
+
+/* ---------- day and night: the sun goes round, windows glow after dark, stars come out ---------- */
+const NIGHT = { value: 0 };
+mat.onBeforeCompile = sh => {
+  sh.uniforms.uNight = NIGHT;
+  sh.vertexShader = 'attribute float glow;\nvarying float vGlow;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vGlow = glow;');
+  sh.fragmentShader = 'uniform float uNight;\nvarying float vGlow;\n' + sh.fragmentShader.replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n  totalEmissiveRadiance += vGlow * uNight * vec3(1.0, .7, .36);');
+};
+const kf = (sky, sun, si, hs, hg, hi, glow, pos) => ({ sky: sky.map(c => new THREE.Color(c)), sun: new THREE.Color(sun), si, hs: new THREE.Color(hs), hg: new THREE.Color(hg), hi, glow, pos: new THREE.Vector3(...pos) });
+const K_DAY = kf(['#6fb0dc', '#bcd9e6', '#f4d6ae', '#f2c79a'], '#ffe7c4', 2.6, '#e6f1ff', '#8a6a4a', 1.9, 0, [-22, 34, 16]);
+const K_DUSK = kf(['#3b4f8f', '#c9708a', '#f2a36b', '#e8875a'], '#ff9a5c', 1.5, '#c9a0c0', '#5a3a3a', 1.2, .45, [-38, 12, 10]);
+const K_NIGHT = kf(['#0b1030', '#1c2452', '#2e3566', '#39406e'], '#9fb4ff', .8, '#5a6aa8', '#22223a', 1, 1, [20, 30, -14]);
+const K_DAWN = kf(['#5a6fae', '#e3a3b0', '#ffd3a0', '#f7c08e'], '#ffc9a0', 1.6, '#d8c8e8', '#6a5040', 1.3, .35, [36, 13, -6]);
+const KF = [[0, K_DAY], [.52, K_DAY], [.6, K_DUSK], [.67, K_NIGHT], [.87, K_NIGHT], [.94, K_DAWN], [1, K_DAY]];
+const CUR = kf(['#000', '#000', '#000', '#000'], '#000', 0, '#000', '#000', 0, 0, [0, 0, 0]);
+const DN = { on: true, p: 0, len: 380, skyAt: -1 };
+try { DN.on = localStorage.getItem(KEY + '-dn') !== '0'; } catch (e) {}
+function sampleDN(p){
+  let a = KF[0], b = KF[1];
+  for (let n = 0; n < KF.length - 1; n++) if (p >= KF[n][0] && p <= KF[n + 1][0]){ a = KF[n]; b = KF[n + 1]; break; }
+  const t = b[0] > a[0] ? (p - a[0]) / (b[0] - a[0]) : 0, A = a[1], B = b[1];
+  for (let k = 0; k < 4; k++) CUR.sky[k].copy(A.sky[k]).lerp(B.sky[k], t);
+  CUR.sun.copy(A.sun).lerp(B.sun, t); CUR.hs.copy(A.hs).lerp(B.hs, t); CUR.hg.copy(A.hg).lerp(B.hg, t);
+  CUR.si = A.si + (B.si - A.si) * t; CUR.hi = A.hi + (B.hi - A.hi) * t; CUR.glow = A.glow + (B.glow - A.glow) * t;
+  CUR.pos.copy(A.pos).lerp(B.pos, t).setLength(43);
+}
+const stars = (() => {
+  const P = [];
+  for (let n = 0; n < 420; n++){
+    const u = hsh(n, 1, 77), v = hsh(n, 2, 77), th = u * Math.PI * 2, ph = Math.acos(1 - v * .95);
+    P.push(Math.sin(ph) * Math.cos(th) * 190, Math.cos(ph) * 190, Math.sin(ph) * Math.sin(th) * 190);
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+  const s = new THREE.Points(g, new THREE.PointsMaterial({ color: '#fff8e6', size: 1.8, sizeAttenuation: false, transparent: true, opacity: 0, fog: false, depthWrite: false }));
+  s.visible = false; s.renderOrder = -1; scene.add(s); return s;
+})();
+const moon = new THREE.Mesh(new THREE.IcosahedronGeometry(7, 1), new THREE.MeshBasicMaterial({ color: '#f6f1dc', fog: false, transparent: true, opacity: 0 }));
+moon.visible = false; scene.add(moon);
+const MOON_DIR = new THREE.Vector3(-.5, .2, -.8).normalize();
+function applyDN(force){
+  sampleDN(DN.p);
+  sun.color.copy(CUR.sun); sun.intensity = CUR.si; sun.position.copy(CUR.pos);
+  hemi.color.copy(CUR.hs); hemi.groundColor.copy(CUR.hg); hemi.intensity = CUR.hi;
+  NIGHT.value = CUR.glow;
+  if ((CUR.glow > .5) !== document.body.classList.contains('night')) document.body.classList.toggle('night');
+  scene.fog.color.copy(CUR.sky[2]);
+  stars.material.opacity = Math.max(0, CUR.glow * 1.3 - .3); stars.visible = stars.material.opacity > .01;
+  moon.material.opacity = Math.max(0, CUR.glow * 1.4 - .4); moon.visible = moon.material.opacity > .01;
+  if (force || Math.abs(DN.p - DN.skyAt) > .0015){
+    DN.skyAt = DN.p;
+    skyG.fillStyle = (() => { const gr = skyG.createLinearGradient(0, 0, 0, 256); [0, .55, .85, 1].forEach((o, k) => gr.addColorStop(o, '#' + CUR.sky[k].getHexString(THREE.SRGBColorSpace))); return gr; })();
+    skyG.fillRect(0, 0, 2, 256); skyTex.needsUpdate = true;
+  }
+}
+function stepDN(dt){
+  if (DN.on) DN.p = (DN.p + dt / DN.len) % 1;
+  applyDN(false);
+  if (stars.visible){ stars.position.copy(camera.position); }
+  if (moon.visible){ moon.position.copy(camera.position).addScaledVector(MOON_DIR, 170); }
+}
+
 function build(){
-  const P = [], N = [], C = [], fc = [], fd = [];
+  const P = [], N = [], C = [], G = [], fc = [], fd = [];
   const tri = (a, b, c, n, col, cell, dir) => {
     const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
     const cx = uy * vz - uz * vy, cy = uz * vx - ux * vz, cz = ux * vy - uy * vx;
@@ -458,6 +525,7 @@ function build(){
     if (cx * n[0] + cy * n[1] + cz * n[2] < 0){ const t = b; b = c; c = t; }
     P.push(...a, ...b, ...c); N.push(...n, ...n, ...n);
     for (let k = 0; k < 3; k++) C.push(col.r, col.g, col.b);
+    const gl = M[cell] === GLASS ? 1 : M[cell] === 12 ? .35 : 0; G.push(gl, gl, gl);
     fc.push(cell); fd.push(dir);
   };
   for (let y = 0; y < YN; y++) for (let r = 0; r < RN; r++) for (let q = Q0; q < Q0 + QN; q++) for (let s = 0; s < 2; s++){
@@ -490,6 +558,7 @@ function build(){
   g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
   g.setAttribute('normal', new THREE.Float32BufferAttribute(N, 3));
   g.setAttribute('color', new THREE.Float32BufferAttribute(C, 3));
+  g.setAttribute('glow', new THREE.Float32BufferAttribute(G, 1));
   g.computeBoundingSphere(); g.computeBoundingBox();
   if (mesh){ mesh.geometry.dispose(); mesh.geometry = g; }
   else { mesh = new THREE.Mesh(g, mat); mesh.castShadow = mesh.receiveShadow = true; scene.add(mesh); }
@@ -564,7 +633,7 @@ const clampGoal = () => {
 function pan(dx, dy){
   if (WK.on) return;
   const k = camGoal.dist * .0016, cy = Math.cos(camGoal.yaw), sy = Math.sin(camGoal.yaw);
-  camGoal.tx -= (dx * cy - dy * sy) * k; camGoal.tz -= (-dx * sy - dy * cy) * k; clampGoal();
+  camGoal.tx -= (dx * cy + dy * sy) * k; camGoal.tz -= (-dx * sy + dy * cy) * k; clampGoal();
 }
 
 /* ---------- picking and building ---------- */
@@ -796,6 +865,17 @@ const sndLabel = () => { mSound.textContent = soundOn ? '🔊 Sound: on' : '🔇
 sndLabel();
 mSound.addEventListener('click', () => { soundOn = !soundOn; try { localStorage.setItem(KEY + '-snd', soundOn ? '1' : '0'); } catch (e) {} sndLabel(); });
 document.getElementById('mUndo').addEventListener('click', () => { doUndo(); openMenu(false); });
+const mDN = document.getElementById('mDN'), mSkip = document.getElementById('mSkip');
+const dnLabel = () => { mDN.textContent = DN.on ? '🌗 Day and night: on' : '🌗 Day and night: off'; mSkip.textContent = NIGHT.value > .5 ? '☀ Jump to morning' : '🌙 Jump to night'; };
+dnLabel();
+menuBtn.addEventListener('click', dnLabel);
+mDN.addEventListener('click', () => { DN.on = !DN.on; try { localStorage.setItem(KEY + '-dn', DN.on ? '1' : '0'); } catch (e) {} dnLabel(); });
+mSkip.addEventListener('click', () => {
+  const night = NIGHT.value > .5;
+  DN.p = night ? .935 : .655; applyDN(true); dnLabel(); openMenu(false);
+  say(night ? 'Morning. The villagers wander back out.' : 'Night falls. Windows light up and everyone heads home.');
+  for (const v of vill){ v.tx = null; v.wait = 0; }
+});
 let armed = null;
 const arm = (b, txt, fn) => b.addEventListener('click', () => {
   if (armed !== b){ armed = b; b.dataset.t = b.textContent; b.textContent = txt; return; }
@@ -1023,6 +1103,7 @@ function spawnAll(){
 }
 function pickTarget(v){
   const h = v.h, [dx, dz] = homeDoor(h);
+  if (NIGHT.value > .55){ v.tx = lx(h[0], h[1]) + (Math.random() - .5) * .8; v.tz = lz(h[0], h[1]) + (Math.random() - .5) * .8; v.jumped = false; return; }
   if (Math.random() < .2){ v.tx = lx(h[0], h[1]); v.tz = lz(h[0], h[1]); return; }
   for (let n = 0; n < 6; n++){
     const a = Math.random() * Math.PI * 2, rr = .8 + Math.random() * 4.5, tx = dx + Math.cos(a) * rr, tz = dz + Math.sin(a) * rr;
@@ -1037,7 +1118,7 @@ function villStep(v, dt, now){
   else if (v.tx === null) pickTarget(v);
   if (v.tx !== null && v.wait <= 0 && !talking){
     const dx = v.tx - v.x, dz = v.tz - v.z, d = Math.hypot(dx, dz);
-    if (d < .3){ v.tx = null; v.wait = 1.5 + Math.random() * 4; }
+    if (d < .3){ v.tx = null; v.wait = NIGHT.value > .55 ? 6 + Math.random() * 8 : 1.5 + Math.random() * 4; }
     else { mx = dx / d; mz = dz / d; }
   }
   let moving = false;
@@ -1138,6 +1219,7 @@ renderer.setAnimationLoop(now => {
     else { sghost.visible = false; const t = target(hit); if (t) showGhost(t.c, t.sh, false); else ghost.visible = false; }
   }
   stepBits(dt);
+  stepDN(dt);
   renderer.render(scene, camera);
 });
 </script>
