@@ -104,6 +104,15 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   brighter at the foot of the walls like fire from below. The Fasskeller's own lantern light overrides it inside. No extra draw calls.
   Budget after v1.8 (hb_p5.js, 11 views): busiest philS 262k tris / 78 calls, world 305k tris, __E [].
   Shots $SP/hb18/g0.png (off) / g2.png (on) from the bridge at night.
+- v1.8.1 2026-10-13 ~00:35: Flax (00:07): "I am at perkeo but i cant hold anything. Cant find an entry." The cellar door sits in a
+  narrow, dim court (x 32..38, z 80..83, reached by the covered passage x 34..36 from z 73) under the hall's eaves, so it read as
+  just more wall. Now: a red carpet (new tile carpet 35) from z 80 through the door into the cellar, gold rope posts + red ropes
+  either side, two lanterns on brackets beside the arch (props mesh), a barrel-shaped FASSKELLER sign over the arch (canvas,
+  MeshBasic alphaTest, +1 draw call), warm light spilling from the doorway + the lanterns (block shader, outside the cellar box
+  only), a low lamp just inside (FASS_LAMPS[0]) so the doorway glows. Perkeo's toast fires within 6 blocks (was 3) and points
+  the way: "The arch behind me, under the barrel sign: follow the red carpet." Probe $SP/hb181/pwalk.js: 7 starts x full stick +
+  45% stick, 2 diagonal straight lines, 40 random starts in the court + alleys, and a BFS walk from the top of the castle stairs
+  (34,48,72) all end inside (z 88). A start at (32.2,81.2) only stuck because it overlapped a wall corner (test artefact).
 
 ## issues
 - fannar22 2026-10-11 23:50: rising into the sky at the east/west map edge in the river (fixed v1.1, probe hb_edge.js).
