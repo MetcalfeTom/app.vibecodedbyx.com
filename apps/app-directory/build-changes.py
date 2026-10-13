@@ -84,10 +84,12 @@ for sl, c in per_app.items():
     L = [[disp.get(k, k), n] for k, n in c.most_common() if ok(k)][:6]
     if L:
         cred[sl] = L
-with open(ROOT + '/apps/app-directory/credits.json', 'w') as fh:
+with open(ROOT + '/apps/app-directory/credits.json.tmp', 'w') as fh:   # written aside and swapped in (it's re-baked after every commit now)
     json.dump({'asof': datetime.date.today().isoformat(), 'apps': cred}, fh, ensure_ascii=False, separators=(',', ':'))
+os.replace(ROOT + '/apps/app-directory/credits.json.tmp', ROOT + '/apps/app-directory/credits.json')
 print(len(cred), 'apps with credits,', len({n for L in cred.values() for n, _ in L}), 'names')
-doc = {'asof': datetime.date.today().isoformat(), 'apps': out}
-with open(ROOT + '/apps/app-directory/changes.json', 'w') as fh:
+doc = {'asof': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%MZ'), 'apps': out}   # to the minute: it's re-baked after every commit
+with open(ROOT + '/apps/app-directory/changes.json.tmp', 'w') as fh:
     json.dump(doc, fh, ensure_ascii=False, separators=(',', ':'))
+os.replace(ROOT + '/apps/app-directory/changes.json.tmp', ROOT + '/apps/app-directory/changes.json')
 print(len(out), 'apps,', sum(len(v) for v in out.values()), 'lines,', os.path.getsize(ROOT + '/apps/app-directory/changes.json'), 'bytes')

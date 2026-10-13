@@ -51,6 +51,7 @@ for block in raw.split('\x01')[1:]:
 top = sorted(out.items(), key=lambda kv: kv[1]['last'], reverse=True)[:TOP]
 doc = {'asof': now.strftime('%Y-%m-%dT%H:%MZ'), 'days': DAYS, 'apps': [dict(slug=s, **r) for s, r in top]}
 path = ROOT + '/apps/app-directory/busy.json'
-with open(path, 'w') as fh:
+with open(path + '.tmp', 'w') as fh:   # written aside and swapped in, so a page reading it mid-bake never gets half a file
     json.dump(doc, fh, ensure_ascii=False, separators=(',', ':'))
+os.replace(path + '.tmp', path)
 print(len(out), 'apps changed in', DAYS, 'days;', len(top), 'on the board;', os.path.getsize(path), 'bytes')
