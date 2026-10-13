@@ -103,6 +103,16 @@
 - donut jump probes: random donuts can lie on the run-up lane (pickDonutSpot ignores keepClear), so a jump run may also eat a regular donut (+2 s). The statue's `st.donut` stays set after pickup; check `.parent`.
 
 ## todos
+- v3.3 ENDLESS TOWN plan (fela's ask, not started; written 2026-10-13 18:58 so a fresh session can build it):
+  - write the art direction at the top of these notes first: golden hour, gradient-sky shader, peach fog, low sun whose shadow camera follows the car.
+  - grid: blocks B=80 m, roads ±9 and sidewalks to ±15 on x=i·B and z=j·B (keeps the current road/sidewalk/grass heights 0.215/0.4/0). Every 4th line is an avenue with buses. Seeded hash per (i,j): drop some side segments → T-junctions, some side nodes → roundabouts (island r 4.5), a mid-block canal in some rows (flush, parapet walls) with humpback bridges on the vertical roads, park lots with analytic hills (groundAt stays analytic).
+  - districts from low-freq noise: suburb / downtown / industrial; landmarks per district (Quick-Stop, donut shop, school, power plant with rods). Generic names only.
+  - chunks of 80 m in a 5×5 ring around the car, built ≤2 per frame (no hitch); global InstancedMesh pools (houses, roofs, trees, lamps, road paint) with a per-chunk slot free-list, merged vertex-coloured landmark templates + one sign atlas. Target <120 draw calls on a phone.
+  - procedural canvas textures (asphalt grain/cracks/tar patches, sidewalk slabs, brick/siding/shingles with lit windows, grass), 256-1024 px, anisotropy, shared by all instances.
+  - donuts instanced (dough + frosting), spawned ahead of the car; collected ones remembered per chunk key for the shift. Rods only at power plants. Buses: one merged InstancedMesh, spawn/despawn on avenues near the car.
+  - solids: a near-set rebuilt on chunk change (boxes/circles as now; `overTop` still works). resetCar/resetIfOutOfBounds → snap to the nearest road instead of the ±198 bound.
+  - donut-ramp stunts recur: `makeDonutJump(g, kit, ox, oz, psi, s0, s1)` on some side-street segments with `JUMP.base` 0.215 (road height); `stunts` becomes per-chunk.
+  - keep: shift timer, score = donuts in a shift, the same leaderboard table and columns (raise the top-list cap 30 → ~150 if the card needs it), v3.1 physics, v3.2 sound.
 - v3.2 sound untested on real phones/speakers: iOS silent switch mutes Web Audio (no fix without an <audio> trick), small phone speakers lose most of the idle (it is deliberately low). Knobs in `engineTick`: lowpass `150 + r*0.07 + L*(420 + r*0.17)`, body gain, `engBus` 0.18, squeal 0.42, wind 0.09. Next: v3.3 endless procedural town (plan in the v3.1.1 notes/todos).
 - real phones still untested: iOS Safari audio unlock, multi-touch feel of the analog pad, frame rate on low-end phones (each house has its own cloned texture), sign fonts on slow connections (they redraw once the font loads)
 - real phones untested for v2.4: paint/env look on mobile GPUs, frame rate with the clearcoat paint
