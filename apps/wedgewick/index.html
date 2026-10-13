@@ -1706,6 +1706,99 @@ function stepErupt(dt){
     }
   }
 }
+/* weather: every island has its own. Snow on Snowpeak, blowing sand on the Dunes, falling ash and rising embers on Ember Isle,
+   cherry petals on Blossom, fireflies on calm nights (Meadow and Blossom). A box of points that follows the camera */
+const dotTex = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 32;
+  const g = c.getContext('2d'), r = g.createRadialGradient(16, 16, 0, 16, 16, 16);
+  r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(.45, 'rgba(255,255,255,.8)'); r.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = r; g.fillRect(0, 0, 32, 32);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+})();
+const WXN = 520, GLN = 60, WBOX = 22, WTOP = 16;
+const WXC = {
+  1: { n: 520, c: '#ffffff', s: .2, vy: -1.2, sway: .6, wind: [.4, .15] },
+  2: { n: 180, c: '#e0bf80', s: .12, vy: 0, sway: .3, wind: [6, 1.6], low: 2.2 },
+  3: { n: 260, c: '#6a6470', s: .15, vy: -.45, sway: .35, wind: [.7, .25] },
+  4: { n: 240, c: '#ffb3cf', s: .2, vy: -.65, sway: 1, wind: [1.3, .5] },
+};
+function mkPts(n, glow){
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+  if (glow) g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+  const p = new THREE.Points(g, new THREE.PointsMaterial({ size: .2, map: dotTex, transparent: true, depthWrite: false, vertexColors: !!glow, fog: !glow,
+    blending: glow ? THREE.AdditiveBlending : THREE.NormalBlending }));
+  p.frustumCulled = false; p.visible = false; scene.add(p); return p;
+}
+const wx = mkPts(WXN), glowPts = mkPts(GLN, true);
+const WXS = { b: -1, ph: new Float32Array(WXN).map(() => Math.random() * 7), gl: new Float32Array(GLN * 3) };
+const wrapTo = (v, c, w) => { const d = v - c; return d > w || d < -w ? c + (((d + w) % (2 * w)) + 2 * w) % (2 * w) - w : v; };
+function groundAt(x, z){ return probeAt(x, z, 99)[0]; }
+/* a firefly hovers over dry land near the camera; an ember starts in the crater */
+function glowSpawn(k, a){
+  const o = k * 3, d = WXS.gl;
+  if (BIOME === 3 && CRATER){
+    a[o] = CRATER[0] + (Math.random() - .5) * 2; a[o + 1] = (CRATER[1] + 1) * LH; a[o + 2] = CRATER[2] + (Math.random() - .5) * 2;
+    d[o] = (Math.random() - .5) * 1.4; d[o + 1] = 0; d[o + 2] = 2 + Math.random() * 3; return;
+  }
+  for (let n = 0; n < 6; n++){
+    const x = cam.tx + (Math.random() * 2 - 1) * 14, z = cam.tz + (Math.random() * 2 - 1) * 14, g = groundAt(x, z);
+    if (g < seaY) continue;
+    a[o] = x; a[o + 2] = z; a[o + 1] = g + .4 + Math.random() * 1.5; d[o] = Math.random() * 7; d[o + 1] = a[o + 1]; d[o + 2] = 0; return;
+  }
+  a[o + 1] = -50;
+}
+function weatherReset(){
+  const C = WXC[BIOME], a = wx.geometry.attributes.position.array;
+  if (C) for (let k = 0; k < C.n; k++){
+    const o = k * 3; a[o] = cam.tx + (Math.random() * 2 - 1) * WBOX; a[o + 2] = cam.tz + (Math.random() * 2 - 1) * WBOX;
+    a[o + 1] = C.low ? Math.max(groundAt(a[o], a[o + 2]), seaY) + .1 + Math.random() * C.low : seaY + Math.random() * WTOP;
+  }
+  const g = glowPts.geometry.attributes.position.array;
+  for (let k = 0; k < GLN; k++){ glowSpawn(k, g); if (BIOME === 3) WXS.gl[k * 3 + 1] = Math.random() * 3; }
+}
+function stepWeather(dt){
+  if (WXS.b !== BIOME || WXS.seed !== SEED){ WXS.b = BIOME; WXS.seed = SEED; weatherReset(); }
+  const C = WXC[BIOME], t = performance.now() / 1000, cx = cam.tx, cz = cam.tz;
+  wx.visible = !RM && !!C;
+  if (wx.visible){
+    const a = wx.geometry.attributes.position.array, ph = WXS.ph;
+    wx.geometry.setDrawRange(0, C.n);
+    wx.material.color.set(C.c).multiplyScalar(1 - NIGHT.value * .6); wx.material.size = C.s * (1 + cam.dist / 25);
+    for (let k = 0; k < C.n; k++){
+      const o = k * 3, p = ph[k];
+      const nx = a[o] + (C.wind[0] + Math.sin(t * .9 + p) * C.sway) * dt, nz = a[o + 2] + (C.wind[1] + Math.cos(t * .7 + p * 1.3) * C.sway) * dt;
+      a[o] = wrapTo(nx, cx, WBOX); a[o + 2] = wrapTo(nz, cz, WBOX);
+      /* blowing sand skims the ground: a grain that wraps round the box lands at the new spot's height */
+      if (C.low){ if (a[o] !== nx || a[o + 2] !== nz) a[o + 1] = Math.max(groundAt(a[o], a[o + 2]), seaY) + .1 + Math.random() * C.low; }
+      else { a[o + 1] += C.vy * (.7 + (p % 1) * .6) * dt; if (a[o + 1] < seaY) a[o + 1] += WTOP; }
+    }
+    wx.geometry.attributes.position.needsUpdate = true;
+  }
+  /* fireflies after dark, embers out of the crater day and night (lots more while it erupts) */
+  const ember = BIOME === 3 && !!CRATER, ff = (BIOME === 0 || BIOME === 4) ? Math.min(1, Math.max(0, (NIGHT.value - .35) / .3)) : 0;
+  glowPts.visible = !RM && (ember || ff > 0);
+  if (!glowPts.visible) return;
+  const a = glowPts.geometry.attributes.position.array, col = glowPts.geometry.attributes.color.array, d = WXS.gl;
+  const n = ember ? (ERUPT.t >= 0 ? GLN : 26) : 40;
+  glowPts.geometry.setDrawRange(0, n); glowPts.material.size = (ember ? .3 : .24) * (1 + cam.dist / 30);
+  for (let k = 0; k < n; k++){
+    const o = k * 3;
+    if (ember){
+      d[o + 1] += dt;
+      if (d[o + 1] > 3 || a[o + 1] < -40){ glowSpawn(k, a); continue; }
+      a[o] += d[o] * dt; a[o + 2] += d[o] * .6 * dt; a[o + 1] += d[o + 2] * dt * (ERUPT.t >= 0 ? 1.8 : 1);
+      const f = 1 - d[o + 1] / 3; col[o] = f; col[o + 1] = .45 * f * f; col[o + 2] = .1 * f;
+    } else {
+      if (a[o + 1] < -40 || Math.abs(a[o] - cx) > 16 || Math.abs(a[o + 2] - cz) > 16){ glowSpawn(k, a); continue; }
+      const p = d[o];
+      a[o] += Math.sin(t * .5 + p) * .5 * dt; a[o + 2] += Math.cos(t * .4 + p * 1.7) * .5 * dt; a[o + 1] = d[o + 1] + Math.sin(t * 1.3 + p) * .25;
+      const b = ff * Math.pow(.5 + .5 * Math.sin(t * 2.2 + p * 3), 3);
+      col[o] = .85 * b; col[o + 1] = b; col[o + 2] = .35 * b;
+    }
+  }
+  glowPts.geometry.attributes.position.needsUpdate = true; glowPts.geometry.attributes.color.needsUpdate = true;
+}
 mErupt.addEventListener('click', () => { openMenu(false); if (!erupt()) say('The volcano is already busy.'); });
 let sailing = false;
 function enterIsle(){
@@ -1746,7 +1839,7 @@ renderer.setAnimationLoop(now => {
   for (const k in cam) cam[k] += (camGoal[k] - cam[k]) * f;
   placeCam();
   saveSpot(now);
-  stepSmoke(dt); stepLily(dt); stepErupt(dt);
+  stepSmoke(dt); stepLily(dt); stepErupt(dt); stepWeather(dt);
   if (ERUPT.t >= 0 && ERUPT.t < 5 && !RM){ const k = .14 * Math.sin(Math.PI * ERUPT.t / 5); camera.position.x += (Math.random() - .5) * k; camera.position.y += (Math.random() - .5) * k; }
   if (hoverXY && !gest && now - hoverAt > 50){
     hoverAt = now;
