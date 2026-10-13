@@ -1,6 +1,7 @@
 # App Directory
 
 ## log
+- 2026-10-13 18:28 UTC: change-log rows: each graph is as long as its own bar again (only the longest is capped, 13rem, 7.5rem on phones) and the • hash follows right after the graph (hamburglar06 18:25).
 - 2026-10-13 18:21 UTC: change-log rows: the +/− graph is capped at 6.5rem and the hash sits on the far right after a • (hamburglar06 18:20).
 - 2026-10-13 18:16 UTC: each commit in the git log board's change log shows its short hash (amber, after the +/− bar), hamburglar06 18:15. busy.json log entries are now [date, text, +, −, hash7].
 - 2026-10-13 18:07 UTC: **git log · busiest apps** board under the deep end (hamburglar06: "a git explorer utility… browse the commits of apps, and see how many lines were changed. Projects sorted by recent activity"). busy.json, baked by `build-busy.py` (run it with build-changes.py; not on a cron): the 60 apps changed most recently in 30 days, each with change count, lines +/− (notes .md excluded, sweeps over 6 apps skipped, secret-looking subjects skipped), a 30-day changes-per-day sparkline and its latest 20 commits with their own +/−. Sort latest / most changes / most lines; 8 rows, 'show all 60'; a row opens the existing change-log dialog with +/− bars per commit (log-scaled widths so triple-cubed's 300k-line data dump doesn't flatten the rest). Missing busy.json = board stays hidden.
