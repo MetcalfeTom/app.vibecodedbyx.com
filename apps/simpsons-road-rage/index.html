@@ -144,7 +144,7 @@
           <p class="muted" id="lbStatus">Loading…</p>
           <div id="leaderboard" class="leaderboard-list"></div>
         </div>
-        <p class="stamp" id="buildstamp" role="note" aria-label="Build information">v2.4 · 2026-10-13</p>
+        <p class="stamp" id="buildstamp" role="note" aria-label="Build information">v2.5 · 2026-10-13</p>
       </div>
     </div>
 
@@ -674,7 +674,8 @@
         const headGeo = mergeParts([lamp(-1), lamp(1)]);
         const tailGeo = mergeParts([box(0.46, 0.2, 0.06, -0.82, 1.1, -2.62), box(0.46, 0.2, 0.06, 0.82, 1.1, -2.62)]);
 
-        const group = new THREE.Group(); // position + heading
+        const group = new THREE.Group(); // position + heading (+ a little tilt on kerbs)
+        group.rotation.order = "YXZ";
         const body = new THREE.Group(); // everything that rides on the springs
         group.add(body);
         [[mergeParts(paintParts), paint], [glassGeo, glass], [mergeParts(creamParts), cream], [mergeParts(chromeParts), chrome],
@@ -756,6 +757,17 @@
           wheelSpin: 0,
           steerVis: 0,
           steerInput: 0,
+          steerSm: 0,
+          steerAngle: 0,
+          yawRate: 0,
+          sliding: false,
+          wallT: 0,
+          tiltX: 0,
+          tiltZ: 0,
+          susp: { p: 0, pv: 0, r: 0, rv: 0, y: 0, hv: 0 },
+          scrapeV: 0,
+          scrapeX: 0,
+          scrapeZ: 0,
           braking: false,
           throttle: 0,
           slide: 0,
@@ -787,12 +799,14 @@
         trailGeo.rotateX(-Math.PI / 2);
         return {
           dummy,
-          puffs: pool(new THREE.IcosahedronGeometry(0.2, 0), new THREE.MeshStandardMaterial({ color: 0xe8e5de, emissive: 0x6f6c66, roughness: 1, transparent: true, opacity: 0.5, depthWrite: false }), 32),
+          puffs: pool(new THREE.IcosahedronGeometry(0.2, 1), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x99958d, roughness: 1, transparent: true, opacity: 0.5, depthWrite: false }), 32),
           smoke: pool(new THREE.IcosahedronGeometry(0.55, 2), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xa9a59c, roughness: 1, transparent: true, opacity: 0.42, depthWrite: false }), 48),
           trails: pool(trailGeo, new THREE.MeshBasicMaterial({ map: textures.skidMap, color: 0x121212, transparent: true, opacity: 0.62, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }), 400),
           last: [{ on: false, x: 0, z: 0 }, { on: false, x: 0, z: 0 }],
           puffClock: 0,
           smokeClock: 0,
+          sparks: pool(new THREE.BoxGeometry(0.07, 0.07, 0.34), new THREE.MeshBasicMaterial({ color: 0xffc23d, toneMapped: false }), 48),
+          sparkClock: 0,
         };
       }
 
@@ -832,6 +846,15 @@
         d.scale.setScalar(it.s * (0.5 + 2.4 * k) * (1 - k * k));
       }
 
+      function sparkShape(it, k, d, dt) {
+        it.vy -= 22 * dt;
+        it.x += it.vx * dt; it.z += it.vz * dt;
+        it.y = Math.max(0.25, it.y + it.vy * dt);
+        d.position.set(it.x, it.y, it.z);
+        d.rotation.set(-Math.atan2(it.vy, Math.hypot(it.vx, it.vz)), Math.atan2(it.vx, it.vz), 0);
+        d.scale.setScalar(1 - k);
+      }
+
       function trailShape(it, k, d) {
         d.position.set(it.x, it.y, it.z);
         d.rotation.set(0, it.a, 0);
@@ -841,12 +864,14 @@
       function updateCarFx(dt) {
         const fx = carFx, p = car.mesh.position;
         const sn = Math.sin(car.heading), cs = Math.cos(car.heading);
-        // ride height follows the road, kerb or grass under the car
-        p.y += (groundAt(p.x, p.z) - p.y) * (1 - Math.exp(-20 * dt));
+        // the body rides its springs: pitch and roll about a point a little above the axles, plus the bounce
+        const su = car.susp;
+        car.body.rotation.set(su.p, 0, su.r);
+        car.body.position.set(0.7 * Math.sin(su.r), su.y + 0.7 * (2 - Math.cos(su.p) - Math.cos(su.r)), -0.7 * Math.sin(su.p));
 
-        // wheels roll with the road, the fronts steer (less at speed)
+        // wheels roll with the road, the fronts show the steering angle (less lock at speed)
         car.wheelSpin = (car.wheelSpin + (car.speed * dt) / 0.6) % (Math.PI * 2);
-        const steerWant = car.steerInput * 0.48 * (1 - 0.45 * Math.min(1, Math.abs(car.speed) / TOP_SPEED));
+        const steerWant = Math.max(-0.55, Math.min(0.55, car.steerAngle));
         car.steerVis += (steerWant - car.steerVis) * (1 - Math.exp(-12 * dt));
         for (const w of car.wheels) {
           w.spin.rotation.x = car.wheelSpin;
@@ -895,6 +920,17 @@
         fxStep(fx.puffs, dt, puffShape);
         fxStep(fx.smoke, dt, puffShape);
         fxStep(fx.trails, dt, trailShape);
+
+        // scraping a wall: sparks fly from the contact point
+        fx.sparkClock -= dt;
+        if (car.scrapeV > 6 && fx.sparkClock <= 0) {
+          fx.sparkClock = 0.035;
+          const n = Math.min(8, Math.ceil(car.scrapeV / 5));
+          for (let i = 0; i < n; i++) fxEmit(fx.sparks, car.scrapeX, p.y + 0.45, car.scrapeZ, car.velocity.x * 0.45 + (Math.random() - 0.5) * 7,
+            2 + Math.random() * 4, car.velocity.z * 0.45 + (Math.random() - 0.5) * 7, 0.3 + Math.random() * 0.25, 1);
+        }
+        car.scrapeV = 0;
+        fxStep(fx.sparks, dt, sparkShape);
       }
 
       function createTextures() {
@@ -1602,70 +1638,119 @@
         car.velocity.set(0, 0, 0);
         car.speed = 0;
         car.heading = 0;
+        car.yawRate = 0;
+        car.steerSm = 0;
+        Object.assign(car.susp, { p: 0, pv: 0, r: 0, rv: 0, y: 0, hv: 0 });
         if (state.playing) toast("Back on the road!");
       }
 
-      // ---- driving: runs in small steps (at most 1/60 s) and every rate is per second, so it feels the same at any frame rate ----
+      // ---- driving: a small arcade-sim. Runs in steps of at most 1/60 s and every rate is per second, so it feels the same at any frame rate.
+      // engine: wheel-spin-limited pull off the line, power-limited higher up; rolling resistance and air drag set the top speed (60, turbo 74).
+      // tyres: the nose follows the front wheels (bicycle model) and the tyres push back against sideways slip in proportion to the
+      // slip angle, up to GRIP. Take a corner too fast and they give up: the car slides. Brake while steering and the rear lets go: a drift.
       const TOP_SPEED = 60, TURBO_SPEED = 74, REVERSE_SPEED = 16;
       const CAR_R = 1.45, CAR_OFF = 1.1; // for bumping, the car is two circles: nose and tail
-      const fwdV = new THREE.Vector3(), rightV = new THREE.Vector3(), upV = new THREE.Vector3(0, 1, 0), wantV = new THREE.Vector3(), lastGood = new THREE.Vector3();
+      const WHEELBASE = 3.15, GRIP = 50, SLIP_PEAK = 0.12, ROLL_RES = 1.2, ENGINE_POWER = 650;
+      const DRAG = (ENGINE_POWER / TOP_SPEED - ROLL_RES) / (TOP_SPEED * TOP_SPEED);
+      const ENGINE = { pull: 24, power: ENGINE_POWER }, TURBO = { pull: 34, power: TURBO_SPEED * (ROLL_RES + DRAG * TURBO_SPEED * TURBO_SPEED) };
+      const fwdV = new THREE.Vector3(), rightV = new THREE.Vector3(), upV = new THREE.Vector3(0, 1, 0), prevV = new THREE.Vector3(), lastGood = new THREE.Vector3();
+      const wheelXZ = [[1.08, 1.6], [-1.08, 1.6], [1.08, -1.55], [-1.08, -1.55]]; // local x (+ = the car's left), z (+ = nose)
       function updateCar(h) {
         const forward = fwdV.set(Math.sin(car.heading), 0, Math.cos(car.heading));
+        const right = rightV.crossVectors(forward, upV);
         const gas = !!(keyState["ArrowUp"] || keyState["KeyW"]);
         const back = !!(keyState["ArrowDown"] || keyState["KeyS"]);
         if (state.glow > 0) state.glow = Math.max(0, state.glow - h);
         const boosting = !!keyState["Space"] || state.glow > 0;
         const steer = ((keyState["ArrowLeft"] || keyState["KeyA"] ? 1 : 0) - (keyState["ArrowRight"] || keyState["KeyD"] ? 1 : 0)) || padSteer;
         const turningActive = steer !== 0;
-        const brakingActive = back && car.speed > 0.5;
+        car.steerSm += (steer - car.steerSm) * (1 - Math.exp(-10 * h)); // keys ease in over about a tenth of a second
+        const v = car.velocity, p = car.mesh.position;
+        prevV.copy(v);
+        const vf = v.dot(forward), vl = v.dot(right);
+        const drifting = back && turningActive && vf > 8;
+        const onGrass = groundAt(p.x, p.z) === 0;
+        const g = GRIP * (onGrass ? 0.85 : 1);
 
-        let s = car.speed;
-        const top = boosting ? TURBO_SPEED : TOP_SPEED;
-        if (gas || boosting) {
-          if (s < 0) s = Math.min(0, s + 50 * h); // rolling backwards: the gas brakes first
-          else s += (boosting ? 38 : 26) * Math.max(0, 1 - (s / top) * (s / top)) * h;
-        }
-        if (back) {
-          if (s > 0.5) s = Math.max(0, s - (turningActive ? 18 : 48) * h); // softer while turning, so drifts keep sliding
-          else s = Math.max(-REVERSE_SPEED, s - 20 * h); // stopped: back up
-        }
-        if (!gas && !boosting && !back) { // hands off: roll to a stop
-          const d = (4 + 0.05 * Math.abs(s)) * h;
-          s = Math.abs(s) <= d ? 0 : s - Math.sign(s) * d;
-        }
-        if (s > top) s = top + (s - top) * Math.exp(-1.5 * h); // turbo let go: ease back down
-        car.speed = s;
+        // along the car: engine or brakes, rolling resistance, air drag
+        const eng = boosting ? TURBO : ENGINE;
+        let a = -(ROLL_RES + (onGrass ? 2.5 : 0)) * Math.sign(vf) - DRAG * vf * Math.abs(vf);
+        if (gas || boosting) a += vf < -0.5 ? 50 : Math.min(eng.pull, eng.power / Math.max(1, vf)); // rolling backwards: the gas brakes first
+        else if (back) a += vf > 0.5 ? (drifting ? -7 : -44) : vf > -REVERSE_SPEED ? -20 : 0; // brake, or back up once stopped
+        else a -= 1.5 * Math.sign(vf); // engine braking
+        let nf = vf + a * h;
+        const goal = gas || boosting ? 1 : back && vf <= 0.5 ? -1 : 0;
+        if (vf * nf < 0 && Math.sign(nf) !== goal) nf = 0; // brakes and drag stop the car, they never push it the other way
+        v.addScaledVector(forward, nf - vf);
 
-        // steering needs rolling wheels (no spinning on the spot), and backing up steers the other way
-        let turnGain = THREE.MathUtils.lerp(4.1, 2.0, Math.min(1, Math.abs(s) / TOP_SPEED));
-        if (brakingActive && turningActive) turnGain *= 1.6;
-        const rolling = Math.min(1, Math.abs(s) / 9) * (s < 0 ? -1 : 1);
+        // turning: the nose follows the front wheels; less lock at speed, and never more yaw than the tyres can (nearly) hold
+        const sp = Math.abs(nf);
+        car.steerAngle = car.steerSm * THREE.MathUtils.lerp(0.62, 0.15, Math.pow(Math.min(1, sp / TOP_SPEED), 0.7));
+        const cap = (g * 1.3 * (drifting ? 1.25 : 1)) / Math.max(4, sp);
+        let want = Math.max(-cap, Math.min(cap, (nf * Math.tan(car.steerAngle)) / WHEELBASE));
+        // gripping tyres line the car back up with where it is going (backing up, the tail leads); a wall it is sliding along does it faster
+        want -= Math.atan2(vl, Math.max(4, sp)) * ((drifting ? 2.4 : 2.5) + (car.wallT > 0 ? 6 : 0)) * Math.sign(nf) * Math.min(1, sp / 6);
+        car.wallT = Math.max(0, car.wallT - h);
+        car.yawRate += (want - car.yawRate) * (1 - Math.exp(-10 * h));
         const headingBefore = car.heading;
-        lastGood.copy(car.mesh.position);
-        car.heading = THREE.MathUtils.euclideanModulo(car.heading + steer * turnGain * rolling * h, Math.PI * 2);
+        car.heading = THREE.MathUtils.euclideanModulo(car.heading + car.yawRate * h, Math.PI * 2);
         forward.set(Math.sin(car.heading), 0, Math.cos(car.heading));
-        const right = rightV.crossVectors(forward, upV);
+        right.crossVectors(forward, upV);
 
-        // drifting: brake while turning and the tyres let go, so the car keeps sliding the old way for a moment
-        const gripRate = brakingActive && turningActive ? 1.6 : 6.5;
-        car.velocity.lerp(wantV.copy(forward).multiplyScalar(s), 1 - Math.exp(-gripRate * h));
+        // sideways: the tyres push back against the slip angle, up to their grip; past that the car slides and scrubs speed
+        const vf2 = v.dot(forward), vl2 = v.dot(right);
+        const grip = g * (drifting ? 0.42 : 1);
+        let dl = vl2 * (1 - Math.exp(-(g / SLIP_PEAK / Math.max(4, Math.abs(vf2))) * h));
+        car.sliding = Math.abs(dl) > grip * h;
+        if (car.sliding) {
+          dl = Math.sign(dl) * grip * h;
+          v.addScaledVector(forward, -Math.sign(vf2) * Math.min(Math.abs(vf2), (drifting ? 0.1 : 0.25) * grip * h));
+        }
+        v.addScaledVector(right, -dl);
+
         // move in slices of under half a unit, so a fast car can't poke its nose past the corners into a gap narrower than itself
-        const slices = Math.max(1, Math.ceil(car.velocity.length() * h / 0.45));
+        lastGood.copy(p);
+        const slices = Math.max(1, Math.ceil(v.length() * h / 0.45));
         for (let j = 0; j < slices; j++) {
-          car.mesh.position.addScaledVector(car.velocity, h / slices);
+          p.addScaledVector(v, h / slices);
           collideCar(forward);
         }
         // squeezed somewhere it can't fit (turning in a gap shorter than the car): undo this step instead of sinking into a wall
         if (carOverlap(forward) > 0.15) {
-          car.mesh.position.copy(lastGood);
+          p.copy(lastGood);
           car.heading = headingBefore;
+          car.yawRate = 0;
           forward.set(Math.sin(car.heading), 0, Math.cos(car.heading));
           right.crossVectors(forward, upV);
-          car.velocity.multiplyScalar(-0.2);
-          car.speed *= -0.2;
+          v.multiplyScalar(-0.2);
         }
-        car.mesh.rotation.y = car.heading;
+        car.speed = v.dot(forward);
         car.boosting = boosting;
+
+        // ride height: each wheel sits on the road, kerb or grass under it; the body lags on its springs and bounces
+        const sn = Math.sin(car.heading), cs = Math.cos(car.heading), gh = [0, 0, 0, 0];
+        for (let i = 0; i < 4; i++) {
+          const [lx, lz] = wheelXZ[i];
+          gh[i] = groundAt(p.x + lx * cs + lz * sn, p.z - lx * sn + lz * cs);
+        }
+        const ease = 1 - Math.exp(-25 * h), dy = ((gh[0] + gh[1] + gh[2] + gh[3]) / 4 - p.y) * ease;
+        p.y += dy;
+        const su = car.susp;
+        su.y -= dy * 0.7;
+        car.tiltX += (-Math.atan2((gh[0] + gh[1] - gh[2] - gh[3]) / 2, WHEELBASE) - car.tiltX) * ease;
+        car.tiltZ += (Math.atan2((gh[0] + gh[2] - gh[1] - gh[3]) / 2, 2.16) - car.tiltZ) * ease;
+        car.mesh.rotation.set(car.tiltX, car.heading, car.tiltZ);
+
+        // weight transfer: the nose dips under braking and lifts on the gas, the body leans out of a turn (a damped spring each)
+        const ax = (v.x - prevV.x) / h, az = (v.z - prevV.z) / h;
+        const aFwd = ax * sn + az * cs, aLeft = ax * cs - az * sn;
+        const k = 150, c = 11;
+        su.pv += (k * (Math.max(-0.075, Math.min(0.075, -aFwd * 0.0017)) - su.p) - c * su.pv) * h;
+        su.rv += (k * (Math.max(-0.085, Math.min(0.085, aLeft * 0.0016)) - su.r) - c * su.rv) * h;
+        su.hv += (-k * 1.4 * su.y - c * su.hv) * h;
+        su.p = Math.max(-0.14, Math.min(0.14, su.p + su.pv * h));
+        su.r = Math.max(-0.14, Math.min(0.14, su.r + su.rv * h));
+        su.y = Math.max(-0.3, Math.min(0.3, su.y + su.hv * h));
 
         // for the looks (updateCarFx): steering wheels, brake lights, exhaust
         car.steerInput = steer;
@@ -1725,15 +1810,32 @@
               p.x += nx * pen;
               p.z += nz * pen;
               touched = true;
+              car.wallT = 0.25; // for a moment after touching a wall the car lines up with it fast
               if (i >= solids.length) state.busHit = movers[i - solids.length];
               const vn = v.x * nx + v.z * nz;
               if (vn < 0) {
-                const k = -vn > 6 ? 1.25 : 1; // a real hit bounces back a little, a scrape just slides
-                v.x -= nx * vn * k;
-                v.z -= nz * vn * k;
-                car.speed -= k * vn * (forward.x * nx + forward.z * nz);
+                // a square hit bounces back a little, a graze just slides; friction along the wall takes speed in proportion to
+                // how hard it hit, so the angle decides the loss; the push on the nose or tail twists the car; the springs get a jolt
+                const spd = Math.hypot(v.x, v.z), square = spd > 0.01 ? -vn / spd : 1;
+                const j = -vn * (1 + (-vn > 6 ? 0.12 + 0.2 * square : 0));
+                v.x += nx * j;
+                v.z += nz * j;
+                const vn2 = v.x * nx + v.z * nz, tx = v.x - nx * vn2, tz = v.z - nz * vn2, tl = Math.hypot(tx, tz);
+                if (tl > 1e-6) {
+                  const loss = Math.min(tl, 0.3 * Math.max(0, j - 2) + 0.12 * Math.min(j, 2)); // the impact scrapes hard, leaning on the wall only a little
+                  v.x -= (tx / tl) * loss;
+                  v.z -= (tz / tl) * loss;
+                }
+                car.yawRate = Math.max(-3, Math.min(3, car.yawRate + 0.14 * j * off * (forward.z * nx - forward.x * nz)));
+                const su = car.susp;
+                su.hv += Math.min(1.2, j * 0.02);
+                su.pv += Math.max(-1.5, Math.min(1.5, -(forward.x * nx + forward.z * nz) * j * 0.025));
+                su.rv += Math.max(-1.5, Math.min(1.5, (forward.z * nx - forward.x * nz) * j * 0.02));
                 if (-vn > worst) { worst = -vn; hx = cx - nx * CAR_R; hz = cz - nz * CAR_R; }
               }
+              // sliding along it: remember where, for the sparks
+              const along = Math.hypot(v.x - nx * (v.x * nx + v.z * nz), v.z - nz * (v.x * nx + v.z * nz));
+              if (along > car.scrapeV) { car.scrapeV = along; car.scrapeX = cx - nx * CAR_R; car.scrapeZ = cz - nz * CAR_R; }
             }
           }
         }
@@ -1752,10 +1854,15 @@
       const camWant = new THREE.Vector3(), camLook = new THREE.Vector3();
       const calmMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
       function updateCamera(dt) {
-        const p = car.mesh.position;
-        camWant.set(p.x - Math.sin(car.heading) * view.back, view.up + (car.boosting ? 1.2 : 0), p.z - Math.cos(car.heading) * view.back);
+        const p = car.mesh.position, cv = car.velocity, cspd = Math.hypot(cv.x, cv.z);
+        let yaw = car.heading;
+        if (cspd > 4 && car.speed > 0) {
+          const d = Math.atan2(cv.x, cv.z) - car.heading;
+          yaw += Math.atan2(Math.sin(d), Math.cos(d)) * 0.6 * Math.min(1, (cspd - 4) / 8);
+        }
+        camWant.set(p.x - Math.sin(yaw) * view.back, view.up + (car.boosting ? 1.2 : 0), p.z - Math.cos(yaw) * view.back);
         camera.position.lerp(camWant, 1 - Math.exp(-5 * dt));
-        orbit.target.lerp(camLook.set(p.x + Math.sin(car.heading) * view.ahead, 2.5, p.z + Math.cos(car.heading) * view.ahead), 1 - Math.exp(-7.7 * dt));
+        orbit.target.lerp(camLook.set(p.x + Math.sin(yaw) * view.ahead, 2.5, p.z + Math.cos(yaw) * view.ahead), 1 - Math.exp(-7.7 * dt));
         if (state.shake > 0.01) {
           camera.position.x += (Math.random() - 0.5) * state.shake;
           camera.position.y += (Math.random() - 0.5) * state.shake;
@@ -1823,6 +1930,7 @@
           state.lastBus = state.t;
           if (Math.abs(car.speed) > 4 || bus.v > 4) honk();
           if (state.combo || Math.abs(car.speed) > 4) toast("Honk! Watch the buses");
+          car.velocity.multiplyScalar(0.5);
           car.speed *= 0.5;
           state.combo = 0;
           spawnDustEffect(car.mesh.position);
