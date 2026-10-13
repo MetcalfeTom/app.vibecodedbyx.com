@@ -44,7 +44,8 @@ h1 em{ font-weight:300; color:var(--amber); }
 #clock b{ color:var(--ink); font-weight:700; font-size:1.3rem; margin-right:.35rem; }
 #stage{ position:relative; display:flex; align-items:flex-start; justify-content:center; min-height:0; }
 #scene{ display:block; image-rendering:pixelated; image-rendering:crisp-edges; border-radius:6px;
-  box-shadow:0 0 0 2px #00000055, 0 1.4rem 3rem #00000066; cursor:pointer; touch-action:manipulation; }
+  box-shadow:0 0 0 2px #00000055, 0 1.4rem 3rem #00000066; cursor:pointer; touch-action:pan-y; }
+#unzoom{ position:absolute; right:.6rem; bottom:.6rem; z-index:3; font:600 .9rem var(--pix); color:#2a1d22; background:#f3e3c3; border:2px solid #6b4a1e; border-radius:.5rem; padding:.35rem .7rem; min-height:2.4rem; cursor:pointer; box-shadow:0 3px 0 #6b4a1e; }
 #scene:focus-visible{ outline:3px solid var(--amber); outline-offset:4px; }
 #gazette{ font-family:var(--serif); border-left:1px solid var(--rule); padding-left:1.2rem; min-height:0; overflow:auto; max-height:calc(100vh - 7rem); }
 #gazette h2{ margin:.2rem 0 .1rem; font-size:1.35rem; font-weight:800; font-style:italic; }
@@ -189,6 +190,7 @@ h1 em{ font-weight:300; color:var(--amber); }
   <div id="stage">
     <canvas id="scene" tabindex="0" role="img" aria-label="A cutaway apartment building with ten flats, a café, a lobby, a basement and a roof garden, full of tiny neighbours. Tap a neighbour to read about them."></canvas>
     <p id="tapHint" class="taphint">👆 Tap anyone in the building to meet them</p>
+    <button type="button" id="unzoom" title="Back to the whole building" hidden>⤢ whole building</button>
     <button type="button" id="pocket" title="Something you found in the building: tap its owner to give it back" hidden></button>
     <div id="bells" role="dialog" aria-label="The doorbells" hidden></div>
     <div id="mail" role="dialog" aria-label="Your post" hidden></div>
@@ -1161,10 +1163,10 @@ const VIEW = { x: 0, y: 0, w: W, h: H, z: 1, cx: W / 2, cy: H / 2 };
 let lastPresent = 0;
 function present(){
   const v = SEL && !cardEl.hidden && innerWidth <= 760 ? selPoint(1) : null;
-  const zt = v ? 2.4 : 1, now = performance.now(), a = 1 - Math.exp(-6 * Math.min(.2, (now - lastPresent) / 1000)); lastPresent = now;
+  const fz = !v && FREE.z > 1.01, zt = v ? 2.4 : fz ? FREE.z : 1, now = performance.now(), a = fz && FREE.live ? 1 : 1 - Math.exp(-6 * Math.min(.2, (now - lastPresent) / 1000)); lastPresent = now;
   VIEW.z += (zt - VIEW.z) * a; if (Math.abs(VIEW.z - zt) < .003) VIEW.z = zt;
   const w = W / VIEW.z, h = H / VIEW.z;
-  VIEW.cx += ((v ? v.x : W / 2) - VIEW.cx) * a; VIEW.cy += ((v ? v.y - 6 + h * .18 : H / 2) - VIEW.cy) * a;
+  VIEW.cx += ((v ? v.x : fz ? FREE.cx : W / 2) - VIEW.cx) * a; VIEW.cy += ((v ? v.y - 6 + h * .18 : fz ? FREE.cy : H / 2) - VIEW.cy) * a;
   VIEW.w = w; VIEW.h = h;
   VIEW.x = Math.max(0, Math.min(W - w, VIEW.cx - w / 2)); VIEW.y = Math.max(0, Math.min(H - h, VIEW.cy - h / 2));
   out.imageSmoothingEnabled = false;
@@ -4183,6 +4185,73 @@ function bdaySound(){
 }
 const bdVisit0 = visitSound;
 visitSound = function(){ bdVisit0(); bdaySound(); };
+
+/* ================= pinch to zoom on phones =================
+   two fingers zoom the building itself (crisp pixels, up to 4x), one finger pans it once zoomed, and the
+   "whole building" chip or a pinch back out returns to the full view. Taps still meet neighbours. */
+const FREE = { z: 1, cx: W / 2, cy: H / 2, live: false, eat: 0 };
+const unzoomEl = document.getElementById('unzoom');
+const tch = new Map();
+let pinch0 = null, pan0 = null;
+function freeClamp(){
+  FREE.z = Math.max(1, Math.min(4, FREE.z));
+  const w = W / FREE.z, h = H / FREE.z;
+  FREE.cx = Math.max(w / 2, Math.min(W - w / 2, FREE.cx)); FREE.cy = Math.max(h / 2, Math.min(H - h / 2, FREE.cy));
+}
+function freeSync(){
+  const on = FREE.z > 1.01;
+  cv.style.touchAction = on ? 'none' : 'pan-y';
+  unzoomEl.hidden = !on;
+}
+function freeReset(){ FREE.z = 1; FREE.cx = W / 2; FREE.cy = H / 2; FREE.live = false; freeSync(); lastDraw = 0; }
+const toWorld = (px, py) => { const r = cv.getBoundingClientRect(); return [VIEW.x + (px - r.left) * VIEW.w / r.width, VIEW.y + (py - r.top) * VIEW.h / r.height, r]; };
+function pinchStart(){
+  const [a, b] = [...tch.values()], mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+  if (!cardEl.hidden) closeCard();
+  FREE.z = VIEW.z; FREE.cx = VIEW.x + VIEW.w / 2; FREE.cy = VIEW.y + VIEW.h / 2;
+  const [wx, wy] = toWorld(mx, my);
+  pinch0 = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, z: FREE.z, wx, wy };
+  pan0 = null; FREE.live = true; FREE.eat = performance.now();
+}
+cv.addEventListener('pointerdown', ev => {
+  if (ev.pointerType !== 'touch') return;
+  tch.set(ev.pointerId, { x: ev.clientX, y: ev.clientY, x0: ev.clientX, y0: ev.clientY });
+  if (tch.size === 2) pinchStart();
+  else if (tch.size === 1 && FREE.z > 1.01 && cardEl.hidden) pan0 = { x: ev.clientX, y: ev.clientY, cx: FREE.cx, cy: FREE.cy, moved: false };
+});
+cv.addEventListener('pointermove', ev => {
+  const t = tch.get(ev.pointerId); if (!t) return;
+  t.x = ev.clientX; t.y = ev.clientY;
+  if (pinch0 && tch.size >= 2){
+    const [a, b] = [...tch.values()], d = Math.hypot(a.x - b.x, a.y - b.y), r = cv.getBoundingClientRect();
+    FREE.z = Math.max(1, Math.min(4, pinch0.z * d / pinch0.d));
+    const w = W / FREE.z, h = H / FREE.z, mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    FREE.cx = pinch0.wx - (mx - r.left) / r.width * w + w / 2; FREE.cy = pinch0.wy - (my - r.top) / r.height * h + h / 2;
+    freeClamp(); FREE.eat = performance.now(); lastDraw = 0; ev.preventDefault();
+  } else if (pan0){
+    const r = cv.getBoundingClientRect(), dx = ev.clientX - pan0.x, dy = ev.clientY - pan0.y;
+    if (!pan0.moved && Math.hypot(dx, dy) < 8) return;
+    pan0.moved = true; FREE.live = true;
+    FREE.cx = pan0.cx - dx * VIEW.w / r.width; FREE.cy = pan0.cy - dy * VIEW.h / r.height;
+    freeClamp(); FREE.eat = performance.now(); lastDraw = 0; ev.preventDefault();
+  }
+});
+function touchEnd(ev){
+  if (!tch.delete(ev.pointerId)) return;
+  if (pinch0 && tch.size < 2){
+    pinch0 = null; FREE.eat = performance.now();
+    if (FREE.z < 1.12) FREE.z = 1;
+    if (tch.size === 1 && FREE.z > 1.01){ const [t] = [...tch.values()]; pan0 = { x: t.x, y: t.y, cx: FREE.cx, cy: FREE.cy, moved: true }; }
+  }
+  if (!tch.size){ pan0 = null; FREE.live = false; if (FREE.z <= 1.01) freeReset(); else freeSync(); }
+}
+cv.addEventListener('pointerup', touchEnd);
+cv.addEventListener('pointercancel', touchEnd);
+/* a pinch or a pan is not a tap */
+addEventListener('click', ev => { if (ev.target === cv && performance.now() - FREE.eat < 350){ ev.stopImmediatePropagation(); ev.preventDefault(); } }, true);
+unzoomEl.addEventListener('click', () => { freeReset(); cv.focus(); });
+cv.addEventListener('dblclick', ev => { if (FREE.z > 1.01){ ev.preventDefault(); freeReset(); } });
+freeSync();
 /* ================= lighting ================= */
 function roomLight(x, y, w, h, on, dl){
   const dark = 1 - dl;
