@@ -8,6 +8,7 @@ iamflax's idea (2026-10-11): "i need a caliathetics app, that shows me different
 - v1.2 2026-10-11: side plank mirrors to the other side at halfway, and arm circles play backwards after halfway. Reduced motion turns off the tremble, sweat and tail flutter (the demo itself keeps moving, since it is the content). Focus moves to Pause on start, to the heading on the done screen and back to Start on New workout. The og.png has a bigger rooster.
 - v1.3 2026-10-11: smartass42 got a jumpscare, so: a master mute (🔊/🔇 "Sound on/off") in the top corner of every screen (setup header, workout top bar, done screen; one button moved between slots) mutes crows, beeps and the spoken coach, saved as set.mute. No sound of any kind before the first pointerdown/keydown (the boot greeting is bubble-only). All audio runs through a limiter and a master gain that fades in over 2 s. Beeps are capped at 0.14 gain (were up to 0.26) and the first crow of a visit is quieter. The workout bar's bell toggle is replaced by the mute; the speech-bubble button toggles talking only.
 - v1.4 2026-10-12: Flax's pitch "app with exercises against headache" became a 5th focus, Headache break (value 'calm'): 8 gentle 30 s moves in a fixed order (CALM in ui.js: belly breathing, neck side tilts, chin to chest, shoulder circles, chest opener, look far away, palms over eyes, temple massage; repeats for 10/15 min), 6 s rests, no beeps, no tremble/sweat, a whispering hatless rooster (LINES.calm, slower softer TTS, a 2-note strangled crow at the end), level/coach/shuffle hidden, a doctor note (#calmNote). Calm moves carry calm:1, tgt (target text) and are excluded from the other focuses. Rank 'Calm Chicken'.
+- v1.5 2026-10-13 05:14: four new moves in rig.js: Plank shoulder taps ('taps', upper+core, each side, lv 0-2), Inchworms ('inchworm', upper+full, lv 1-2), Calf raises ('calfraise', legs), Dead bug ('deadbug', core, each side). Upper focus no longer repeats arm circles/dips so often. Scratch rr/mksvg.js renders a plain-SVG contact sheet of any moves (node mksvg.js rig.js out.svg id1,id2 8; convert out.svg out.png) to judge poses frame by frame; rr/check.js reports floor/reach/head checks.
 
 ## Art direction
 - Retro gym poster at sunrise: paper #fbefd9, ink #2a1a1f, red #c7361f, sun #ffc23a, sky #2f6f86. Conic sunburst rays plus a halftone dot layer.
@@ -30,9 +31,8 @@ iamflax's idea (2026-10-11): "i need a caliathetics app, that shows me different
 
 ## Todos
 - Ask Flax: does the headache break help, and is the order right (maybe a seated version for the office)? Palms over eyes is drawn side-on (front view could not bend the elbows down).
-- Upper focus has only 5 upper moves at normal, so arm circles/dips can repeat in a 10-15 min plan. More upper moves would help (e.g. plank shoulder taps, inchworm).
 - Rep pace: one figure cycle = one rep (each-side moves: one cycle = left + right). Phase 0 of every rep move must be the start pose.
-- Ask Flax: is the drill sergeant too shouty or just right? Any moves to add (e.g. a dead bug or calf raises)?
+- Ask Flax: is the drill sergeant too shouty or just right? Do the v1.5 dead bug and calf raises look right?
 - Possible later: a custom routine builder, rep counting via tap, and a longer 20 min option.
 
 ## Testing
