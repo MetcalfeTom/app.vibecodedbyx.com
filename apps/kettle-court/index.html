@@ -1003,6 +1003,7 @@ function dayPlan(d){
     L = hallowPlan(p, d, L);
     L = meetPlan(p, d, L);
     L = visitPlan(p, d, L);
+    L = cutPlan(p, d, L);
     if (MOVE[p.id]){
       const at = gameAt(MOVE[p.id]);
       if (d < at.day) return;
@@ -1035,7 +1036,7 @@ function dayPlan(d){
   if (HALLOW(d)) hallowPass(d, people, extra);
   extra.push({ t: 720, text: "Noon. Ambrose's nine clocks chimed one after another, for a whole minute." });
   if (fullMoon(d)) extra.push({ t: 1100, text: 'Full moon tonight. Wilf has been very calm about it all day, which is how you can tell.' });
-  const news = extra.concat(wxNews(d), octNews(d), visitNews(d), meetNews(d));
+  const news = extra.concat(wxNews(d), octNews(d), visitNews(d), meetNews(d), cutNews(d, people));
   for (const { p, L } of people) for (const e of L) if (e.gz) news.push({ t: e.arr, text: e.gz, who: p.id });
   news.push(...columns(d, { people, news }));
   news.sort((a, b) => a.t - b.t);
@@ -1158,15 +1159,17 @@ function frame(ts){
     if (p.id === 'rosa' && !st.walk) awake.add('cafe');
   }
   drawCageFront(); drawLiftFront(min);
-  soundTick(min, day); hallowSound(min); visitSound();
+  soundTick(min, day); hallowSound(min); visitSound(); cutSound(min, day);
+  CUT = cutNow(day, min);
   /* lighting: a room is lit at night when somebody in it is awake */
-  for (const fl of FLATS) roomLight(fl.side === 'A' ? AX0 : BX0, CEIL(fl.f), 96, 40, awake.has(fl.id), dl);
-  roomLight(AX0, CEIL(0), 96, 40, awake.has('cafe'), dl); roomLight(BX0, CEIL(0), 96, 40, true, dl);
+  for (const fl of FLATS) roomLight(fl.side === 'A' ? AX0 : BX0, CEIL(fl.f), 96, 40, awake.has(fl.id) && !CUT, dl);
+  roomLight(AX0, CEIL(0), 96, 40, awake.has('cafe') && !CUT, dl); roomLight(BX0, CEIL(0), 96, 40, !CUT, dl);
   pumpkinGlow();
-  roomLight(AX0, CEIL(-1), 96, 30, awake.has('laundry'), dl); roomLight(BX0, CEIL(-1), 96, 30, awake.has('BB') || fullMoon(day) && min > 1160, dl);
+  roomLight(AX0, CEIL(-1), 96, 30, awake.has('laundry') && !CUT, dl); roomLight(BX0, CEIL(-1), 96, 30, !CUT && (awake.has('BB') || fullMoon(day) && min > 1160), dl);
   /* Morwenna's torch, the bang */
   if (movedIn(PERSON.morwenna) && dl < .35 && Math.floor(performance.now() / 650) % 2){ const tx = rx('B', 27, 3), ty = CEIL(5) + 14; g.globalAlpha = .35; R(tx - 4, ty - 4, 11, 11, '#fff2a0'); g.globalAlpha = 1; R(tx, ty, 3, 3, '#fffbe0'); }
   const b = bangAt(day); if (b && min >= b && min < b + 2 && movedIn(PERSON.imogen)){ g.globalAlpha = 1 - (min - b) / 2; R(AX0, CEIL(5), 96, 40, '#fffbe8'); g.globalAlpha = 1; }
+  cutGlow(min, dl);
   drawWeatherFront(min, dl);
   /* bubbles, zzz, the selection marker */
   VIS.forEach((v, i) => {
@@ -2148,6 +2151,8 @@ function dayFacts(d, D){
   const mt = meetOf(d);
   if (mt && !mt.off) f.push({ t: MEET_T0 + 2, a: 'At the residents’ meeting I took the minutes again. Unopposed. Nobody else had a pen.',
     g: mt.seat.ghost !== undefined ? 'I went to the meeting as well. I voted on everything from the bottom stair. Agnes did not count me. I counted Agnes.' : 'I missed the meeting. I heard it through the floor. Most motions were carried by Agnes.' });
+  const cu = cutOf(d);
+  if (cu && cu.t1 < 1380) f.push({ t: cu.t1, a: '', g: 'When the lights went out tonight, for ' + (cu.t1 - cu.t0) + ' whole minutes I was the brightest thing in the building. Nobody screamed. I was a little disappointed.' });
   const wx = wxDay(d);
   if (/rain|storm/.test(wx.kind) && wx.t0 < 1180) f.push({ t: wx.t0 + 30, a: 'Wet footprints all the way up my landing again. I know whose they are.', g: 'Agnes says she knows whose footprints those were. She does not. Some of them went up the wall.' });
   if (fullMoon(d)) f.push({ t: 700, a: 'Full moon tonight. Mr. Barker has been very calm about it all day. I have locked my door twice.', g: 'Wilf has been howling since ten, very politely, into a pillow. Agnes has slept through all of it.' });
@@ -2569,6 +2574,112 @@ function meetHand(v){
   if (v.pose === 'sit'){ const top = p.kid ? 3 : 0; R(ax, y - 12 + top, 1, 5, p.coat || p.shirt); P(ax, y - 13 + top, sk); return; }
   const by = y - (p.kid ? 6 : 8), hy = by - 3;
   R(ax, hy - 2, 1, by - hy + 3, p.coat || p.shirt); P(ax, hy - 3, sk);
+}
+
+/* ================= the power cut: some nights the whole building goes dark =================
+   (more likely in a storm). Everyone awake at home comes out onto the landing with a candle, Gus goes down to the
+   fuse box with a torch, the ghost is the only light on the stairs and loves it, and when the lights come back on
+   the building cheers. Never on Halloween; always after the dinner guests have gone home. */
+const cutCache = new Map();
+function cutOf(d){
+  if (cutCache.has(d)) return cutCache.get(d);
+  let C = null;
+  if (!HALLOW(d)){
+    const wx = wxDay(d), storm = wx.kind === 'storm' && wx.t1 > 1250;
+    if (hash(d, 900) < (storm ? .6 : .13)){
+      let t0 = 1262 + Math.floor(hash(d, 901) * 50);
+      for (const v of visitsOn(d)) t0 = Math.max(t0, v.t1 + 12);
+      const t1 = t0 + 12 + Math.floor(hash(d, 902) * 10);
+      if (t1 < 1400) C = { t0, t1, storm };
+    }
+  }
+  if (cutCache.size > 4) cutCache.delete(cutCache.keys().next().value);
+  cutCache.set(d, C);
+  return C;
+}
+let CUT = false;
+const cutNow = (d, m) => { const C = cutOf(d); return !!C && m >= C.t0 && m < C.t1; };
+const CUT_ACT = {
+  agnes: ['on the landing, drafting a letter to the electricity board by candlelight', 'bolt'],
+  teo: ['on the landing. His game had not saved.', 'what'],
+  fatty: ['on the landing, still talking to his stream on his phone', 'talk'],
+  kit: ['on the landing with a torch under his chin: best night ever', 'star'],
+  maya: ['on the landing, sitting down for once, in the dark', 'heart'],
+  dot: ['on the landing, handing out warm rolls by candlelight', 'bread'],
+  wren: ['on the landing, playing the cello in the dark. Agnes allows it, this once.', 'note'],
+  morwenna: ['at the window, flashing her torch at the street', 'bulb'],
+  barry: ['on the landing: patrolling the dark, cape on', 'eye'],
+  socks: ['on the landing, telling a war story nobody can see him tell', 'talk'],
+  ambrose: ['on the landing, winding his pocket watch by feel', 'clock'],
+  imogen: ['on the landing, saying this happened next week too', 'cog'],
+  felix: ['on the landing, painting the dark. It is going well.', 'brush'],
+  gordon: ['on the landing, making a balloon dog by candlelight', 'star']
+};
+function cutPlan(p, d, L){
+  const C = cutOf(d); if (!C || p.npc || p.dog || p.cat) return L;
+  const k = CAST.indexOf(p), clean = e => { delete e.lift; delete e.jump; return e; };
+  const backAt = t => clean(Object.assign({}, evAt(L, t + 6), { t, gz: null }));
+  if (p.id === 'gus'){
+    const out = L.filter(e => e.t < C.t0 || e.t > C.t1 + 6);
+    out.push(Object.assign(E(C.t0 + 1, 'boiler', 'down at the fuse box with a torch', 'wrench'), { cut: 1 }), backAt(C.t1 + 1));
+    return out.sort((a, b) => a.t - b.t);
+  }
+  if (p.ghost){
+    const out = L.filter(e => e.t < C.t0 || e.t > C.t1 + 6);
+    out.push(Object.assign(E(C.t0 + 1, 'stairs:3', 'glowing on the stairs: the only light in the building, and loving it', 'heart'), { cut: 1 }), backAt(C.t1 + 2));
+    return out.sort((a, b) => a.t - b.t);
+  }
+  const ev = evAt(L, C.t0); if (!p.home || p.home === 'BB' || dozing(ev) || ev.lift || ev.jump) return L;
+  const P = place(ev.pl, p.home); if (P.home !== p.home) return L;   /* only people who are at home when the lights go */
+  const mates = CAST.filter(q => q.home === p.home && !q.dog && !q.cat), n = Math.max(0, mates.indexOf(p));
+  const [act, icon] = CUT_ACT[p.id] || ['out on the landing with a candle, chatting in the dark', 'talk'];
+  const spot = p.id === 'morwenna' ? 'window' : 'tt:' + p.home + '/' + n;
+  const out = L.filter(e => e.t < C.t0 + 2 || e.t > C.t1 + 8);
+  out.push(Object.assign(E(C.t0 + 2 + (k % 3), spot, act, icon), { cut: 1 }), backAt(C.t1 + 2 + (k % 4)));
+  return out.sort((a, b) => a.t - b.t);
+}
+function cutNews(d, people){
+  const C = cutOf(d); if (!C) return [];
+  const out = (id) => people.some(x => x.p.id === id && x.L.some(e => e.cut));
+  const mins = C.t1 - C.t0;
+  return [{ t: C.t0, text: (C.storm ? 'The storm took the power out at ' : 'The power went out at ') + hhmm(C.t0) + '. The whole building went dark, apart from the ghost.' },
+    { t: C.t1 + 1, text: 'Gus found the fuse in ' + mins + ' minutes, by torchlight, and the lights came back on to a cheer.' + (out('kit') ? ' Kit says it was the best night of his life.' : '') + (out('wren') ? ' Wren played the cello on the stairs the whole time, and Agnes let her.' : '') + ' The ghost has asked if it can happen again.' }];
+}
+/* a soft additive pool of light: it brightens what is under it, so the people holding the candles show up */
+function cutLight(x, y, r, rgb, a){
+  const gr = g.createRadialGradient(x, y, 0, x, y, r);
+  gr.addColorStop(0, 'rgba(' + rgb + ',' + a + ')'); gr.addColorStop(.45, 'rgba(' + rgb + ',' + (a * .45) + ')'); gr.addColorStop(1, 'rgba(' + rgb + ',0)');
+  g.globalCompositeOperation = 'lighter'; g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2); g.globalCompositeOperation = 'source-over';
+}
+/* drawn after the room lights: the building goes darker still, then candles, torches and the ghost glow on top */
+function cutGlow(min, dl){
+  if (!CUT) return;
+  const top = CEIL(NF) - 2, bot = FY[-1] + 1;
+  g.globalAlpha = .28 + .3 * (1 - dl); R(32, top, 224, bot - top, '#05061a'); g.globalAlpha = 1;
+  const fl = Math.floor(performance.now() / 140);
+  for (const v of VIS){
+    const { p, st, x, y } = v; if (v.sleepy || p.dog || p.cat) continue;
+    if (p.ghost){ cutLight(x, y - 9, 16, '170,130,235', .5); continue; }
+    if (!st.walk && !(st.e && st.e.cut)) continue;
+    const d = st.dir || 1, kid = p.kid ? 2 : 0, hx = x + d * 2, hy = y - 8 + kid;
+    if (p.id === 'gus' || p.id === 'morwenna' || p.id === 'kit'){   /* torches */
+      g.globalCompositeOperation = 'lighter'; g.globalAlpha = .13; for (let i = 1; i < 11; i++) R(hx + d * i * 2, hy - i * .8, 2, i * 1.6 + 1, '#fff2a0'); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
+      cutLight(hx + d * 2, hy, 7, '255,236,170', .35);
+      R(hx, hy, 2, 1, '#8a8478'); P(hx + d, hy, '#fffbe0');
+      continue;
+    }
+    const w = (fl + x) % 3 ? 0 : 1;
+    cutLight(hx, hy - 3, 12 + w, '255,180,100', .5);
+    R(hx, hy - 2, 1, 3, '#efe6d6'); P(hx, hy - 3, (fl + x) % 2 ? '#ffd84a' : '#ffb347');
+  }
+}
+function cutSound(min, day){
+  if (!SND.on || !SND.ac) return;
+  const C = cutOf(day); if (!C) return;
+  if (min >= C.t0 && min < C.t0 + 1 && SND.seen['cut0'] !== day){ SND.seen['cut0'] = day;
+    tone(90, 0, .35, { type: 'square', v: .05 }); tone(60, .06, .7, { type: 'sine', v: .07, to: 30 }); }
+  if (min >= C.t1 && min < C.t1 + 1 && SND.seen['cut1'] !== day){ SND.seen['cut1'] = day;
+    tone(50, 0, .9, { type: 'sawtooth', v: .015, to: 120 }); [660, 784, 988, 1175].forEach((f, i) => tone(f, .5 + i * .09, .3, { type: 'triangle', v: .035 })); }
 }
 /* ================= lighting ================= */
 function roomLight(x, y, w, h, on, dl){
