@@ -1,6 +1,7 @@
 # App Directory
 
 ## log
+- 2026-10-13 19:21 UTC: commit window bigger (min(46rem, 100vw-1.5rem) wide, up to 88vh, larger text; max-width overrides the UA dialog cap on phones) and no yellow: the picked row has no highlight and the frame is cyan like the log (hamburglar06 19:20). Counts on the board do update: rebake after every commit (checked 19:20, asof matched the last commit).
 - 2026-10-13 19:16 UTC: the tapped commit now opens in its own window (dialog#cmtd over the change log: 'commit · hash', app name, full date, whole message, its +/− line; ✕, backdrop or Esc closes it and focus goes back to the row; closing the log closes it too). Replaces the 19:07 in-place expansion (hamburglar06 19:13).
 - 2026-10-13 19:08 UTC: tap a commit in the board's change log to focus it and read its full message (others fade to .35; tap again or another to switch; Enter/Space on keyboard). build-busy.py also bakes busy-msgs.json {hash7: full message minus Co-Authored-By trailers; secret-looking ones keep only the subject}, ~105 KB, fetched on the first tap. Card-opened logs (changes.json) have no hashes, so they don't expand yet (hamburglar06 19:05).
 - 2026-10-13 18:49 UTC: plainer per hamburglar06 18:49 'let's not make it fancy': dropped the ring pulse and the row slide-in; kept the eased whole-turn spin and the dim-while-reading list.
