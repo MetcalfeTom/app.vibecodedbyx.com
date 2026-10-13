@@ -82,6 +82,13 @@
   - pickups: the hole donut can only be had by flying through; donut pickups now also need the car's height near the donut's.
   - end card counts donut jumps. Lede mentions the ramp. #buildstamp v3.1.1.
   - tested: node sim (every gas speed from a standstill makes it, coasting from 18 m/s at the lip, aim within ~1.5 m / 0.05 rad) + headless srrp8 (passes at 20/30/40 and ±0.9 m off the line, +6 then +3, airtime peak 3.6 m with pitch 0.14 and an upright landing, slow-mo step ratio 0.27, camera swing 0.99 → 0, shower 48, bonks both sides bounce back, too slow never passes, plinth/lip are walls from the ground and from behind, slow climb never shoved, side crossing lands on its wheels, no phantom events on reset) at 30/60/144 fps; srrp2–5/7 + srrp8 at 1280×720 and 390×844 touch, 0 errors; 97–160 draw calls in the jump views.
+- 2026-10-13 18:56 — v3.2 sound rewrite (fela 18:36: "car sound is a bit bad :D"):
+  - engine is layered now: two slightly detuned saws + a half-speed square (the lumpy four-cylinder beat) → soft clipper (tanh, 2x oversample) → lowpass that opens with revs AND throttle → its own quiet bus (`engBus` 0.18). Sub sine at the firing note fading out above ~40% revs, intake hiss (bandpassed noise) under load. Pitch = rpm/30 (was rpm/15, too buzzy and high).
+  - throttle off = darker and ~60% quieter, plus a few exhaust pops when you lift from high revs (`crackle`); an upshift ducks the body (×0.4 while `drv.shift` > 0) with a short chuff, then the revs climb back.
+  - `engineTick(dt, on, slow)` smooths revs (tc 45 ms) and load in REAL time, so the pitch is the same curve at 30/60/144 fps (144 fps raw sim revs are steppy because of the 120 Hz sim). Donut-jump slow-mo drops the pitch.
+  - on top on `fxBus`: tyre squeal (two wobbling triangles + bandpassed noise, 0.42·slide²), wind with speed, wall-scrape grind (`car.scrapeA`, a decaying hold of `scrapeV` captured in updateCarFx), crunch on hits (thump + lowpassed noise, bigger with impact), donut chime = little bell climbing a pentatonic scale with the combo, two-tone bus horn. Master → DynamicsCompressor.
+  - context only made inside the start tap; resumed on later taps/keys if a phone suspends it; suspended while the tab is hidden. Mute (button + M) unchanged. #buildstamp v3.2.
+  - tested: offline render through the real graph (idle/launch/shift/lift/slide/crunch): idle heard level 0.15× full, lift-off 0.39× on-throttle at the same revs, shift dip 0.28× then ×2.85 climb, squeal 2.9× engine, crunch 9× engine, scrape 4.5× engine, peak 0.65 (no clipping), engine 0.9× the old one at full and 0.63× at idle (150 Hz+ weighted). Pitch curve 30/144 vs 60 fps within 0.8%, no backsteps. srrp2-5, 7, 8 (30/144 fps), 9 at both sizes: 0 fails, 0 JS errors.
 
 ## issues
 - probes teleport the car with `placeCar(x, z, heading, speed)` (resets the drive state, springs and gear); never set `car.mesh.position` directly any more: the simulation lives in `car.pos`/`car.heading`/`car.drv` and the mesh is only drawn from them.
@@ -96,6 +103,7 @@
 - donut jump probes: random donuts can lie on the run-up lane (pickDonutSpot ignores keepClear), so a jump run may also eat a regular donut (+2 s). The statue's `st.donut` stays set after pickup; check `.parent`.
 
 ## todos
+- v3.2 sound untested on real phones/speakers: iOS silent switch mutes Web Audio (no fix without an <audio> trick), small phone speakers lose most of the idle (it is deliberately low). Knobs in `engineTick`: lowpass `150 + r*0.07 + L*(420 + r*0.17)`, body gain, `engBus` 0.18, squeal 0.42, wind 0.09. Next: v3.3 endless procedural town (plan in the v3.1.1 notes/todos).
 - real phones still untested: iOS Safari audio unlock, multi-touch feel of the analog pad, frame rate on low-end phones (each house has its own cloned texture), sign fonts on slow connections (they redraw once the font loads)
 - real phones untested for v2.4: paint/env look on mobile GPUs, frame rate with the clearcoat paint
 - real phones untested for v2.5: how the new grip/drift feels with thumbs; tuning knobs are `GRIP`, `SLIP_PEAK`, the drift multipliers (0.42 / 7 / 1.25 / 2.4) and the 0.6 camera blend

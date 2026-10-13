@@ -149,7 +149,7 @@
           <p class="muted" id="lbStatus">Loading…</p>
           <div id="leaderboard" class="leaderboard-list"></div>
         </div>
-        <p class="stamp" id="buildstamp" role="note" aria-label="Build information">v3.1.1 · 2026-10-13</p>
+        <p class="stamp" id="buildstamp" role="note" aria-label="Build information">v3.2 · 2026-10-13</p>
       </div>
     </div>
 
@@ -464,9 +464,14 @@
         toastTimer = setTimeout(() => messageEl.classList.remove('show'), 1800);
       }
 
-      // ---- sound: engine that follows your speed, donut chomp, bus honk, end-of-shift jingle ----
-      const sfx = { ac: null, muted: false, eng: null };
+      // ---- sound (v3.2), all synthesised, nothing downloaded. The engine is layered: two slightly detuned saws and a half-speed square
+      // (the lumpy beat of a four-cylinder) through a soft clipper and a lowpass that opens with the revs and the throttle, a sub thump
+      // at low revs and intake hiss under load. Lift off and it goes dull (and pops a little from high up); a gear change dips, then
+      // climbs. The engine has its own, quieter bus; tyres, wind, scrapes, crunches and chimes sit on top. A compressor keeps peaks
+      // in check. Nothing starts until a tap or click (phones insist).
+      const sfx = { ac: null, muted: false, eng: null, fxBus: null, nb: null, master: null, rpm: 900, load: 0, gear: 1, armed: false };
       try { sfx.muted = localStorage.getItem('srr_muted') === '1'; } catch (_) {}
+      const MASTER_VOL = 0.9;
       const muteBtn = document.getElementById('muteBtn');
       function drawMute() {
         muteBtn.textContent = sfx.muted ? '🔇' : '🔊';
@@ -476,53 +481,123 @@
       function toggleMute() {
         sfx.muted = !sfx.muted;
         try { localStorage.setItem('srr_muted', sfx.muted ? '1' : '0'); } catch (_) {}
-        if (sfx.ac) sfx.master.gain.setTargetAtTime(sfx.muted ? 0 : 0.8, sfx.ac.currentTime, 0.05);
+        if (sfx.ac) sfx.master.gain.setTargetAtTime(sfx.muted ? 0 : MASTER_VOL, sfx.ac.currentTime, 0.05);
         drawMute();
       }
       muteBtn.addEventListener('click', toggleMute);
       document.addEventListener('keydown', (e) => { if (e.code === 'KeyM' && e.target !== nameInput) toggleMute(); });
       drawMute();
+      // the whole sound graph, on any audio context (the live one, or an offline one for testing)
+      function buildAudio(ac, out) {
+        const nb = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate), ch = nb.getChannelData(0);
+        for (let i = 0; i < ch.length; i++) ch[i] = Math.random() * 2 - 1;
+        const noiseSrc = () => { const s = ac.createBufferSource(); s.buffer = nb; s.loop = true; s.start(0, Math.random() * 1.9); return s; };
+        const osc = (type, f, det) => { const o = ac.createOscillator(); o.type = type; o.frequency.value = f; o.detune.value = det || 0; o.start(); return o; };
+        const gain = (v) => { const g = ac.createGain(); g.gain.value = v; return g; };
+        const filt = (type, f, q) => { const b = ac.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q; return b; };
+        const engBus = gain(0.18), fxBus = gain(1);
+        engBus.connect(out);
+        fxBus.connect(out);
+        // engine
+        const a = osc('sawtooth', 30, -7), b = osc('sawtooth', 30, 6), c = osc('square', 15), sub = osc('sine', 30);
+        const mix = gain(0.4), cG = gain(0.55);
+        a.connect(mix); b.connect(mix); c.connect(cG).connect(mix);
+        const shaper = ac.createWaveShaper(), curve = new Float32Array(1024);
+        for (let i = 0; i < 1024; i++) { const x = i / 511.5 - 1; curve[i] = Math.tanh(2.2 * x) / Math.tanh(2.2); }
+        shaper.curve = curve;
+        shaper.oversample = '2x';
+        const lp = filt('lowpass', 220, 0.9), lp2 = filt('lowpass', 2600, 0.5), body = gain(0);
+        mix.connect(shaper).connect(lp).connect(lp2).connect(body).connect(engBus);
+        const subG = gain(0);
+        sub.connect(subG).connect(engBus);
+        const ibp = filt('bandpass', 500, 1.1), iG = gain(0);
+        noiseSrc().connect(ibp).connect(iG).connect(engBus);
+        // tyre squeal: two wobbling tones over band-passed noise
+        const sq = gain(0), t1 = osc('triangle', 1180), t2 = osc('triangle', 1430), wob = osc('sine', 7.5), wobG = gain(40), tG = gain(0.22);
+        wob.connect(wobG);
+        wobG.connect(t1.frequency);
+        wobG.connect(t2.frequency);
+        t1.connect(tG); t2.connect(tG); tG.connect(sq);
+        const sbp = filt('bandpass', 1500, 5);
+        noiseSrc().connect(sbp).connect(sq);
+        sq.connect(fxBus);
+        // wind that rises with speed, the grind of a wall scrape
+        const wlp = filt('lowpass', 300, 0.4), wG = gain(0);
+        noiseSrc().connect(wlp).connect(wG).connect(fxBus);
+        const scbp = filt('bandpass', 2600, 1.6), scG = gain(0);
+        noiseSrc().connect(scbp).connect(scG).connect(fxBus);
+        return { nb, fxBus, engBus, eng: { a, b, c, sub, lp, body, subG, ibp, iG, sq, sbp, wlp, wG, scG } };
+      }
+      function acDo(m) { try { const p = sfx.ac && sfx.ac[m] && sfx.ac[m](); if (p && p.catch) p.catch(() => {}); } catch (_) {} }
       function audioOn() {
-        if (sfx.ac) { sfx.ac.resume?.(); return; }
+        if (sfx.ac) { if (sfx.ac.state !== 'running') acDo('resume'); return; }
         try {
           const ac = new (window.AudioContext || window.webkitAudioContext)();
-          sfx.ac = ac;
+          const comp = ac.createDynamicsCompressor();
+          comp.threshold.value = -14; comp.knee.value = 12; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.2;
           sfx.master = ac.createGain();
-          sfx.master.gain.value = sfx.muted ? 0 : 0.8;
-          sfx.master.connect(ac.destination);
-          const o1 = ac.createOscillator(), o2 = ac.createOscillator(), lp = ac.createBiquadFilter(), g = ac.createGain();
-          o1.type = 'sawtooth'; o2.type = 'square'; o2.detune.value = -1200;
-          lp.type = 'lowpass'; lp.frequency.value = 500; lp.Q.value = 3;
-          g.gain.value = 0;
-          o1.connect(lp); o2.connect(lp); lp.connect(g).connect(sfx.master);
-          o1.start(); o2.start();
-          // squeal: a wobbling high tone over band-passed noise
-          const sq = ac.createGain(), bp = ac.createBiquadFilter(), tone = ac.createOscillator(), wob = ac.createOscillator(), wobG = ac.createGain();
-          const nb = ac.createBuffer(1, ac.sampleRate, ac.sampleRate), ch = nb.getChannelData(0);
-          for (let i = 0; i < ch.length; i++) ch[i] = Math.random() * 2 - 1;
-          const noise = ac.createBufferSource();
-          noise.buffer = nb; noise.loop = true;
-          bp.type = 'bandpass'; bp.frequency.value = 1500; bp.Q.value = 7;
-          tone.type = 'triangle'; tone.frequency.value = 1180;
-          wob.frequency.value = 9; wobG.gain.value = 45;
-          wob.connect(wobG).connect(tone.frequency);
-          const toneG = ac.createGain(); toneG.gain.value = 0.35;
-          noise.connect(bp).connect(sq); tone.connect(toneG).connect(sq);
-          sq.gain.value = 0;
-          sq.connect(sfx.master);
-          noise.start(); tone.start(); wob.start();
-          sfx.eng = { o1, o2, lp, g, sq, bp };
-        } catch (_) { sfx.ac = null; }
+          sfx.master.gain.value = sfx.muted ? 0 : MASTER_VOL;
+          sfx.master.connect(comp).connect(ac.destination);
+          Object.assign(sfx, buildAudio(ac, sfx.master));
+          sfx.ac = ac;
+          if (ac.state !== 'running') acDo('resume'); // still inside the tap that started the shift
+        } catch (_) { sfx.ac = null; sfx.eng = null; }
       }
-      function engineTick(rpm, load, slide, on) {
-        if (!sfx.eng) return;
-        const t = sfx.ac.currentTime, e = sfx.eng, f = rpm / 15;
-        e.o1.frequency.setTargetAtTime(f, t, 0.03);
-        e.o2.frequency.setTargetAtTime(f, t, 0.03);
-        e.lp.frequency.setTargetAtTime(240 + rpm * 0.16 + load * 900, t, 0.05);
-        e.g.gain.setTargetAtTime(on ? 0.04 + 0.04 * load + (0.03 * rpm) / 6800 : 0, t, 0.06);
-        e.sq.gain.setTargetAtTime(on ? 0.11 * slide * slide : 0, t, 0.05);
-        e.bp.frequency.setTargetAtTime(1300 + 700 * slide, t, 0.08);
+      // a phone suspends audio for a call or a locked screen: wake it with the next touch or key
+      ['pointerdown', 'touchend', 'keydown'].forEach((ev) => document.addEventListener(ev, () => { if (sfx.ac && sfx.ac.state !== 'running' && !document.hidden) acDo('resume'); }, { passive: true }));
+      // and a hidden tab goes quiet instead of droning on in the background
+      document.addEventListener('visibilitychange', () => { if (sfx.ac) acDo(document.hidden ? 'suspend' : 'resume'); });
+      // one short burst of noise through a filter (pops, chuffs, crunches)
+      function noiseHit(bus, type, f, q, vol, at, len) {
+        const ac = sfx.ac, n = ac.createBufferSource(), fl = ac.createBiquadFilter(), g = ac.createGain();
+        n.buffer = sfx.nb;
+        fl.type = type; fl.frequency.value = f; fl.Q.value = q;
+        g.gain.setValueAtTime(0.0001, at);
+        g.gain.exponentialRampToValueAtTime(vol, at + 0.004);
+        g.gain.exponentialRampToValueAtTime(0.0001, at + len);
+        n.connect(fl).connect(g).connect(bus);
+        n.start(at, Math.random() * 1.5);
+        n.stop(at + len + 0.02);
+      }
+      function crackle() { // lifting off high up the rev range: a few quiet pops from the exhaust
+        let at = sfx.ac.currentTime + 0.06;
+        for (let i = 0, n = 3 + ((Math.random() * 3) | 0); i < n; i++) {
+          noiseHit(sfx.engBus, 'highpass', 700 + Math.random() * 500, 0.7, 0.1 + Math.random() * 0.08, at, 0.018 + Math.random() * 0.02);
+          at += 0.05 + Math.random() * 0.09;
+        }
+      }
+      // called every frame with real time: the simulation's revs and throttle are smoothed here, so the pitch glides the same way at
+      // 30, 60 or 144 fps. `slow` (<1 in a donut jump's slow-motion beat) drops the pitch with the picture.
+      function engineTick(dt, on, slow = 1) {
+        const e = sfx.eng;
+        if (!e) return;
+        const t = sfx.ac.currentTime, d = car.drv, k = (tc) => 1 - Math.exp(-dt / tc);
+        const shifting = on && d.shift > 0;
+        const rpmIn = on ? d.rpm : DRV.idle, loadIn = on && !shifting ? d.thr : 0;
+        sfx.rpm += (rpmIn - sfx.rpm) * k(0.045);
+        sfx.load += (loadIn - sfx.load) * k(loadIn > sfx.load ? 0.05 : 0.09);
+        const r = sfx.rpm, L = sfx.load, rr = Math.max(0, (r - DRV.idle) / (DRV.redline - DRV.idle));
+        if (on && d.gear > sfx.gear && d.gear > 1) noiseHit(sfx.engBus, 'bandpass', 750, 1.4, 0.12, t, 0.08); // the upshift chuff
+        sfx.gear = d.gear;
+        if (L > 0.6) sfx.armed = true;
+        else if (sfx.armed && L < 0.12) { sfx.armed = false; if (on && r > 4000) crackle(); }
+        const f = (r / 30) * (0.55 + 0.45 * slow); // a four-cylinder fires twice a turn
+        e.a.frequency.setTargetAtTime(f, t, 0.03);
+        e.b.frequency.setTargetAtTime(f, t, 0.03);
+        e.c.frequency.setTargetAtTime(f / 2, t, 0.03);
+        e.sub.frequency.setTargetAtTime(f, t, 0.03);
+        e.lp.frequency.setTargetAtTime(150 + r * 0.07 + L * (420 + r * 0.17), t, 0.04);
+        e.body.gain.setTargetAtTime(on ? (0.14 + 0.08 * rr + L * (0.18 + 0.22 * rr)) * (shifting ? 0.4 : 1) : 0, t, shifting ? 0.02 : 0.05);
+        e.subG.gain.setTargetAtTime(on ? 0.3 * Math.max(0, 1 - rr * 2.2) * (0.5 + 0.5 * L) : 0, t, 0.06);
+        e.ibp.frequency.setTargetAtTime(280 + r * 0.22, t, 0.05);
+        e.iG.gain.setTargetAtTime(on ? L * (0.04 + 0.2 * rr) : 0, t, 0.05);
+        // on top: tyres, wind, scrapes
+        const s = on ? car.slide : 0, v = on ? Math.hypot(car.velocity.x, car.velocity.z) : 0, sc = on ? Math.min(1, (car.scrapeA || 0) / 12) : 0;
+        e.sq.gain.setTargetAtTime(0.42 * s * s, t, 0.05);
+        e.sbp.frequency.setTargetAtTime(1300 + 800 * s, t, 0.08);
+        e.wG.gain.setTargetAtTime(0.09 * Math.min(1, (v / 55) ** 2), t, 0.2);
+        e.wlp.frequency.setTargetAtTime(250 + v * 22, t, 0.2);
+        e.scG.gain.setTargetAtTime(0.4 * sc, t, sc > 0 ? 0.02 : 0.08);
       }
       function blip(freqs, type, len, vol, gap) {
         if (!sfx.ac) return;
@@ -533,24 +608,48 @@
           g.gain.setValueAtTime(0.0001, t);
           g.gain.exponentialRampToValueAtTime(vol, t + 0.01);
           g.gain.exponentialRampToValueAtTime(0.0001, t + len);
-          o.connect(g).connect(sfx.master);
+          o.connect(g).connect(sfx.fxBus);
           o.start(t); o.stop(t + len + 0.02);
         });
       }
-      const thud = (v) => blip([90, 55], 'sine', 0.2, 0.1 + 0.22 * v, 0.05);
+      function thud(v) { // a crunch: a low thump and a burst of grit, bigger for harder hits
+        if (!sfx.ac) return;
+        blip([95, 48], 'sine', 0.22, 0.14 + 0.3 * v, 0.03);
+        noiseHit(sfx.fxBus, 'lowpass', 900 + 2200 * v, 0.7, 0.1 + 0.32 * v, sfx.ac.currentTime, 0.1 + 0.2 * v);
+      }
       const zap = () => blip([392, 523, 784, 1046], 'sawtooth', 0.14, 0.07, 0.05);
-      const chomp = (combo) => blip([660 * Math.pow(1.06, Math.min(combo, 12)), 990 * Math.pow(1.06, Math.min(combo, 12))], 'square', 0.09, 0.12, 0.06);
+      // donut chime: a little bell that climbs a pentatonic scale with the combo
+      const PENTA = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24];
+      function bell(f, vol, at, len) {
+        const ac = sfx.ac, o = ac.createOscillator(), g = ac.createGain();
+        o.type = 'sine'; o.frequency.value = f;
+        g.gain.setValueAtTime(0.0001, at);
+        g.gain.exponentialRampToValueAtTime(vol, at + 0.005);
+        g.gain.exponentialRampToValueAtTime(0.0001, at + len);
+        o.connect(g).connect(sfx.fxBus);
+        o.start(at); o.stop(at + len + 0.02);
+      }
+      function chomp(combo) {
+        if (!sfx.ac) return;
+        const t = sfx.ac.currentTime, f = 660 * Math.pow(2, PENTA[Math.min(combo, PENTA.length - 1)] / 12);
+        bell(f, 0.2, t, 0.45);
+        bell(f * 2.76, 0.05, t, 0.2); // a bright partial on the strike
+        bell(f * 1.5, 0.1, t + 0.07, 0.4);
+        noiseHit(sfx.fxBus, 'bandpass', 2400, 2, 0.05, t, 0.03); // the bite
+      }
       function honk() {
         if (!sfx.ac) return;
-        const t = sfx.ac.currentTime;
+        const ac = sfx.ac, t = ac.currentTime, lp = ac.createBiquadFilter();
+        lp.type = 'lowpass'; lp.frequency.value = 1800; lp.Q.value = 0.7;
+        lp.connect(sfx.fxBus);
         [311, 392].forEach((f) => {
-          const o = sfx.ac.createOscillator(), g = sfx.ac.createGain();
-          o.type = 'square'; o.frequency.value = f;
-          g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.09, t + 0.02);
-          g.gain.setValueAtTime(0.09, t + 0.32); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
-          o.connect(g).connect(sfx.master); o.start(t); o.stop(t + 0.42);
+          const o = ac.createOscillator(), g = ac.createGain();
+          o.type = 'sawtooth'; o.frequency.setValueAtTime(f, t); o.frequency.linearRampToValueAtTime(f * 0.97, t + 0.4);
+          g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.08, t + 0.02);
+          g.gain.setValueAtTime(0.08, t + 0.32); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.42);
+          o.connect(g).connect(lp); o.start(t); o.stop(t + 0.45);
         });
-        blip([90, 55], 'sine', 0.2, 0.3, 0.05);
+        thud(0.5);
       }
 
       function startShift() {
@@ -585,7 +684,7 @@
       function endShift() {
         state.playing = false;
         state.endedAt = performance.now();
-        engineTick(900, 0, 0, false);
+        engineTick(0, false);
         blip([784, 659, 523, 392], 'triangle', 0.35, 0.16, 0.16);
         state.gameOverShown = true;
         Object.keys(keyState).forEach((k) => (keyState[k] = false));
@@ -1340,6 +1439,7 @@
           for (let i = 0; i < n; i++) fxEmit(fx.sparks, car.scrapeX, p.y + 0.45, car.scrapeZ, car.velocity.x * 0.45 + (Math.random() - 0.5) * 7,
             2 + Math.random() * 4, car.velocity.z * 0.45 + (Math.random() - 0.5) * 7, 0.3 + Math.random() * 0.25, 1);
         }
+        car.scrapeA = Math.max(car.scrapeV, (car.scrapeA || 0) * Math.exp(-dt * 20)); // held a moment, for the scrape sound
         car.scrapeV = 0;
         fxStep(fx.sparks, dt, sparkShape);
       }
@@ -2829,7 +2929,7 @@
           resetIfOutOfBounds();
           updateCamera(dt);
           drawGauges();
-          engineTick(car.drv.rpm, car.drv.thr, car.slide, true);
+          engineTick(dt, true, slow);
         }
 
         spinDonuts(dt, state.t);
