@@ -313,6 +313,17 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   Viktor, Dichter, writes poems on a bench at the west end (69.6,72.5): Scheffel's "Alt Heidelberg, du feine" (1854),
   the Pulverturm blown up in 1693, painters. Probes p/s1.py, p/g1.py (physics walk gate -> garden, touch stick climbs
   the bridge steps), p/bfs.py, p/wmap.py. 0 JS errors 1280x800 + 390x844 ?touch.
+- v1.18.1 2026-10-13 12:18 (helper): FOOTPRINT + A CLEAR WAY TO THE PARK (Flax 12:04: "the footprint is on the terrace
+  right at the stairs up from old town ... please create a better exit to the park. Atm it is blocked by a band leading
+  to the great barrel"). The Rittersprung stone + footprint decal + s_foot spot moved from the courtyard (46,93) to the
+  Altan's first terrace stone where the Schlosstreppe arrives (32,47,68; spot 32.5,68.5); the rumour, Kowalski's line and
+  the legend text say so. The "band" was the red velvet rope + brass posts along the carpet (x 33.6/37.4, z 81..83.6):
+  removed, the carpet still leads to the Fasskeller. Perkeo now waits west of the arch (32.9,84.15), still steps into
+  the arch when you carry water. The Ottheinrichsbau doorway is 4 wide (x 44 z 81..84, the whole strip) and two green
+  signs (wegSign: same look as the bridge board, optional painted arrow): 'Schlossgarten <- durch den
+  Ottheinrichsbau' beside the Fass arch facing the gate, 'Schlossgarten · Hortus Palatinus' over the doorway.
+  Probe p/f1.py: physics walk up the stairs onto the footprint + talk (secret found), gate -> garden walk at 1280 and
+  390 ?touch, stick walk east from the gate. 0 JS errors both sizes.
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
 - fannar22 2026-10-11 23:50: rising into the sky at the east/west map edge in the river (fixed v1.1, probe hb_edge.js).
@@ -329,9 +340,16 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
 - Jesuit church, Marstall, Karl Theodor statue on the bridge
 - real phone test of the touch stick + look; real GPU fps (v1.14 adaptive sharpness: ask phone users if it looks soft)
 - Flax's 2026-10-13 list after Café Nerd: castle (Altan v1.17, Scheffelterrasse + park access v1.18; next maybe the
-  Stückgarten west of the Dicker Turm), Studentenkarzer (11:33, next), more room round the Fass in the cellar,
+  Stückgarten west of the Dicker Turm), Studentenkarzer (11:33, see the queue below), more room round the Fass in the cellar,
   Torch + Toni L busking on the Alte Brücke (original beat only, no real lyrics/melodies), life in the west Altstadt
   (walkers, a stall/bench crowd, lit windows at night)
+- Flax 12:08-12:16 queue, in this order: (1) named crew: the guitar player is Max, the one next to him Marco, add
+  Ramona + Josie (both blonde) sitting with them, Manuel on a bicycle looping the old-town lanes, Petra walking the
+  lanes; (2) Universitätsplatz in the west Altstadt (Alte Universität baroque front, lion fountain, Neue Universität)
+  + the Studentenkarzer behind it in Augustinergasse (graffiti canvas on the cell walls + stairwell: invented
+  initials/years, silhouette heads, shields, a made-up line like "3 Tage, 2 Nächte"; one candle in a cell);
+  (3) Neckarwiese on the north bank (night: blankets, lanterns/string lights, a speaker glow) + a flock of blocky
+  ducks (paddle by the bank, waddle on the grass, heads tucked in at night), only if the map reaches that far west
 - Café Nerd ideas: a board game you can join, Nele's daily special
 - the monkey rub buttons still sit bottom-left on narrow phones (only near the monkey)
 
