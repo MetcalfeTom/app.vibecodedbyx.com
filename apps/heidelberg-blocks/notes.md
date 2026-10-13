@@ -447,6 +447,25 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   bergExit 147/57 -> 151/60, tunnelOut 209/74 -> 212/76, courtW 137/52 -> 141/53, courtE 259/120 -> 265/125,
   parkEntr 112/30 -> 114/30, aerialSW 272/111 -> 275/114, aerialSE 336/133 -> 340/136. Phone 390x844: tunnelOut
   167k/52, courtyard 207k/51. 0 JS errors at 1280x720 + 390x844, day + night.
+- 2026-10-13 21:46 UTC v1.27 (helper, step 2 of Flax's castle run): Old Ansgar + the Kräutergarten. NEWFOLK 'ansgar'
+  (night only, speed .9, ping-pong route: gate (33.5,82.5) -> tunnel (16.5,98.5) -> back walk -> stair bridge ->
+  his rosemary (38.5,108.5), flags 1/2/3 = arrival barks), 40 years the castle's night watch, separate from Anselm
+  (town). His lantern is a Group pivot at the hand (f.lp) that swings with the walk phase; squeak() (new sfx, quiet
+  triangle chirp) once a swing within 12 blocks. Barks/talk from main's brief: the squeak is the lantern's fault,
+  tourists are weather (loud, sudden, gone by nine), put the phone away and look at the ruin, there is no garden
+  (rosemary for his soup). Lit with folk emissive .3. LANT now follows the NEARER watchman (Anselm or Ansgar, < 70).
+  Anselm's talk gained a line pointing at Ansgar. Garden: tier 1 behind the moat (top 52, walk 53, z 108..110):
+  gravel path z 108 x 23..47, HERB_BEDS (dirt at y 53, x 24-27 thyme, 30-33 + 37-40 rosemary, 43-46 sage), herbMesh
+  (board frames, herbs, watering can, stool + soup mug, the hand-painted sign "KEIN KRÄUTERGARTEN / Nichts zu
+  sehen. Weitergehen. - A." on the wall, emissive so it reads at night), 2 lanterns in CASTLE_LAMPS ([x,z,dy=5]).
+  Stair bridge 'Gartenstiege' x 33..37 (walk 34..36) from the back walk (gap in the z 101 parapet) over the moat,
+  1 up per block to the terrace, arched underneath (moat walk still passes under, 3 clear at the ends). FIX: the
+  moat's far wall (z 107) only reached y 49 and the v1.26 terrace loop skipped it, so tier 1 showed a dirt step;
+  now dressed to 51, trim 52, hedge 53 (a railing). Spot s_herb 'Smell the rosemary' (31.5,108.5); if Ansgar is
+  within 16 he answers by toast. Place names Gartenstiege + Kräutergarten (before Gartenterrassen). Walk (bfs):
+  garden reachable via the bridge, moat under the arch too. Budget golden 1280x720: tunnelOut 215/76, courtE
+  269/127, aerialSW 280/116 (v1.26: 212/76, 265/125, 275/114). Phone 390x844 night: 112k/26 court, 196k/74 beds.
+  0 JS errors.
 
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
@@ -471,7 +490,8 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   Hortus' own south wall (z 101, up to y 77) and its sandy west end are still one tall cut
 - castle: more room round the Großes Fass (the Fassbau x 25..43 z 85..97 is boxed in: FASS lamps, bar row z 84,
   carpet, hatch, clock, Perkeo all hang on those numbers; the south wall could move to z 98 now the back walk is there)
-- castle: the garden terraces behind the moat (v1.26) have no way in yet (v1.27 herb garden + steps planned)
+- castle: only terrace 1 (the Kräutergarten, v1.27) has a way in; terraces 2-4 behind it are still for looking at
+- Ansgar ideas: he could sit on his stool with soup after his round; a 'don't tell Ansgar' mini quest
 - optional firework bang sounds after a tap
 - real phone test of the touch stick + look; real GPU fps (v1.14 adaptive sharpness: ask phone users if it looks soft)
 - the monkey rub buttons still sit bottom-left on narrow phones (only near the monkey)
