@@ -334,6 +334,10 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   (day + golden, speed 3.4, legs pedal on the walk channel, f.bike keeps him facing the road when he stops for you).
   Petra walks to and fro: z 58.5 street x -40.5..-77.5, the lane x -77.5, Hauptstraße to x -104.5 (all times).
   Probe p/c1.py: 240 s tickTown sim (both stay at y 19, all route legs), talk lines, views. 0 JS errors both sizes.
+- v1.18.3 2026-10-13 12:34 (helper): MAX'S LOOK (Flax 12:30: "Max is also blonde, no headphones and bright skin tone").
+  Max (the guitar) has bright blonde hair (#f2d47c, a fuller top, a fringe and short sides) and fair skin (#fbe2cf).
+  The pink headphones are gone from the group: they were on Marco, the only headphones there, and Flax may have read
+  them as Max's. Ask Flax if Marco should get them back. 0 JS errors at 1280 and 390.
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
 - fannar22 2026-10-11 23:50: rising into the sky at the east/west map edge in the river (fixed v1.1, probe hb_edge.js).
