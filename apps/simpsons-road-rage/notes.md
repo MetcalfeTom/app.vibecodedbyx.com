@@ -61,9 +61,23 @@
   - ~16k tris, 22 meshes/sprites. `car.dims` (track, axles, wheelR, exhaust) feeds the effects; `car.paint` carries the rod-glow emissive.
   - gotchas: `buildCar()` runs before later top-level consts exist (TDZ), so every design const lives inside `function carDesign()`; a ray straight down x=0 runs along mesh seam edges and misses, so centre-line hits use x=0.003.
   - tested headless: studio shots (quad / hero / front-rear / same framing as the old beauty shot) 0 errors; srrp4 car checks on a phone (tri budget, wheels roll, steer, ride height 0.215 / kerb 0.400, brake lights 2.90 → 0.35, trails + smoke); srrp2 (town/traffic) and srrp3 (phone pad) pass; 0 JS errors at 1280×720 and 390×844 touch.
+- 2026-10-13 17:50 UTC — **v3.1 new driving model** (fela: "physics is just as bad as before, could you fully rewrite"). The old arcade model (TOP_SPEED, GRIP, susp, tilt, CAR_R/CAR_OFF) is gone; the driving section is a fresh module.
+  - **model** (`DRV` table, `updateCar(STEP)`): a rigid body on a bicycle model. Each axle's sideways force comes from its slip angle through `tyreCurve` (sin(C·atan(B·α)), B 13, C 1.46: peaks near 8°, falls to ~75%) inside a friction ellipse shared with drive/brake force. Axle loads come from 4 spring-damper corners (`susW` 10 rad/s, `susZ` 0.42, anti-roll bar, bump stops), so braking loads the nose and lifting off mid-corner steps the tail out.
+  - engine `TORQUE` curve → 5-speed automatic (`ratios`, `final`, up at 6450, down at 2700, shift cut 0.16 s), traction control, ABS on the fronts, drag + rolling resistance + engine braking. Reverse is capped at 16. Turbo (Space or the rod glow) multiplies the drive by `turbo` 2.1 (top ~75 vs 58).
+  - controls: S brakes then reverses; **brake + steer = drift brake** (the rears brake, modulated by the slide angle so it holds instead of spinning); **Shift = handbrake** (locks the rears, they stop turning on screen). The brake beats the gas while rolling forward, so the phone pad (which drives when pushed sideways) + the brake button still drifts. A yaw stability push past ~22° (35° drift-braking, 69° handbrake) and a countersteer assist keep it catchable.
+  - airtime: springs only push, so the car leaves the ground over crests, pitches/rolls back level in the air and lands on the springs (a 3 m drop lands in 0.77 s, no tumble). A tyre ground filter (`gw`) turns kerb steps into short ramps.
+  - collisions: 5 circles along the body (`CAR_CIRC`, R 1.0); an impulse at the contact point with restitution 0.22 and wall friction 0.4 (relative to a bus's velocity), so an off-centre hit spins the car. Square hits bounce, grazes line up along the wall with sparks.
+  - **fixed 120 Hz steps** (`simAcc` in `frame`, max 16 per frame); the mesh is drawn between the last two steps (`poseCar`), so 30/60/144 fps end in exactly the same place.
+  - visuals: body pitch/roll/heave from the springs (ground tilt as-is, spring motion ×1.5–1.6 for readability), wheels follow the ground within their arch travel, a smoke pop on each upshift, the slide amount (`car.slide`) now comes from tyre scrub speed. Tyre smoke thinned (it slides longer now).
+  - **chase camera** (`updateCamera`): critically damped springs for position (ω 5.5) and look point (ω 9), yaw blends 55% toward the travel direction so drifts stay on screen, look-ahead grows with speed, FOV +9° with speed (+5 on turbo), rises over a bus parked right behind. `view` = back 7.8, up 3.6, ahead 3, lookY 1.3, fov 64 on landscape; tall phones get a higher, more tilted view (fov ~90).
+  - HUD: the speed chip shows **mph** (m/s × 2.237) + a gear badge (R/1–5) + a thin rev bar. Engine sound follows the rpm (rpm/15 Hz), the filter opens with throttle; a tyre squeal (wobbling triangle + band-passed noise) follows the slide.
+  - **freshness guard** (Peach Pitch's IIFE, key `road-rush-fresh`): the bar's iframe can serve an old copy from cache; it fetches the page no-cache and reloads once if `#buildstamp` differs. Bump `#buildstamp` every release.
+  - the retired `/sloppy-header/sloppy-bar.js` tag stays out (removed by 96735917b).
+  - tested: node sim harness (accel, brakes, coast, steady steer, drifts, handbrake, lift-off, slaloms, walls, kerb, ramp) + headless srrp5 (new physics probe: 0-30 in 2.4 s, 50 in 6.6 s; 50→0 in 1.9 s with nose dip and 4:1 front load; reverse cap; tight low-speed turns with the rear tracking; lean out of turns; steering eases at speed; brake-drift 0.85 rad slide that recovers in 0.38 s; camera keeps the car on screen in the drift; handbrake locks the rears; kerb climb; 3 m drop; square / corner-clip (yaw 2.2 rad/s) / graze wall hits; identical end state at 30/60/144 fps; even motion at 144 fps), srrp2/3/4/6 updated to `placeCar`, srrp7 (no reload loop, no leftover flag). 0 JS errors at 1280×720 and 390×844 touch.
 
 ## issues
-- probes that teleport the car must also zero `yawRate`, `steerSm` (and the springs), or the old turn carries into the next test.
+- probes teleport the car with `placeCar(x, z, heading, speed)` (resets the drive state, springs and gear); never set `car.mesh.position` directly any more: the simulation lives in `car.pos`/`car.heading`/`car.drv` and the mesh is only drawn from them.
+- the HUD speed is mph now (game speed × 2.237); `car.speed` is still metres per second.
 - `populateDonuts()` runs at top level before later `const`s exist → the donut kit is a lazily built `var`. Keep new top-level consts above their first use.
 - Building positions/sizes use Math.random (new town every load), so narrow car-width gaps between houses differ per load. Probes must not assume a layout.
 - Top-level call order matters (TDZ): `buildLandmarks`, `populateRods`, `spawnTraffic` run at load, so their helpers are function declarations and `LANE`/`ROD_COUNT` sit near the top. `var donutKit = null` further down resets the kit after the first populate (harmless, rebuilt lazily).
@@ -72,12 +86,10 @@
 
 ## todos
 - real phones still untested: iOS Safari audio unlock, multi-touch feel of the analog pad, frame rate on low-end phones (each house has its own cloned texture), sign fonts on slow connections (they redraw once the font loads)
-- a bus right behind the camera can fill the bottom of the screen
-- the chase cam turns slowly, so in a hard drift the car slides toward the screen edge on a phone (v2.5 physics pass: maybe follow the velocity a bit)
 - real phones untested for v2.4: paint/env look on mobile GPUs, frame rate with the clearcoat paint
 - real phones untested for v2.5: how the new grip/drift feels with thumbs; tuning knobs are `GRIP`, `SLIP_PEAK`, the drift multipliers (0.42 / 7 / 1.25 / 2.4) and the 0.6 camera blend
 - town draw calls: a phone view down the main road can hit ~185 calls (each house is its own mesh); merging the houses would help low-end phones
 - v3.0: the new car looks smaller/lower than the old box in the same framing; the v3.1 chase cam should frame it closer on a phone. Real phones untested: the PMREM env + clearcoat on mobile GPUs. Next: v3.1 physics rewrite, v3.2 endless procedural town + textures, v3.3 audio.
-- frame-rate independence is first-order (variable sub-steps ≤ 1/60): 144 fps ends ~1% off 60 fps after a long drive; a fixed 1/120 step would make it exact but costs double physics
-- maybe: the camera could pull in when something is between it and the car
+- maybe: the camera could pull in when a house is between it and the car (it already rises over a bus right behind)
+- v3.1 real phones untested: thumbs on the new grip/drift/handbrake (phones have no handbrake button yet: brake + pad drifts), the rpm engine sound and squeal on iOS. Tuning knobs: `DRV` (mu, muRear, B/C, assist, turbo, susW/susZ, view). Next: v3.1.1 donut-statue ramp jump, v3.2 endless procedural town + textures, v3.3 audio.
 - never use show character names, likenesses, catchphrases or music
