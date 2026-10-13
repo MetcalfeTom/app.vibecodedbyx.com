@@ -237,18 +237,31 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   philS 207k/64 -> 225k/68; desktop philS 242k/84 -> 261k/88, Königstuhl looking north 293k/97 (new spot). 0 JS errors
   1280x800 + 390x844 ?touch. Scratch $SP/hb15 (mk.sh test build with hooks, hrun.sh, p/b1-b4.py, p/perf.py).
   Untested on real phones: how the ride feels, whether the rider view through the end window is enough on portrait.
+- v1.15 2026-10-13 09:31 (helper), step 2: FRIEDA'S FERNROHR. Frieda Wolkenstein (rust cardigan, apron, green scarf,
+  bun, a cup) stands inside the Gipfelkiosk at (-21.5,68,129.5) (FOLK + LIFE, wipe gesture, 3 barks). Her glasses are
+  at the optician's: talk to her for an old Groschen (BS.met), then 'Look through the Fernrohr' (FSPOT b_scope). The
+  telescope moved from x -15 to x -13 (pedestal set(-13,68,124)) because the Heiliggeistkirche roof hid Fritz from
+  there; eye SCO.eye (-12.5,70.1,123.85), first look at the Old Bridge (yaw -.075 pitch -.33). Scope view: 7.5 deg
+  across the narrow side, brass vignette + centre ring (#scope/#scopeV/#scopeR), list of 'Frieda's friends' (#scopeL),
+  fog 160/640, far 720, LIFE.cull 420 while scoping; look() and inp.turn x.13, no stick (left half aims too), WASD aims,
+  yaw clamp +-1.45, pitch -.8..+.3. A friend counts when the body point is within .14*min(W,H) px of the centre with a
+  clear voxel line of sight (scopeLos every .25 s) for 600 ms REAL time (performance.now: headless dt is capped).
+  Kapitän Jupp, Fritz, Clara (Hilde is indoors). All three -> tell Frieda -> "Ehrenausguck vom Königstuhl" toast,
+  burst, chime, she refills an empty water bottle (also later). Free use afterwards. R / ride button 'Step back' / Esc /
+  the spot again exits; scopeOff restores yaw/pitch/fog/cull + resize(). BS keys: met, seen{}, done, look, rides.
+  Quest log: bergSide() line in #qside. Short landscape (<=500 px high): #scopeL moves top-left and the scope toast sits
+  just under the place label at .85rem so it never covers the ring. 0 JS errors 1280x800, 390x844 ?touch, 800x300
+  ?touch (p/f1.py full desktop flow, p/f2.py phone flow incl. a left-half drag aim). Scope views are cheaper than walking
+  (narrow FOV): phone 152-157k/29-34, desktop 130-155k/26-31 (p/sperf.py).
+  Untested: a real thumb aiming at 7.5 deg, sounds, how it reads at night on a real screen.
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
 - fannar22 2026-10-11 23:50: rising into the sky at the east/west map edge in the river (fixed v1.1, probe hb_edge.js).
 - pathLine drop walls: a one-block drop must not get a parapet (blocked the Snake Path entry from Brückenstraße).
+- Landscape 800x300: a long toast can sit over the ride/talk buttons for its few seconds (general HUD, not scope).
 
 ## todos
-- v1.15 step 2 (next): Frieda Wolkenstein at the Gipfelkiosk + the coin Fernrohr quest. Her glasses are at the
-  optician's; she gives you an old Groschen, the telescope (pedestal at (-15,68,124), eye ~(-14.5,70.1,124.5)) zooms to
-  8° wide on portrait / 12° on landscape; hold Kapitän Jupp, Fritz and Clara in the centre ring .6 s with a clear voxel
-  line of sight (Hilde can't be seen). All three = "Ehrenausguck vom Königstuhl", she refills an empty water bottle.
-  While scoping: push fog out and raise LIFE.cull, scale look() by the zoom, no stick on touch, Esc/R/✕ exits.
-  'hb-berg' already holds {met,seen,done,rides}; add bergSide() to qlogFill. Never touch SECS or Mike's stone.
+- Fernrohr ideas: more friends to spot later (Anselm on his night round, Hilde at a window), a postcard of the view
 - big round (Flax, 2026-10-13) done through v1.13; later: German dialogue switch,
   garden lanterns at night, a second garden terrace (the south wall is one tall cut)
 - optional firework bang sounds after a tap
@@ -272,6 +285,7 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   south at the town: 248k drawn / 69 calls; spawn 181k / 45; castle courtyard looking north 212k / 58.
 - v1.15 (Bergbahn): world chunks 304k tris. Phone FOV (390x844): spawn 161k/54, philS 225k/68, Königstuhl north
   243k/79 (busiest). Desktop 1280x800: philS 261k/88, Königstuhl north 293k/97. Probe $SP/hb15/p/perf.py.
+- v1.15 step 2 (Fernrohr): +1 Frieda mesh; scope view phone 157k/34 max, desktop 155k/31 (p/sperf.py).
 
 ## testing
 - scratch: $SP/hb (index.html + mk.sh injects window.__G/__E into gaunt/sw/hm43/hb). The live file only has a
