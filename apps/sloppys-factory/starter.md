@@ -15,10 +15,10 @@ The factory has to stand before production can start. If any of this is missing,
 - **Permissions**: file edits in the project, the check and test scripts, and git commit and push are allowed. Installing packages, deleting folders and reaching other websites need the streamer's click. Reading secret files and anything outside the project is denied.
 - **A repository** with a key that reaches this repository only, and a `.gitignore` that keeps `.env`, `chat/`, `tickets/` and `screenshots/` out.
 - **A host** that serves `apps/<name>/index.html` at `/<name>/` after a push or a copy.
-- **Scripts**: `scripts/check.mjs` (syntax check of every inline script) and `scripts/shot.mjs` (screenshots at 390x844 and 1280x800 plus console errors).
+- **Scripts**: `scripts/check.mjs` (syntax check of every inline script), `scripts/shot.mjs` (screenshots at 390x844 and 1280x800 plus console errors), `scripts/doctor.mjs` (checks the floor plan) and `scripts/index.mjs` (writes the app list, `apps/index.html`).
 - **Chat as a file**: a bot appends each chat message as one JSON line to `chat/inbox.jsonl`. Chat never types into your terminal.
 
-The full floor plan, with a check for each item and a dry run, is in `kit/00-setup.md`.
+The full floor plan, with a check for each item and a dry run, is in `kit/00-setup.md`; `node scripts/doctor.mjs` checks it for you.
 
 ## The loop
 
@@ -30,7 +30,7 @@ One message at a time travels through eight stations. Each has its own command f
 4. **/build**: edit a scratch copy, never the live file. Only what the plan says.
 5. **/gate**: `node scripts/check.mjs` on the scratch copy must print OK. Read the output; do not trust the exit code alone.
 6. **/test**: screenshots at phone and desktop size, zero console errors, the new feature tried, and both pictures looked at.
-7. **/ship**: check nobody else changed the app, copy into place, commit only your files with a plain message, push, and check the live page.
+7. **/ship**: check nobody else changed the app, copy into place, commit only your files with a plain message, push, run `node scripts/index.mjs` so the app list shows it on top, and check the live page.
 8. **/tell**: one or two sentences to chat, naming whose idea it was; a log line in the app's notes; close the ticket; ask the asker one question back.
 
 When something breaks live, run **/rescue**: revert first, then find out why.

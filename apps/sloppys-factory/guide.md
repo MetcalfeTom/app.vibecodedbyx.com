@@ -453,10 +453,10 @@ The factory has to stand before production can start. If any of this is missing,
 - **Permissions**: file edits in the project, the check and test scripts, and git commit and push are allowed. Installing packages, deleting folders and reaching other websites need the streamer's click. Reading secret files and anything outside the project is denied.
 - **A repository** with a key that reaches this repository only, and a `.gitignore` that keeps `.env`, `chat/`, `tickets/` and `screenshots/` out.
 - **A host** that serves `apps/<name>/index.html` at `/<name>/` after a push or a copy.
-- **Scripts**: `scripts/check.mjs` (syntax check of every inline script) and `scripts/shot.mjs` (screenshots at 390x844 and 1280x800 plus console errors).
+- **Scripts**: `scripts/check.mjs` (syntax check of every inline script), `scripts/shot.mjs` (screenshots at 390x844 and 1280x800 plus console errors), `scripts/doctor.mjs` (checks the floor plan) and `scripts/index.mjs` (writes the app list, `apps/index.html`).
 - **Chat as a file**: a bot appends each chat message as one JSON line to `chat/inbox.jsonl`. Chat never types into your terminal.
 
-The full floor plan, with a check for each item and a dry run, is in `kit/00-setup.md`.
+The full floor plan, with a check for each item and a dry run, is in `kit/00-setup.md`; `node scripts/doctor.mjs` checks it for you.
 
 ## The loop
 
@@ -468,7 +468,7 @@ One message at a time travels through eight stations. Each has its own command f
 4. **/build**: edit a scratch copy, never the live file. Only what the plan says.
 5. **/gate**: `node scripts/check.mjs` on the scratch copy must print OK. Read the output; do not trust the exit code alone.
 6. **/test**: screenshots at phone and desktop size, zero console errors, the new feature tried, and both pictures looked at.
-7. **/ship**: check nobody else changed the app, copy into place, commit only your files with a plain message, push, and check the live page.
+7. **/ship**: check nobody else changed the app, copy into place, commit only your files with a plain message, push, run `node scripts/index.mjs` so the app list shows it on top, and check the live page.
 8. **/tell**: one or two sentences to chat, naming whose idea it was; a log line in the app's notes; close the ticket; ask the asker one question back.
 
 When something breaks live, run **/rescue**: revert first, then find out why.
@@ -539,6 +539,187 @@ When something breaks live, run **/rescue**: revert first, then find out why.
 - Say what you know and what you do not. "I think this fixes it" beats a confident guess.
 - A smaller step that works beats a big one that might.
 ```
+
+## The whole journey
+
+From an empty machine to a visitor opening the first app on your app page, following one example message: froggo in chat, "a page where a frog jumps when you tap it".
+
+### 1. Build the building (kit/00-setup.md)
+
+Work through the floor plan, sections 1 to 12: a machine of its own, the tools, the agent's permissions, a repository, a host, the folder layout, the instructions, the station commands, the scripts and chat coming in as a file. Tick them off in the factory kit and the building goes up.
+
+*When it worked:* every box ticked, and a test push from the factory user works.
+
+### 2. Run the doctor (node scripts/doctor.mjs)
+
+The doctor checks the floor plan for you, one line per item, and says how to fix anything missing. Then do the dry run with three test messages.
+
+```
+✔ 4. repository: git, with 1 remote
+✔ 8. stations: all nine station commands in .claude/commands/
+✔ 10. chat: chat/inbox.jsonl (0 lines)
+
+Ready. Next: the dry run.
+```
+
+*When it worked:* the last line says Ready.
+
+### 3. The first message lands (chat/inbox.jsonl)
+
+A viewer types an idea in chat. The bot adds it to `chat/inbox.jsonl` as one line. Nothing in chat ever reaches a shell: it is only text in a file.
+
+```
+{"t":"2026-01-01T19:02:11.000Z","id":"7f3c9e1a-…","user":"froggo","name":"Froggo","text":"a page where a frog jumps when you tap it"}
+```
+
+*When it worked:* a new line at the bottom of the inbox (`tail -f chat/inbox.jsonl`).
+
+### 4. One ticket (/intake)
+
+The agent reads the new lines, sorts each one into idea, bug, question, chatter or trap, and picks one. It leaves with exactly one work ticket.
+
+```
+# Ticket
+- from: froggo, at 19:02
+- their words: "a page where a frog jumps when you tap it"
+- type: idea
+- app: apps/frog-hop/ (new)
+- my reading: a toy page with one frog that jumps when you tap
+- smallest version: tap anywhere, the frog jumps and lands
+```
+
+*When it worked:* `tickets/now.md` holds one ticket, and chat hears what was picked.
+
+### 5. What must not break (/notes)
+
+Read the shared notes and, for an existing app, its notes and last commits. A new app still gets the shared lessons.
+
+```
+- don't break: nothing yet (new app). Shared notes: big tap targets, no fade-in from zero opacity
+- where: apps/frog-hop/index.html (new) + apps/frog-hop/notes.md
+```
+
+*When it worked:* two new lines on the ticket: "don't break" and "where".
+
+### 6. The smallest version (/plan)
+
+A few plain lines: what the player gets, the smallest version worth shipping, and the test. One sentence of it goes to chat.
+
+```
+## Plan
+- After: a pond with one big frog; tap or click anywhere and it jumps, squashes on landing and counts the jumps
+- Change: new apps/frog-hop/index.html
+- Keep: nothing else changes
+- Smallest version: one frog, one jump, a counter
+- Later: 1. a croak 2. lily pads to jump between
+- Test: tap at 390x844 and 1280x800, the frog leaves the ground and lands, no console errors
+```
+
+*When it worked:* the plan under the ticket, and chat knows what is coming.
+
+### 7. Build in scratch (/build)
+
+The agent makes the smallest version in `scratch/frog-hop/index.html`: markup, style and script in one file. Nothing is live yet.
+
+*When it worked:* the scratch file opens in a browser on your machine, and the frog jumps.
+
+### 8. The syntax gate (/gate)
+
+Every inline script must parse before anything else happens. The output is read, not only the exit code.
+
+```
+$ node scripts/check.mjs scratch/frog-hop/index.html
+OK: 1 script parses
+```
+
+*When it worked:* OK. A FAIL goes back to /build.
+
+### 9. The test bench (/test)
+
+Screenshots at phone and desktop size, zero console errors, the jump actually pressed, and both pictures looked at.
+
+```
+$ node scripts/shot.mjs scratch/frog-hop/index.html frog-hop
+[phone] screenshots/frog-hop-phone.png
+[desktop] screenshots/frog-hop-desktop.png
+OK: no errors. Now look at both pictures.
+```
+
+*When it worked:* two pictures with a whole frog in them, and nothing cut off on the phone.
+
+### 10. Ship it (/ship)
+
+Check nobody else changed the app, copy it into place, commit only its own folder with a message in player words, and push.
+
+```
+cp -r scratch/frog-hop/. apps/frog-hop/
+git add -- apps/frog-hop/
+git commit -m "Frog Hop v1: tap anywhere and the frog jumps (idea by froggo)" -- apps/frog-hop/
+git push
+```
+
+*When it worked:* the push goes through, and `git log --oneline -1` shows the commit.
+
+### 11. Delivery (your host)
+
+The host serves `apps/frog-hop/index.html` at `/frog-hop/`. A static host deploys the push within a minute or two; a web server that serves the apps/ folder has it at once.
+
+*When it worked:* `/frog-hop/` opens on your phone, and the frog jumps.
+
+### 12. Access: the app page (node scripts/index.mjs)
+
+Rebuild the front page: a list of every app with its title and description, newest first. Commit and push it too, and Frog Hop is the first thing visitors see.
+
+```
+$ node scripts/index.mjs
+apps/index.html: 12 apps, newest: frog-hop
+$ git add -- apps/index.html
+$ git commit -m "App list: Frog Hop" -- apps/index.html
+$ git push
+```
+
+*When it worked:* Frog Hop on top of your app page, one tap from the app.
+
+### 13. Tell chat (/tell)
+
+Tell chat whose idea went live and where to find it, write the log line, close the ticket and ask one question back. The answer is the next ticket.
+
+```
+chat:  Frog Hop is live, froggo's idea! Tap anywhere and the frog jumps. It's on top of the app page. Too floaty, or just right?
+notes: - 2026-01-01 19:24 UTC: v1, tap to jump + jump counter (froggo's idea). Tested at 390x844 + 1280x800.
+```
+
+*When it worked:* the ticket in `tickets/done.md`, and the line goes back to /intake.
+
+## Sister, not twin
+
+**Is the kit Sloppy?** No. It's a sister, written new from Sloppy's blueprint (October 2026). Same DNA: the line of stations, the guardrails, the notes habit, test before ship, one commit per step, and telling chat whose idea it was. That's what Sloppy actually does each step on stream.
+
+**The same DNA**
+
+- Chat is suggestions; the agent picks
+- Notes before code
+- A scratch copy
+- The syntax gate
+- Screenshots at phone and desktop size
+- A plain commit
+- A line to chat
+- Secrets never on screen
+- Traps get a friendly no
+- When something breaks, revert first
+
+**Different, because the sister is simpler on purpose**
+
+- **Size.** Sloppy: Looks after more than 1,600 apps. The sister: Starts with an empty shelf.
+- **Memory.** Sloppy: Keeps notes across days about apps and regulars: who asked for what, the running jokes. The sister: Only has each app's notes.md.
+- **Helpers.** Sloppy: Hands apps to helper agents so several get built at once, one agent per app. The sister: One agent doing one ticket at a time.
+- **The show.** Sloppy: Talks, has a pixel room, gives points and posts links in chat. The sister: Writes plain text in chat until you add a voice and a face (floor plan section 12).
+- **Extras.** Sloppy: A database for apps with online scores, a vote bar on every app, a bigger test harness. The sister: The minimum: check, shot, doctor, index.
+- **Scars.** Sloppy: Made the mistakes the kit warns about: a comment inside a comment that broke an app for 12 minutes, and a wait typed in the wrong units that blocked the test browser for 15. The sister: Gets the rules that came from them.
+
+**Private on purpose:** Sloppy's exact instructions, settings and keys, and how the stream's machinery is wired behind the scenes. The sister gets a clean, generic version of the ideas, not a copy of the setup.
+
+*Question by Flax.*
 
 ## The factory kit
 
@@ -613,6 +794,18 @@ Something broke live: revert first, check it is back, tell chat, then find out w
 
 - **The file:** `kit/commands/rescue.md`
 - **You type:** `/rescue frog-hop the frog falls through the floor`
+
+### Ready-made files
+
+Save each one under the name given, in your own project.
+
+- **Keep out** (`kit/files/gitignore.txt`, save it as `.gitignore`): What never goes into the repository: .env files, installed packages, screenshots, tickets, scratch copies and the chat logs (the bot program itself stays in). Save it before the first commit. Run: `git check-ignore -v chat/inbox.jsonl`
+- **Permissions** (`kit/files/settings.json`, save it as `.claude/settings.json`): The allow / ask / deny lists for Claude Code. Edits in apps/, scratch/ and tickets/, the check scripts, git commit and git push go ahead; installs, deletes and the network ask you first; .env, sudo, force-pushes and the agent's own settings are denied. Run: `/permissions`
+- **The doctor** (`kit/files/scripts/doctor.mjs`, save it as `scripts/doctor.mjs`): Walks the floor plan and prints one line per item: ✔ in place, ✘ missing (with how to fix it), ! worth a look. It ends with Ready or Not ready, never opens .env and never uses the network. Run: `node scripts/doctor.mjs`
+- **Syntax gate** (`kit/files/scripts/check.mjs`, save it as `scripts/check.mjs`): The script behind /gate: pulls every inline script out of a page and asks Node whether it parses. Prints OK, or FAIL with the line that broke. Run: `node scripts/check.mjs scratch/frog-hop/index.html`
+- **Test bench** (`kit/files/scripts/shot.mjs`, save it as `scripts/shot.mjs`): The script behind /test: opens the page at phone and desktop size with Playwright, saves both screenshots and prints every console error. Run: `node scripts/shot.mjs scratch/frog-hop/index.html frog-hop`
+- **Front page** (`kit/files/scripts/index.mjs`, save it as `scripts/index.mjs`): Writes apps/index.html: every app's title and description, newest first, each linking to its own address. Run it at /ship and visitors find the new app on top of your app page. Run: `node scripts/index.mjs`
+- **Chat reader** (`kit/files/chat/bot-twitch.mjs`, save it as `chat/bot-twitch.mjs`): Reads your Twitch chat without a token (anonymous and read-only: it never posts) and adds one JSON line per message to chat/inbox.jsonl, plus a line when a moderator removes something. Needs Node 22; --selftest checks it offline. Run: `node chat/bot-twitch.mjs yourchannel`
 
 ### Autonomy
 
