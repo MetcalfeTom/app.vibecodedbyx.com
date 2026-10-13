@@ -123,7 +123,7 @@
     <div class="card-wrap" id="cardWrap">
       <div class="card" role="dialog" aria-modal="true" aria-labelledby="cardTitle">
         <h1 id="cardTitle">Springfield Road Rush</h1>
-        <p id="cardLede">Grab donuts before your shift ends. Every donut buys two more seconds. Buses hurt.</p>
+        <p id="cardLede">Grab donuts before your shift ends. Every donut buys two more seconds, glowing rods at the power plant give turbo. Buses hurt.</p>
         <p class="keys" id="keysHint">WASD or arrows to drive · S brakes, then backs up · Space for turbo · brake while turning to drift</p>
         <form class="save" id="submitCard" hidden>
           <input id="playerName" maxlength="24" placeholder="Your name" aria-label="Your name" autocomplete="nickname" />
@@ -136,7 +136,7 @@
           <p class="muted" id="lbStatus">Loading…</p>
           <div id="leaderboard" class="leaderboard-list"></div>
         </div>
-        <p class="stamp" id="buildstamp" role="note" aria-label="Build information">v2.1 · 2026-10-13</p>
+        <p class="stamp" id="buildstamp" role="note" aria-label="Build information">v2.2 · 2026-10-13</p>
       </div>
     </div>
 
@@ -166,6 +166,8 @@
 
       const TABLE = 'simpsons_road_rage_scores';
       const DONUT_COUNT = 30;
+      const ROD_COUNT = 5; // glowing rods at the power plant: a few seconds and a burst of turbo each
+      const LANE = 4.6; // buses drive this far from the middle of the road
 
       async function loadLeaderboard() {
         const lb = document.getElementById('leaderboard');
@@ -286,13 +288,22 @@
         .map(([x0, x1, z0, z1]) => ({ x0, x1, z0, z1, edge: true }));
       const buildings = buildBuildings();
       world.add(buildings);
+      const signJobs = []; // canvas signs, redrawn once the cartoon font has loaded
+      const landmarkTicks = []; // little animations: steam, the rocking giant donut, the flag
+      const landmarks = buildLandmarks();
+      world.add(landmarks);
+      document.fonts?.load('64px "Luckiest Guy"').then(() => signJobs.forEach((job) => job())).catch(() => {});
 
       const donutsGroup = new THREE.Group();
       world.add(donutsGroup);
       populateDonuts();
+      const rodsGroup = new THREE.Group();
+      world.add(rodsGroup);
+      populateRods();
 
       const trafficGroup = new THREE.Group();
       world.add(trafficGroup);
+      const movers = []; // buses: { mesh, axis, dir, lane, cruise, v, box }
       spawnTraffic();
 
       const car = buildCar();
@@ -409,6 +420,7 @@
         });
       }
       const thud = (v) => blip([90, 55], 'sine', 0.2, 0.1 + 0.22 * v, 0.05);
+      const zap = () => blip([392, 523, 784, 1046], 'sawtooth', 0.14, 0.07, 0.05);
       const chomp = (combo) => blip([660 * Math.pow(1.06, Math.min(combo, 12)), 990 * Math.pow(1.06, Math.min(combo, 12))], 'square', 0.09, 0.12, 0.06);
       function honk() {
         if (!sfx.ac) return;
@@ -433,6 +445,8 @@
         elapsed = 0;
         donutsGroup.clear();
         populateDonuts();
+        populateRods();
+        state.glow = 0;
         resetCar();
         car.boosting = false;
         state.shake = 0;
@@ -477,6 +491,9 @@
         saved: false,
         gameOverShown: false,
         skidTimer: 0,
+        glow: 0,
+        busHit: null,
+        lastBus: -9,
         t: 0,
         shake: 0,
         lastThud: -9,
@@ -724,8 +741,14 @@
 
         buildingPositions.forEach((pos, idx) => {
           const height = THREE.MathUtils.randFloat(12, 32);
-          const width = THREE.MathUtils.randFloat(8, 18);
+          let width = THREE.MathUtils.randFloat(8, 18);
           const depth = THREE.MathUtils.randFloat(8, 18);
+          // the x = 60 row could poke into the back of the school: trim those houses from the school side
+          if (pos.x > 0 && pos.x - width / 2 < 56 && pos.z + depth / 2 > -86 && pos.z - depth / 2 < -58) {
+            const right = pos.x + width / 2;
+            width = right - 56;
+            pos.x = 56 + width / 2;
+          }
           const geo = new THREE.BoxGeometry(width, height, depth);
           const mat = texMat(textures.building, width / 8, height / 8);
           const mesh = new THREE.Mesh(geo, mat);
@@ -742,21 +765,295 @@
           }
         });
 
-        const plantTowers = new THREE.Group();
-        for (let i = 0; i < 2; i++) {
-          const tower = new THREE.Mesh(
-            new THREE.CylinderGeometry(10, 6, 28, 24),
-            new THREE.MeshStandardMaterial({ color: 0xd0d0d0, roughness: 0.6 })
-          );
-          tower.position.set(-40 + i * 20, 14, -80);
-          solids.push({ cx: -40 + i * 20, cz: -80, r: 6.4 });
+        return group;
+      }
+
+      // ---- landmarks, generic names only: the Quick-Stop, the donut shop, the school and the power plant ----
+      function plainMat(color, extra) {
+        return new THREE.MeshStandardMaterial(Object.assign({ color, roughness: 0.75 }, extra || {}));
+      }
+      // a picture drawn on a canvas (signs, stripes)
+      function canvasMat(draw, w, h, extra) {
+        const c = document.createElement('canvas');
+        c.width = w;
+        c.height = h;
+        const tex = new THREE.CanvasTexture(c);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = 8;
+        const job = () => { draw(c.getContext('2d'), w, h); tex.needsUpdate = true; };
+        job();
+        signJobs.push(job);
+        return new THREE.MeshStandardMaterial(Object.assign({ map: tex, roughness: 0.6 }, extra || {}));
+      }
+      function signText(ctx, text, x, y, size, fill, stroke, maxW) {
+        ctx.font = `${size}px "Luckiest Guy", "Arial Black", Impact, sans-serif`;
+        const wide = ctx.measureText(text).width;
+        if (maxW && wide > maxW) {
+          size = Math.floor(size * maxW / wide);
+          ctx.font = `${size}px "Luckiest Guy", "Arial Black", Impact, sans-serif`;
+        }
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = Math.max(4, size * 0.16);
+        ctx.strokeStyle = stroke;
+        ctx.strokeText(text, x, y);
+        ctx.fillStyle = fill;
+        ctx.fillText(text, x, y);
+      }
+      // box faces are +x, -x, +y, -y, +z, -z: put `face` on the listed sides, `rest` everywhere else
+      function faceMats(sides, face, rest) {
+        return [0, 1, 2, 3, 4, 5].map((i) => (sides.includes(i) ? face : rest));
+      }
+      function lmBox(group, w, h, d, mat, x, y, z, solid) {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+        m.position.set(x, y, z);
+        m.castShadow = true;
+        m.receiveShadow = true;
+        group.add(m);
+        if (solid) solids.push({ x0: x - w / 2, x1: x + w / 2, z0: z - d / 2, z1: z + d / 2 });
+        return m;
+      }
+
+      function buildLandmarks() {
+        const g = new THREE.Group();
+        const ink = '#1d1b33';
+        const glass = plainMat(0x9fe3ff, { emissive: 0x1d5f7a, roughness: 0.2 });
+        const door = plainMat(0x2a6f8f, { emissive: 0x0e3344 });
+        const metal = plainMat(0x6b6b78);
+        const paint = plainMat(0xf5f5dc);
+
+        // the Quick-Stop: corner store by the crossing, front to the road, parking out front, a big sign on the roof
+        lmBox(g, 14, 7, 24, plainMat(0x3cb7a5), 33, 3.5, 40, true);
+        lmBox(g, 14.3, 1.3, 24.3, plainMat(0xff6fae), 33, 6.3, 40);
+        lmBox(g, 0.3, 3.4, 15, glass, 25.9, 2.1, 40);
+        lmBox(g, 0.4, 4, 3.2, door, 25.85, 2, 40);
+        const awning = canvasMat((x, w, h) => {
+          for (let i = 0; i < 16; i++) { x.fillStyle = i % 2 ? '#fff8e1' : '#e8322f'; x.fillRect(0, (i * h) / 16, w, h / 16 + 1); }
+        }, 16, 256);
+        lmBox(g, 2.6, 0.4, 22, awning, 24.9, 4.6, 40);
+        lmBox(g, 10.5, 0.16, 28, plainMat(0x5d5a66, { roughness: 0.95 }), 20.6, 0.08, 40);
+        for (let i = 0; i < 4; i++) lmBox(g, 3.2, 0.03, 0.25, paint, 21.6, 0.17, 30.5 + i * 6.3);
+        lmBox(g, 0.5, 4.4, 0.5, metal, 33, 9.2, 33);
+        lmBox(g, 0.5, 4.4, 0.5, metal, 33, 9.2, 47);
+        const quickSign = canvasMat((x, w, h) => {
+          x.fillStyle = '#ffd90f';
+          x.fillRect(0, 0, w, h);
+          x.strokeStyle = ink;
+          x.lineWidth = 10;
+          x.strokeRect(5, 5, w - 10, h - 10);
+          signText(x, 'QUICK-STOP', w / 2, h / 2 + 6, 84, '#e8322f', ink, w - 50);
+        }, 512, 116, { emissive: 0x2a2400 });
+        lmBox(g, 0.8, 4.6, 20, faceMats([0, 1], quickSign, plainMat(0xffd90f)), 33, 13.6, 40);
+
+        // the donut shop, with a giant donut on the roof that rocks a little
+        lmBox(g, 14, 6, 16, plainMat(0xfff0f5), -35, 3, 70, true);
+        lmBox(g, 14.3, 1, 16.3, plainMat(0xff6fae), -35, 5.5, 70);
+        lmBox(g, 14.8, 0.5, 16.8, plainMat(0xe0a15a), -35, 6.25, 70);
+        lmBox(g, 0.3, 2.6, 10, glass, -27.9, 2.1, 70);
+        lmBox(g, 0.4, 3.6, 2.6, door, -27.85, 1.8, 74.6);
+        const donutSign = canvasMat((x, w, h) => {
+          x.fillStyle = '#ff6fae';
+          x.fillRect(0, 0, w, h);
+          signText(x, 'DONUTS', w / 2, h / 2 + 5, 80, '#fff8e1', ink, w - 30);
+        }, 384, 96);
+        lmBox(g, 0.4, 1.9, 8, faceMats([0], donutSign, plainMat(0xff6fae)), -27.6, 4.1, 69);
+        const kit = donutKit || (donutKit = makeDonutKit());
+        const big = new THREE.Group();
+        const bigDough = new THREE.Mesh(kit.donutGeo, kit.doughMat);
+        bigDough.castShadow = true;
+        big.add(bigDough);
+        [-1, 1].forEach((side) => {
+          const frost = new THREE.Mesh(kit.donutGeo, kit.frostMat);
+          frost.scale.set(1.02, 1.02, 0.72);
+          frost.position.z = side * 0.16;
+          big.add(frost);
+        });
+        big.scale.setScalar(3.8);
+        big.position.set(-35, 6.5 + 1.65 * 3.8 + 0.6, 70);
+        big.rotation.y = Math.PI / 2;
+        g.add(big);
+        lmBox(g, 0.7, 2.2, 0.7, metal, -35, 7.6, 66.6);
+        lmBox(g, 0.7, 2.2, 0.7, metal, -35, 7.6, 73.4);
+        landmarkTicks.push((t) => { big.rotation.y = Math.PI / 2 + Math.sin(t * 0.7) * 0.3; });
+
+        // the school: red brick, a bell tower with a clock, a flag out front
+        const facade = canvasMat((x, w, h) => {
+          x.fillStyle = '#c65a3a';
+          x.fillRect(0, 0, w, h);
+          x.fillStyle = 'rgba(0,0,0,0.1)';
+          for (let y = 0; y < h; y += 8) x.fillRect(0, y, w, 2);
+          for (let r = 0; r < 2; r++) for (let c = 0; c < 6; c++) {
+            const wx = 12 + c * 40, wy = 16 + r * 60;
+            x.fillStyle = '#fff8e1'; x.fillRect(wx, wy, 26, 32);
+            x.fillStyle = '#7fc8ff'; x.fillRect(wx + 3, wy + 3, 20, 26);
+            x.fillStyle = '#fff8e1'; x.fillRect(wx + 12, wy + 3, 2, 26);
+          }
+        }, 256, 128);
+        lmBox(g, 28, 9, 24, facade, 40, 4.5, -72, true);
+        lmBox(g, 29, 0.8, 25, plainMat(0x4a4458), 40, 9.4, -72);
+        const cream = plainMat(0xf4e3c1);
+        lmBox(g, 3, 7, 9, cream, 24.5, 3.5, -72, true);
+        lmBox(g, 0.3, 3.6, 3, door, 22.9, 1.8, -72);
+        const schoolSign = canvasMat((x, w, h) => {
+          x.fillStyle = '#f4e3c1';
+          x.fillRect(0, 0, w, h);
+          signText(x, 'SCHOOL', w / 2, h / 2 + 5, 66, '#c65a3a', ink, w - 30);
+        }, 320, 80);
+        lmBox(g, 0.3, 1.6, 7, faceMats([1], schoolSign, cream), 22.85, 5.4, -72);
+        lmBox(g, 5, 5, 5, cream, 40, 12.3, -72);
+        const spire = new THREE.Mesh(new THREE.ConeGeometry(4.2, 3.6, 4), plainMat(0xc0392b));
+        spire.position.set(40, 16.6, -72);
+        spire.rotation.y = Math.PI / 4;
+        spire.castShadow = true;
+        g.add(spire);
+        const clockFace = new THREE.Mesh(new THREE.CircleGeometry(1.5, 24), plainMat(0xffffff));
+        clockFace.position.set(37.45, 12.5, -72);
+        clockFace.rotation.y = -Math.PI / 2;
+        g.add(clockFace);
+        const hands = plainMat(0x1d1b33);
+        lmBox(g, 0.12, 1.1, 0.16, hands, 37.38, 12.95, -72);
+        lmBox(g, 0.12, 0.16, 1.25, hands, 37.38, 12.5, -72.55);
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.18, 14, 8), metal);
+        pole.position.set(18.5, 7, -64);
+        g.add(pole);
+        solids.push({ cx: 18.5, cz: -64, r: 0.3 });
+        const flag = new THREE.Group();
+        flag.position.set(18.5, 12.9, -64);
+        const flagCloth = lmBox(flag, 0.08, 2, 3.2, canvasMat((x, w, h) => {
+          x.fillStyle = '#ffd90f'; x.fillRect(0, 0, w, h);
+          x.fillStyle = '#2a7fff'; x.fillRect(0, h / 2, w, h / 2);
+        }, 32, 32), 0, 0, 1.7);
+        flagCloth.castShadow = false;
+        g.add(flag);
+        landmarkTicks.push((t) => { flag.rotation.y = Math.sin(t * 1.3) * 0.5; });
+
+        // the power plant: two cooling towers with steam, the hall with a dome, a striped stack
+        const towerGeo = new THREE.LatheGeometry([[8.2, 0], [7.4, 5], [6.3, 11], [5.7, 16], [5.9, 20], [6.6, 25]].map(([r, y]) => new THREE.Vector2(r, y)), 32);
+        const towerMat = plainMat(0xd8d4cc, { side: THREE.DoubleSide, roughness: 0.9 });
+        const rimMat = plainMat(0x9c968c);
+        const puffGeo = new THREE.SphereGeometry(1, 12, 8);
+        [[-41, -108], [-27, -132]].forEach(([x, z], k) => {
+          const tower = new THREE.Mesh(towerGeo, towerMat);
+          tower.position.set(x, 0, z);
           tower.castShadow = true;
           tower.receiveShadow = true;
-          plantTowers.add(tower);
-        }
-        group.add(plantTowers);
+          g.add(tower);
+          const rim = new THREE.Mesh(new THREE.TorusGeometry(6.6, 0.3, 8, 32), rimMat);
+          rim.rotation.x = Math.PI / 2;
+          rim.position.set(x, 25, z);
+          g.add(rim);
+          solids.push({ cx: x, cz: z, r: 8.0 });
+          for (let i = 0; i < 4; i++) {
+            const puff = new THREE.Mesh(puffGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.7, roughness: 1, depthWrite: false }));
+            g.add(puff);
+            landmarkTicks.push((t) => {
+              const f = (t * 0.11 + i / 4 + k * 0.13) % 1;
+              puff.position.set(x + Math.sin(f * 3 + i) * 1.4, 24 + f * 18, z + f * 4);
+              puff.scale.setScalar(2.4 + f * 4.5);
+              puff.material.opacity = 0.75 * (1 - f);
+            });
+          }
+        });
+        lmBox(g, 22, 10, 14, plainMat(0x8fa3b8), -38, 5, -155, true);
+        lmBox(g, 22.6, 0.8, 14.6, plainMat(0x5c6b7d), -38, 10.4, -155);
+        const dome = new THREE.Mesh(new THREE.SphereGeometry(5, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), plainMat(0xc9d2da));
+        dome.position.set(-41, 10.8, -155);
+        dome.castShadow = true;
+        g.add(dome);
+        const plantSign = canvasMat((x, w, h) => {
+          x.fillStyle = '#26303b';
+          x.fillRect(0, 0, w, h);
+          signText(x, 'POWER PLANT', w / 2, h / 2 + 5, 70, '#8dff5c', ink, w - 36);
+        }, 512, 100, { emissive: 0x0d2a08 });
+        lmBox(g, 0.3, 2.2, 11, faceMats([0], plantSign, plainMat(0x26303b)), -26.85, 7, -155);
+        lmBox(g, 0.4, 3.6, 3, door, -26.85, 1.8, -150);
+        const stack = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.6, 24, 16), canvasMat((x, w, h) => {
+          for (let i = 0; i < 8; i++) { x.fillStyle = i % 2 ? '#fff8e1' : '#d94b3b'; x.fillRect(0, (i * h) / 8, w, h / 8 + 1); }
+        }, 16, 128));
+        stack.position.set(-47, 12, -144);
+        stack.castShadow = true;
+        g.add(stack);
+        solids.push({ cx: -47, cz: -144, r: 1.6 });
 
-        return group;
+        // a few round cartoon trees on the open lots (they're solid too)
+        const trunkGeo = new THREE.CylinderGeometry(0.35, 0.5, 3, 8), leafGeo = new THREE.IcosahedronGeometry(2.6, 0);
+        const trunkMat = plainMat(0x8a5a35);
+        const leafMats = [0x58c24a, 0x3fa845, 0x7fd35a].map((c) => plainMat(c, { flatShading: true }));
+        const keepClear = [[15, 27, 24, 56], [15, 27, -80, -58], [-60, -15, -176, -84]]; // the parking lot, the school's front yard, the plant yard
+        for (let tries = 0, placed = 0; tries < 400 && placed < 18; tries++) {
+          const x = (Math.random() < 0.5 ? -1 : 1) * THREE.MathUtils.randFloat(18, 55);
+          const z = (Math.random() < 0.5 ? -1 : 1) * THREE.MathUtils.randFloat(18, 188);
+          if (!freeSpot(x, z, 5)) continue;
+          if (keepClear.some(([a, b, c, d]) => x > a && x < b && z > c && z < d)) continue;
+          const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+          trunk.position.set(x, 1.5, z);
+          trunk.castShadow = true;
+          const leaves = new THREE.Mesh(leafGeo, leafMats[placed % 3]);
+          leaves.position.set(x, 4.6, z);
+          leaves.scale.setScalar(THREE.MathUtils.randFloat(0.8, 1.2));
+          leaves.rotation.y = Math.random() * 3;
+          leaves.castShadow = true;
+          g.add(trunk, leaves);
+          solids.push({ cx: x, cz: z, r: 0.6 });
+          placed++;
+        }
+        return g;
+      }
+
+      // glowing green rods in the power plant yard
+      var rodKit = null; // var: built on first use, like the donut kit
+      function makeRodKit() {
+        const c = document.createElement('canvas');
+        c.width = c.height = 64;
+        const x = c.getContext('2d');
+        const gr = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+        gr.addColorStop(0, 'rgba(170,255,130,1)');
+        gr.addColorStop(0.35, 'rgba(90,255,80,0.5)');
+        gr.addColorStop(1, 'rgba(60,255,60,0)');
+        x.fillStyle = gr;
+        x.fillRect(0, 0, 64, 64);
+        const glowTex = new THREE.CanvasTexture(c);
+        glowTex.colorSpace = THREE.SRGBColorSpace;
+        return {
+          rodGeo: new THREE.CylinderGeometry(0.32, 0.32, 2.6, 10),
+          capGeo: new THREE.CylinderGeometry(0.44, 0.44, 0.3, 10),
+          rodMat: new THREE.MeshBasicMaterial({ color: 0x8dff5c }),
+          capMat: new THREE.MeshStandardMaterial({ color: 0x55606e, roughness: 0.5 }),
+          glowMat: new THREE.SpriteMaterial({ map: glowTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }),
+        };
+      }
+      function populateRods() {
+        rodsGroup.clear();
+        const k = rodKit || (rodKit = makeRodKit());
+        const R = THREE.MathUtils.randFloat;
+        for (let tries = 0; tries < 500 && rodsGroup.children.length < ROD_COUNT; tries++) {
+          const x = R(-55, -18), z = R(-172, -86);
+          if (!freeSpot(x, z, 3)) continue;
+          if (rodsGroup.children.some((r) => (r.position.x - x) ** 2 + (r.position.z - z) ** 2 < 100)) continue;
+          if (donutsGroup.children.some((d) => (d.position.x - x) ** 2 + (d.position.z - z) ** 2 < 36)) continue;
+          const rod = new THREE.Group();
+          rod.add(new THREE.Mesh(k.rodGeo, k.rodMat));
+          [-1.4, 1.4].forEach((y) => {
+            const cap = new THREE.Mesh(k.capGeo, k.capMat);
+            cap.position.y = y;
+            rod.add(cap);
+          });
+          const halo = new THREE.Sprite(k.glowMat);
+          halo.scale.setScalar(5.5);
+          rod.add(halo);
+          rod.position.set(x, 2.2, z);
+          rod.rotation.z = 0.35;
+          rod.userData.phase = Math.random() * 6.28;
+          rodsGroup.add(rod);
+        }
+      }
+      function spinRods(dt, t) {
+        rodsGroup.children.forEach((r) => {
+          r.rotation.y += dt * 1.3;
+          r.position.y = 2.2 + Math.sin(t * 2 + r.userData.phase) * 0.3;
+          r.children[3].scale.setScalar(5 + Math.sin(t * 5 + r.userData.phase) * 0.8);
+        });
       }
 
       // pink-frosted donuts with sprinkles that stand up, spin and bob so you can spot them from afar
@@ -841,17 +1138,62 @@
         });
       }
 
+      // buses keep to the right-hand lane of the two roads, give way at the crossing and brake for you
       function spawnTraffic() {
-        const busGeo = new THREE.BoxGeometry(4, 3, 10);
-        for (let i = 0; i < 6; i++) {
-          const bus = new THREE.Mesh(busGeo, textures.bus);
-          bus.position.set(-150 + i * 60, 1.6, i % 2 === 0 ? 6 : -6);
-          bus.castShadow = true;
-          bus.userData = {
-            speed: THREE.MathUtils.randFloat(14, 22) * (i % 2 === 0 ? 1 : -1),
-          };
+        const bodyGeo = new THREE.BoxGeometry(4, 2.6, 10), winGeo = new THREE.BoxGeometry(4.08, 0.95, 8.2), wheelGeo = new THREE.CylinderGeometry(0.62, 0.62, 0.5, 14);
+        wheelGeo.rotateZ(Math.PI / 2);
+        const winMat = new THREE.MeshStandardMaterial({ color: 0x2c3e57, roughness: 0.3 });
+        const tyreMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.7 });
+        // windscreen, back window and lamps, so a bus reads as a bus from behind too
+        const endGeo = new THREE.BoxGeometry(3.3, 1.15, 0.12), lampGeo = new THREE.BoxGeometry(0.55, 0.38, 0.12);
+        const tailMat = new THREE.MeshStandardMaterial({ color: 0xd32f2f, emissive: 0x8a0f0f, roughness: 0.4 });
+        const headMat = new THREE.MeshStandardMaterial({ color: 0xfff6c8, emissive: 0x6b5f2a, roughness: 0.4 });
+        [['z', 1, -150], ['z', 1, 70], ['z', -1, 150], ['x', 1, -120], ['x', -1, 45], ['x', -1, 160]].forEach(([axis, dir, at], i) => {
+          const bus = new THREE.Group();
+          const body = new THREE.Mesh(bodyGeo, textures.bus);
+          body.position.y = 1.9;
+          body.castShadow = true;
+          const win = new THREE.Mesh(winGeo, winMat);
+          win.position.y = 2.45;
+          bus.add(body, win);
+          [5.03, -5.03].forEach((ez) => {
+            const pane = new THREE.Mesh(endGeo, winMat);
+            pane.position.set(0, 2.5, ez);
+            bus.add(pane);
+            [-1.45, 1.45].forEach((lx) => {
+              const lamp = new THREE.Mesh(lampGeo, ez > 0 ? headMat : tailMat);
+              lamp.position.set(lx, 1.15, ez);
+              bus.add(lamp);
+            });
+          });
+          [[-1.75, 3.2], [1.75, 3.2], [-1.75, -3.2], [1.75, -3.2]].forEach(([wx, wz]) => {
+            const wheel = new THREE.Mesh(wheelGeo, tyreMat);
+            wheel.position.set(wx, 0.62, wz);
+            bus.add(wheel);
+          });
+          const lane = axis === 'z' ? -LANE * dir : LANE * dir;
+          if (axis === 'z') { bus.position.set(lane, 0, at); bus.rotation.y = dir > 0 ? 0 : Math.PI; }
+          else { bus.position.set(at, 0, lane); bus.rotation.y = dir > 0 ? Math.PI / 2 : -Math.PI / 2; }
           trafficGroup.add(bus);
+          const m = { mesh: bus, axis, dir, lane, cruise: 13 + i * 1.3, v: 0, box: { x0: 0, x1: 0, z0: 0, z1: 0 } };
+          setBusBox(m);
+          movers.push(m);
+        });
+      }
+      function setBusBox(m) {
+        const p = m.mesh.position, hw = m.axis === 'z' ? 2 : 5, hd = m.axis === 'z' ? 5 : 2;
+        m.box.x0 = p.x - hw; m.box.x1 = p.x + hw; m.box.z0 = p.z - hd; m.box.z1 = p.z + hd;
+      }
+      function busAlong(m) { return m.axis === 'z' ? m.mesh.position.z : m.mesh.position.x; }
+      function busToCrossing(m) { return -9 - (busAlong(m) + 5 * m.dir) * m.dir; } // nose to the edge of the crossing, in travel direction
+      function busInCrossing(m) { return Math.abs(busAlong(m)) < 14; }
+      function busTouches(m, cp) {
+        const b = m.box, fx = Math.sin(car.heading), fz = Math.cos(car.heading), reach = CAR_R + 0.3;
+        for (let c = -1; c <= 1; c += 2) {
+          const cx = cp.x + fx * CAR_OFF * c, cz = cp.z + fz * CAR_OFF * c;
+          if (Math.hypot(cx - Math.max(b.x0, Math.min(cx, b.x1)), cz - Math.max(b.z0, Math.min(cz, b.z1))) < reach) return true;
         }
+        return false;
       }
 
       function setupTouchControls() {
@@ -926,7 +1268,8 @@
         const forward = fwdV.set(Math.sin(car.heading), 0, Math.cos(car.heading));
         const gas = !!(keyState["ArrowUp"] || keyState["KeyW"]);
         const back = !!(keyState["ArrowDown"] || keyState["KeyS"]);
-        const boosting = !!keyState["Space"];
+        if (state.glow > 0) state.glow = Math.max(0, state.glow - h);
+        const boosting = !!keyState["Space"] || state.glow > 0;
         const steer = (keyState["ArrowLeft"] || keyState["KeyA"] ? 1 : 0) - (keyState["ArrowRight"] || keyState["KeyD"] ? 1 : 0);
         const turningActive = steer !== 0;
         const brakingActive = back && car.speed > 0.5;
@@ -1016,8 +1359,8 @@
           touched = false;
           for (let c = 0; c < 2; c++) {
             const off = c ? -CAR_OFF : CAR_OFF;
-            for (let i = 0; i < solids.length; i++) {
-              const o = solids[i];
+            for (let i = 0, n = solids.length + movers.length; i < n; i++) {
+              const o = i < solids.length ? solids[i] : movers[i - solids.length].box;
               const cx = p.x + forward.x * off, cz = p.z + forward.z * off;
               let nx, nz, pen;
               if (o.r !== undefined) {
@@ -1042,6 +1385,7 @@
               p.x += nx * pen;
               p.z += nz * pen;
               touched = true;
+              if (i >= solids.length) state.busHit = movers[i - solids.length];
               const vn = v.x * nx + v.z * nz;
               if (vn < 0) {
                 const k = -vn > 6 ? 1.25 : 1; // a real hit bounces back a little, a scrape just slides
@@ -1079,11 +1423,33 @@
         } else state.shake = 0;
       }
 
-      function updateTraffic(delta) {
-        trafficGroup.children.forEach((bus) => {
-          bus.position.z += bus.userData.speed * delta;
-          if (bus.position.z > 200) bus.position.z = -200;
-          if (bus.position.z < -200) bus.position.z = 200;
+      function updateTraffic(h) {
+        const cp = car.mesh.position;
+        movers.forEach((m) => {
+          const along = busAlong(m), toCross = busToCrossing(m);
+          let want = m.cruise;
+          // the crossing: buses on the east-west road give way to the north-south ones; those wait only for a bus already halfway over
+          if (toCross > -1.5 && toCross < 7) {
+            const blocked = m.axis === 'x'
+              ? movers.some((o) => o.axis === 'z' && (busInCrossing(o) || (busToCrossing(o) > -1.5 && busToCrossing(o) < 12)))
+              : movers.some((o) => o.axis === 'x' && busInCrossing(o) && busToCrossing(o) < -1.5);
+            if (blocked) want = 0;
+          }
+          // brake for the car or a bus ahead in the lane
+          const lat = (m.axis === 'z' ? cp.x : cp.z) - m.lane, ahead = ((m.axis === 'z' ? cp.z : cp.x) - along) * m.dir;
+          if (Math.abs(lat) < 4.8 && ahead > 0 && ahead < 18) want = Math.min(want, Math.max(0, (ahead - 8) * 1.6));
+          // a bus that bumps the car stops dead, so it never shoves the car into a wall
+          if (busTouches(m, cp)) { want = 0; m.v = 0; }
+          movers.forEach((o) => {
+            if (o === m || o.axis !== m.axis || o.dir !== m.dir) return;
+            const gap = (busAlong(o) - along) * m.dir;
+            if (gap > 0 && gap < 20) want = Math.min(want, Math.max(0, (gap - 13) * 2));
+          });
+          m.v += THREE.MathUtils.clamp(want - m.v, -30 * h, 12 * h);
+          let next = along + m.v * m.dir * h;
+          if (next * m.dir > 205) next -= 410 * m.dir;
+          if (m.axis === 'z') m.mesh.position.z = next; else m.mesh.position.x = next;
+          setBusBox(m);
         });
       }
 
@@ -1101,15 +1467,26 @@
           }
         });
 
-        trafficGroup.children.forEach((bus) => {
-          if (bus.position.distanceTo(carPos) < 4.5) {
-            if (car.speed > 4 && clock.elapsedTime - (state.lastHonk || -9) > 1.2) { honk(); state.lastHonk = clock.elapsedTime; }
-            car.speed *= 0.4;
-            if (state.combo || car.speed > 4) toast("Honk! Watch the buses");
-            state.combo = 0;
-            spawnDustEffect(bus.position);
+        rodsGroup.children.slice().forEach((rod) => {
+          if (Math.hypot(rod.position.x - carPos.x, rod.position.z - carPos.z) < 3) {
+            rodsGroup.remove(rod);
+            elapsed = Math.max(0, elapsed - 4);
+            state.glow = 3;
+            zap();
+            toast("☢️ Glowing rod! +4s turbo");
           }
         });
+
+        const bus = state.busHit;
+        state.busHit = null;
+        if (bus && state.t - state.lastBus > 1.2) {
+          state.lastBus = state.t;
+          if (Math.abs(car.speed) > 4 || bus.v > 4) honk();
+          if (state.combo || Math.abs(car.speed) > 4) toast("Honk! Watch the buses");
+          car.speed *= 0.5;
+          state.combo = 0;
+          spawnDustEffect(car.mesh.position);
+        }
 
         donutsEl.textContent = `${state.donuts}`;
       }
@@ -1222,6 +1599,10 @@
         }
 
         spinDonuts(dt, state.t);
+        spinRods(dt, state.t);
+        for (const tick of landmarkTicks) tick(state.t);
+        const glowNow = state.glow > 0 ? 0.6 + 0.4 * Math.sin(state.t * 18) : 0;
+        textures.carBodyPink.emissive.setRGB(0.12 * glowNow, 0.85 * glowNow, 0.18 * glowNow);
       }
 
       function animate() {

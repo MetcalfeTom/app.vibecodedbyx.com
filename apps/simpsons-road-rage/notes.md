@@ -22,14 +22,21 @@
   - **donuts** spawn on the two roads (70 %) or the open lots |x| 17–44, ≥3.5 from any solid, ≥9 apart (`pickDonutSpot` / `freeSpot`); pickup measured on the ground (3 units).
   - card text: no show character names or catchphrases ("Homer…", "D'oh!" replaced). Small build stamp on the card (`#buildstamp`).
   - tested headless (scratch probe srrp1 via the stubbed test copy): no spin at 0, same drive at 10/20/60/144 fps, clock 3.000 s at 10/20/60 fps, head-on stop + reverse, glancing slide, 6 min random driving at random fps never deeper than 0.15 in a wall, donuts never in/against buildings, eat, end, save once; 0 JS errors at 1280×720 and 390×844.
+- 2026-10-13 14:32 UTC — **v2.2 town landmarks + real traffic** (helper session, fela's ask):
+  - **landmarks** (`buildLandmarks`, authored blocky shapes, generic names only): **Quick-Stop** corner store (x26–40, z28–52, door to −x) with a parking lot and a big roof sign; **donut shop** (x −42..−28, z 62..78) with a giant rocking donut on the roof; **school** (centre 40,−72, 28×24) with bell tower, clock, flagpole and a SCHOOL sign; **power plant**: two lathe cooling towers (−41,−108) / (−27,−132), a hall with dome + POWER PLANT sign at (−38,−155), striped stack. Up to 18 low-poly trees. Signs are canvas textures (`signText` auto-fits), redrawn once Luckiest Guy has loaded. All of it is solid (`lmBox(..., true)` / circles).
+  - **houses vs landmarks**: `keepClear` lots for the parking lot, school yard, plant yard; houses in the x = 60 row are trimmed from the school side (east side only, `pos.x > 0` — without it the west row got negative widths = a giant inside-out wall over the road; caught by the screenshot).
+  - **glowing rods**: 5 in the plant yard each shift (`populateRods`); +4 s and 3 s of green-glow turbo (car pulses green, goes past 60).
+  - **buses** now drive the right-hand lanes of the two roads (6 buses, `LANE` 4.6), give way at the crossing (east-west gives way to north-south), brake for a bus ahead and for the car in their lane (±4.8), and **stop dead when they touch the car** (`busTouches`) so they never shove it into a wall. Buses are solid for the car (`movers[].box` in `collideCar`); a hit honks, halves your speed and breaks the combo (1.2 s cooldown). Windscreen, back window, head and tail lamps.
+  - tested headless (srrp2 on the stubbed test copy): landmarks/trees solid, donuts + rods clear of everything, every wall box the right way round and off the roads, 90 s of traffic with 0 house/tree contacts and 0 bus overlaps (every bus travels >1100), ramming a bus (no driving through, combo lost), a bus never shoves a crooked parked car, rod +4 s/glow/turbo 71/wears off; 0 JS errors at 1280×720 and 390×844 (touch).
 
 ## issues
 - `populateDonuts()` runs at top level before later `const`s exist → the donut kit is a lazily built `var`. Keep new top-level consts above their first use.
 - Building positions/sizes use Math.random (new town every load), so narrow car-width gaps between houses differ per load. Probes must not assume a layout.
-- Buses still drive along z at x = ±30/±90/±150, i.e. through houses (planned for v2.2).
+- Top-level call order matters (TDZ): `buildLandmarks`, `populateRods`, `spawnTraffic` run at load, so their helpers are function declarations and `LANE`/`ROD_COUNT` sit near the top. `var donutKit = null` further down resets the kit after the first populate (harmless, rebuilt lazily).
+- A car parked against a bus keeps that bus stopped (by design: buses stop on contact); traffic behind it queues.
 - Headless probe: scratch `gaunt/mkrr.sh` swaps the supabase import for a local stub (`sbstub.js`) so tests never write to the real table.
 
 ## todos
-- v2.2: landmarks with generic names (Quick-Stop store, power plant with glowing green rods, school, donut shop), buses on the road lanes
-- v2.3: phone pass at 390×844 (portrait camera/FOV, controls, HUD)
+- v2.3: phone pass at 390×844 (portrait view is narrow: wider FOV / camera further back; a bus right behind the camera can fill the screen; controls, HUD)
+- maybe: the camera could pull in when something is between it and the car
 - never use show character names, likenesses, catchphrases or music
