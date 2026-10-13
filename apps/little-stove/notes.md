@@ -82,6 +82,7 @@ A cozy home-cooking game, built phone-first. You grab food from the fridge, chop
   - Fixed: the oven dial showed on every recipe ([hidden] lost to .dial{display:inline-flex}); the stylesheet now starts with [hidden]{display:none!important}. On phones the heat button takes its own row.
   - Build stamp under the cookbook. __LS gains todAt, todaySpecial, costOf, art.win/art.table (for probes).
   - Probes (scratch hm/lsd*.js): lsd3 plays dinner 1 and logs the coach target per step (tomato → item → add → … → heat → salt → serve), then the schedule for dinners 2-21 (set save.oven=1 first or every dinner from 5 turns into soda bread, the pre-v2.0 catch-up rule). pfl/ptam/oven bread/cake all still 5 stars.
+- v2.3.1 (2026-10-13, ~06:07 UTC): a drink at the table that fits the time (drinkArt: orange juice at breakfast, a cup of tea in the afternoon, water at dinner, cocoa at night, a saucer of milk when it's the cat). The last emoji in the UI (blow out, sprinkle, bring it out, the birthday cheer) became inline SVG icons, so nothing shows as tofu.
 ## issues
 - Phone layout: the stove and board sit side by side. The phone media query must stay LAST in the CSS, or the 12rem .hob height wins.
 - Phone fridge strip: the sticky selector has to be section.area.fridge, because section.area{ position:relative } outranks .fridge.
