@@ -293,11 +293,33 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   Probes p/a1.py (views + walking into the balustrade: stops at z 66.3 / x 14.3), p/a2.py (walk from the stairs onto
   the terrace), p/ld.py. 0 JS errors 1280x800 + 390x844 ?touch.
   Untested: how the balustrade feels on a real phone (the handrail fills the bottom of the view if you look down).
+- v1.18 2026-10-13 11:57 (helper): THE PARK IS REACHABLE + DIE SCHEFFELTERRASSE. Flax 11:35 on v1.17: "How to access
+  the castle park? It seems unreachable." It was: the gate side of the courtyard (x 25..43 z 81..84) was a closed
+  pocket (Friedrichsbau/Saalbau north, Fassbau south, west-wing shell, Ottheinrichsbau shell x 44..50 z 81..91 east),
+  the big courtyard (x 44..58 z 92..98 + the lane x 51..58) was only reached up the Bergbahn track and the 1-wide
+  ledge z 98, and the garden only by dropping into the moat or the secret passage. Fix: two doorways through the
+  Ottheinrichsbau shell (west wall x 44 z 82..84, south wall z 91 x 46..48, trim frames, place name
+  'Ottheinrichsbau'), and die Gartenbrücke (buildGBr, GBR x 59..66 z 92..93, side parapets z 91/94, one pier x 61..62)
+  from the courtyard beside the Pulverturm over the moat: walk 48 to x 62, 49 at x 63..64, 50 at x 65..66, garden
+  parapet (67,50,92..93) removed. Green nameboard over its gateway 'Schlossgarten · Hortus Palatinus ·
+  Scheffelterrasse' (gbrSign, canvas text on the box's -z face, so rotation.y=+PI/2 faces west). Quest log line
+  '🌳 Schlossgarten: through the castle gate, left through the Ottheinrichsbau ruin, ...' until the garden is found;
+  the hortus rumour + Clara's line now point at the bridge; the hortus secret also triggers on the Scheffelterrasse.
+  Route search p/bfs.py (no drops > 1): gate -> garden 58 steps (was 180 via the town + Bergbahn track).
+  Scheffelterrasse (Flax: "the Schlossgarten park terrace with trees and paths"): SCH x 67..117 z 69..75 walk 50 on a
+  tall arched north wall, gravel promenade, lawn strip with 7 big park trees (parkTree, trunks you walk under), 4
+  benches facing the town, the old Hortus north wall row z 76 opened so it's one park. One balustrade mesh for Altan +
+  Scheffel (balMesh replaces altanMesh); ALT_COL is now a Map cell -> walk level (48 Altan, 50 Scheffel, benches).
+  Viktor, Dichter, writes poems on a bench at the west end (69.6,72.5): Scheffel's "Alt Heidelberg, du feine" (1854),
+  the Pulverturm blown up in 1693, painters. Probes p/s1.py, p/g1.py (physics walk gate -> garden, touch stick climbs
+  the bridge steps), p/bfs.py, p/wmap.py. 0 JS errors 1280x800 + 390x844 ?touch.
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
 - fannar22 2026-10-11 23:50: rising into the sky at the east/west map edge in the river (fixed v1.1, probe hb_edge.js).
 - pathLine drop walls: a one-block drop must not get a parapet (blocked the Snake Path entry from Brückenstraße).
 - Landscape 800x300: a long toast can sit over the ride/talk buttons for its few seconds (general HUD, not scope).
+- Castle walkability: run p/bfs.py (route search from the gate, no drops) after any castle change; the courtyard was
+  split into closed pockets for days without anyone noticing (fixed v1.18).
 
 ## todos
 - Fernrohr ideas: more friends to spot later (Anselm on his night round, Hilde at a window), a postcard of the view
@@ -306,8 +328,8 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
 - optional firework bang sounds after a tap
 - Jesuit church, Marstall, Karl Theodor statue on the bridge
 - real phone test of the touch stick + look; real GPU fps (v1.14 adaptive sharpness: ask phone users if it looks soft)
-- Flax's 2026-10-13 list after Café Nerd: castle (Altan done v1.17; next the Schlossgarten park terrace with trees
-  and paths = a Scheffelterrasse north of the Hortus, closer park shapes), more room round the Fass in the cellar,
+- Flax's 2026-10-13 list after Café Nerd: castle (Altan v1.17, Scheffelterrasse + park access v1.18; next maybe the
+  Stückgarten west of the Dicker Turm), Studentenkarzer (11:33, next), more room round the Fass in the cellar,
   Torch + Toni L busking on the Alte Brücke (original beat only, no real lyrics/melodies), life in the west Altstadt
   (walkers, a stall/bench crowd, lit windows at night)
 - Café Nerd ideas: a board game you can join, Nele's daily special
@@ -335,6 +357,8 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   (Königstuhl north phone 250k/86, desktop 299k/103).
 - v1.17 (Altan + Glockenturm + gables): +3k tris/+1 call everywhere; Altan views phone 164-182k/42-43, desktop
   212-214k/56-60; max phone 251k/87, desktop 302k/105.
+- v1.18 (Scheffelterrasse + Gartenbrücke + Viktor): max phone 257k/88, desktop 307k/105 (Königstuhl north); garden
+  view 81k/13 phone, 90k/16 desktop; altan 186k/43 phone, 218k/60 desktop.
 
 ## testing
 - scratch: $SP/hb (index.html + mk.sh injects window.__G/__E into gaunt/sw/hm43/hb). The live file only has a
