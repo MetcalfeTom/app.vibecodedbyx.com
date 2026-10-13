@@ -114,13 +114,29 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   45% stick, 2 diagonal straight lines, 40 random starts in the court + alleys, and a BFS walk from the top of the castle stairs
   (34,48,72) all end inside (z 88). A start at (32.2,81.2) only stuck because it overlapped a wall corner (test artefact).
 
+- v1.9 2026-10-13 ~01:40: the town comes alive (Flax: "all resources on Heidelberg", step 1 of the big round). Nine new folk
+  with routines + lines: Anselm the Nachtwächter (night only, loop round through the old town, lantern that lights the cobbles
+  via a block-shader uniform LANT/hbLan, cow horn + the old hour call at three stops, "Gute Nacht, Hilde!"), Matthias the busker
+  on the bridge (accordion Rosi, an original C-major Neckar-Polka with oom-pah, louder as you walk up, a Tusch as his last line),
+  Herr Kowalski the tour guide who lost his group of 12 yellow caps (day, walks bridge to Marktplatz waving his flag; the hook
+  for the quest step), Herr Brandt + Waldi the dachshund on the south quay (leash, wagging tail, woof), Svenja jogging the north
+  promenade (counts laps), Fritz fishing on the north bank (rod + line + bobber, hints at the river Studentenkuss), three
+  students on a blanket on the Neckarwiese (Jonas strums a guitar), Clara painting the castle on the Philosophenweg, Oma Hilde
+  on a Marktplatz bench with six pigeons that flutter off when you run at them. Old folk got barks too.
+  Machinery: per-figure folkMat() (shared program 'hbfolk', uniform hbW = two swing channels: walk + gesture), parts can carry a
+  swing tag [dir,pivotY,pivotZ,phase] (|dir|>=5 = gesture channel, GTag), blockyGeo part [9] = rotX; walkers follow route
+  [[x,z,pause,flag]] (loop or ping-pong), stop + face you within 3.2, standY() finds the floor under arches; f.when = times of
+  day they're out; speech bubble #bark over the nearest within 14 every 5-9.5 s (line-of-sight checked). All synth sounds are
+  panned and quiet. Probe $SP/hb19s1/pl1.js (routes have no jumps, 2-min sims per time, every talk list), shots s_*.png.
+  Budget: busiest philS 263k tris / 81 calls (was 262k/78), spawn 196k/58, __E []. Untested: real phones, real audio levels.
+
 ## issues
 - fannar22 2026-10-11 23:50: rising into the sky at the east/west map edge in the river (fixed v1.1, probe hb_edge.js).
 - pathLine drop walls: a one-block drop must not get a parapet (blocked the Snake Path entry from Brückenstraße).
 
 ## todos
-- big build after the reset (Flax): ferry/boat ride with Jupp, more folk with jobs + routines, sounds around corners,
-  an original town waltz, German dialogue switch, secret behind the Great Barrel, more easter eggs
+- big round (Flax, 2026-10-13): quest log + tracker, drivable car + Neckar ferry (+ Bergbahn?), café terraces, secrets
+  (Hortus Palatinus); later: German dialogue switch, secret behind the Great Barrel
 - optional firework bang sounds after a tap
 - Jesuit church, Marstall, Karl Theodor statue on the bridge, castle garden (Hortus Palatinus), Königstuhl funicular
 - real phone test of the touch stick + look; real GPU fps
