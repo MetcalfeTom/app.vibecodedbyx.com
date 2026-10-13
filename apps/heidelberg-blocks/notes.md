@@ -360,6 +360,19 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   Stair fix: no collision on the rail cell x -53 (the head of the stair needs 1.8 of headroom to step up).
   Probes p/u1.py, p/u2.py, p/w3.py (G.physics stepped at 60 Hz: stair up/down, all 3 cells, door in/out).
   0 JS errors at 1280 and 390 ?touch. Not measured: tris for the new views.
+- v1.20 2026-10-13 13:35 (helper): TORCH + TONI L BUSKING ON THE ALTE BRÜCKE (Flax 13:15), a tribute to Heidelberg's
+  hip-hop pioneers. Group folk 'busk' at (2.35,-29.5), rot -PI/2 (north half of the bridge, back to the east parapet;
+  the Studentenkuss is at -21.5, Matthias at +26.5). Torch (olive jacket, cap backwards) and Toni L (red hoodie, beanie)
+  each hold a mic to the mouth (bkMic: the default arm is filtered out of person() and replaced by a bent arm), the free
+  arm pumps on the gesture channel, heads nod on channel 1 (bkNod tags parts above y 1.45). Floating name tags
+  (bkTag sprites, shown within 26 m). A speaker box with a cyan LED that pulses on the beat, an upturned hat with coins
+  (one blockyGeo, drawRange = BEAT.coins, saved as localStorage 'hb-hat', 3..14). Crowd of four facing them and nodding:
+  a fan filming with a phone, a man, a grandpa in a flat cap, a kid (bkSmall .66). The last talk step drops a coin
+  (hatCoin: clink + toast). At night the group gets a soft glow (hbE .26) like Matthias.
+  The beat (beatTick, chained on SND.tickMore after accTick): our own two-bar pattern at 94 bpm, all synth, no samples:
+  kick with a pitch tail to A/G (the bass), snare on 2 and 4, eighth hats with swing, an open hat, a scratch every 4th
+  bar; gain falls off over 34 m. Never real lyrics, melodies or song titles; the talk lines are generic and respectful.
+  Probe p/b1.py: talk + coin, BEAT running, tags on. 0 JS errors at 1280 and 390 ?touch.
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
 - fannar22 2026-10-11 23:50: rising into the sky at the east/west map edge in the river (fixed v1.1, probe hb_edge.js).
@@ -380,8 +393,7 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   Torch + Toni L busking on the Alte Brücke (original beat only, no real lyrics/melodies), life in the west Altstadt
   (walkers, a stall/bench crowd, lit windows at night)
 - Flax 12:08-13:15 queue, in this order: (1) named crew DONE v1.18.2; (2) university + Karzer DONE v1.19;
-  (2b) Torch + Toni L busking on the Alte Brücke (original made-up beat only, never real lyrics/melodies/titles,
-  name tags, a small crowd, a hat for coins); (3) Neckarwiese on the north bank (night: blankets, lanterns/string lights, a speaker glow) + a flock of blocky
+  (2b) Torch + Toni L busking DONE v1.20; (3) Neckarwiese on the north bank (night: blankets, lanterns/string lights, a speaker glow) + a flock of blocky
   ducks (paddle by the bank, waddle on the grass, heads tucked in at night), only if the map reaches that far west
 - Café Nerd ideas: a board game you can join, Nele's daily special
 - the monkey rub buttons still sit bottom-left on narrow phones (only near the monkey)
