@@ -1,7 +1,7 @@
 # App Directory
 
 ## log
-- 2026-10-13 18:35 UTC: change log window gets a ↻ refresh button beside the ✕ (spins while it re-reads), and the logs now re-bake by themselves: .git/hooks/post-commit + post-merge (not versioned; reinstall from the 5 lines in rebake.sh's header if lost) start rebake.sh in the background after every commit on main, which runs build-busy.py + build-changes.py (about 20 s, one at a time, writes swapped in atomically). So a reload shows commits minutes old, like the fresh row. Footers say 'updated Xm ago' (hamburglar06 18:31).
+- 2026-10-13 18:35 UTC: change log window gets a ↻ refresh button beside the ✕ (spins while it re-reads), and the logs now re-bake by themselves: .git/hooks/post-commit + post-merge (not versioned; rebake.sh's header has the hook lines to reinstall them) start rebake.sh in the background after every commit on main, which runs build-busy.py + build-changes.py (about 20 s, one at a time, writes swapped in atomically). So a reload shows commits minutes old, like the fresh row. Footers say 'updated Xm ago' (hamburglar06 18:31).
 - 2026-10-13 18:28 UTC: change-log rows: each graph is as long as its own bar again (only the longest is capped, 13rem, 7.5rem on phones) and the • hash follows right after the graph (hamburglar06 18:25).
 - 2026-10-13 18:21 UTC: change-log rows: the +/− graph is capped at 6.5rem and the hash sits on the far right after a • (hamburglar06 18:20).
 - 2026-10-13 18:16 UTC: each commit in the git log board's change log shows its short hash (amber, after the +/− bar), hamburglar06 18:15. busy.json log entries are now [date, text, +, −, hash7].
