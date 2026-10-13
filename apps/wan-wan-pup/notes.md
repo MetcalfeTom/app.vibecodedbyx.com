@@ -3,6 +3,7 @@
 pochinia's idea (2026-10-09 07:20 UTC, Twitch): "a cute puppy in anime style, and you can give it a treat and it barks cutely".
 
 ## log
+- 2026-10-13 04:00 SEO: canonical link + og:url with trailing slash.
 - v1.8 (2026-10-10 04:55 UTC, pochinia picked Wan-kun for the winter hat): 🧶 hat button / H: a pink knit beanie with a pompom (beanie(): dome with rib lines + white dots, ribbed cuff, ears redrawn above the cuff so they poke through, the bow pinned on the cuff, the pompom bounces with hops) drops on from above; hearts + wan!, snow falls in the window across the street (snowIn, white roof) and Mewo says 'hmph.' (she means: ridiculous. …okay, it is cute.). Taking it off: two refusals with subtitles ('no. it stays.', 'it is part of me now.'), the third works (kyuun…, Mewo: put it back on). Saved as localStorage 'wan-wan-pup-hat' = '1' (Fairylight Lane can read it). The gif shows the hat. Headless probe note: the shot lands ~5 s after the probe starts, so time clicks at 2.5-4.5 s.
 - 2026-10-09 17:42 UTC: a small '🏮 walk down Fairylight Lane' link under the buttons (apps/fairylight-lane, the street hub for all four of pochinia's apps).
 - v1.7 (2026-10-09 07:51 UTC): the gif sheet gets 🦴 treat / 🗯 vs Mewo: argP(t) scripts 'WAN!' (he means: you have pretty eyes) then 'hssss.' (she means: …thank you.) + his happy hearts; 44 frames, file <name>-vs-mewo.gif.

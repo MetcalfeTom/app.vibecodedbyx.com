@@ -3,6 +3,7 @@
 Asked for by pochinia (Twitch) on 2026-10-09: "how about a little bunny as well? go wild with this one" + "make them all friends". They named her **Bnuy** (spelled like that on purpose). Third app on pochinia's street, after Window Loaf (Mewo) and Wan Wan Pup (Wan-kun).
 
 ## log
+- 2026-10-13 04:00 SEO: canonical link + og:url with trailing slash.
 - 2026-10-09 17:42 UTC: a small '🏮 walk down Fairylight Lane' link under the buttons (apps/fairylight-lane, the street hub for all four of pochinia's apps).
 - 2026-10-09 12:26 UTC v1.2.1: the Coo-rier has issue numbers and a "from the archive" headline from earlier runs (localStorage bunny-post-coorier {n, old: last 18 headlines, minus the fixed proposal scoop}).
 - 2026-10-09 12:17 UTC v1.2: Poppo the gossip pigeon on the fairy-light wire. After each delivery he coos a wrong rumour (truth/sweet/chaos lists, random start) with a lavender "(source: ...)" subtitle; the first one every run is "the dog PROPOSED" (heart seal). Finale: "called it" + The Street Coo-rier paper (#paper) of the run's rumours. Tap him for a random rumour. Also fixed: .bar display:flex beat [hidden], so the choice buttons never hid (added [hidden]{display:none!important}).
