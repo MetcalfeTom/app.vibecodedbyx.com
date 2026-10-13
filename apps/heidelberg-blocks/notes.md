@@ -199,7 +199,26 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   garden both ways with G.physics, all spots, hints, Geheimrat, collision), p2.js (closed hatch from both sides),
   pb.js (budget vs v1.12: philS 253.3k / 85, was 264.7k / 85; garden view 82.6k / 15, fountain 206k / 56), shots sh*.js.
   Untested on real phones: the spots on touch, the hatch from below.
+- v1.14 2026-10-13 05:31: phone polish round (no new features). First screen on touch: two fading ghosts
+  ("Drag to walk" stick ring bottom-left, "Drag to look" track right) that fade one by one as each thumb is used,
+  gone after 40 s, entering the car/boat or a dialog; both used once = 'hb-tut' and later visits get the short hint.
+  The talk button glows gold until you meet your first townsperson; the canvas aria-label explains the drag controls.
+  HUD: place + Studentenkuss chip in their own row (#prow), quest chip (#qt) can wrap but its distance never splits,
+  44 px tall on touch, 📜 icon hidden under 440 px; toast sits under the HUD (--hudb set by a ResizeObserver).
+  Talk button stacks above the Bridge Monkey's buttons (rub buttons left-aligned under 560 px so the jump button stays
+  clear); talk button hidden while a dialog is open; dialog says "tap to go on" on touch (k-touch/k-desk spans,
+  !important so the quest log's J line hides on touch). Shorter touch hints for car/boat/café so they clear the jump
+  button. Landscape phones (max-height 500): tighter top/bottom insets, dialog narrower and at the bottom, lifted over
+  the rub row. Adaptive sharpness (PRQ/qualTick): 90-frame median > 24 ms steps the pixel ratio down (1.75 -> 1.5 ->
+  1.25 -> 1 -> .85 -> .75), checks the next window and steps back + stops if it didn't help (30 fps caps, iOS low
+  power), saves the level per devicePixelRatio in 'hb-pr' and retries one step sharper on the next visit.
+  Checked in headless at 390x844, 844x390, 800x300 and 1280x800 (no desktop regressions): touch-stick driving
+  (accelerates + steers), boat tour, café sit, secrets, quest log. Budget at phone FOV: portrait 207k / 65,
+  landscape philS 255k / 88; SwiftShader is fill-bound (PR 1 -> .75 halves the frame). Mike's stone untouched.
+  Scratch $SP/hb2 (mk.sh, drv.py CDP driver, audit3.py, drive.py, perf.py; ?touch and ?pr only in the test copy).
+  Untested on real phones: real fps + where the adaptive step settles, iOS low power, how the car feels on a thumb.
 ## issues
+- Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
 - fannar22 2026-10-11 23:50: rising into the sky at the east/west map edge in the river (fixed v1.1, probe hb_edge.js).
 - pathLine drop walls: a one-block drop must not get a parapet (blocked the Snake Path entry from Brückenstraße).
 
@@ -208,7 +227,7 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   garden lanterns at night, a second garden terrace (the south wall is one tall cut)
 - optional firework bang sounds after a tap
 - Jesuit church, Marstall, Karl Theodor statue on the bridge, Königstuhl funicular
-- real phone test of the touch stick + look; real GPU fps
+- real phone test of the touch stick + look; real GPU fps (v1.14 adaptive sharpness: ask phone users if it looks soft)
 
 ## art direction
 - 1 block ≈ 1 m-ish but the bridge is shortened: 9 arches of span 7 + piers of 3 = river 87 blocks wide (z -43..43).
