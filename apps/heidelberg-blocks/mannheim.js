@@ -1,15 +1,19 @@
-// Heidelberg Blocks · Mannheim (v1.30-31, for Flax): loaded only when Kapitän Jupp takes you down the Neckar.
+// Heidelberg Blocks · Mannheim (v1.30-33, for Flax): loaded only when Kapitän Jupp takes you down the Neckar.
 // build(H) writes the Quadratestadt into the shared voxel grid (the main file meshes it with the same blocks)
 // and returns the props, the place names and the boat's arrival route. +x = east, +z = south, streets at y = TOWN.
 export function build(H){
-  const {THREE,set,get,B,TOWN:T,WATER:W,blockyGeo,TS}=H;
+  const {THREE,set:set0,get,B,TOWN:T,WATER:W,blockyGeo,TS}=H;
+  // v1.33 lit windows come in three moods at night (by place, not by dice, so the town stays the same): warm, curtained, TV blue
+  const hsh=(x,y,z)=>{ const v=Math.sin(x*12.9898+y*78.233+z*37.719)*43758.5453; return v-Math.floor(v); };
+  const litV=(x,y,z)=>{ const h=hsh(x,y,z), tv=!((z>=84&&x<66)||z>=110); return h<.22?B.winCurt:tv&&h<.29?B.winTv:tv&&h<.36?B.winTv2:B.windowLit; };
+  const set=(x,y,z,b)=>set0(x,y,z,b===B.windowLit?litV(x,y,z):b);
   const R=H.rngOf(1607);   // Mannheim got its town charter in 1607
   // ---- four new tiles in free atlas slots: asphalt, pavement slabs, verdigris copper, shop glass ----
   const g=H.atlasC.getContext('2d'), ge=H.emC.getContext('2d');
   const tile=(i,base,fn)=>{ const ox=(i%8)*TS, oy=Math.floor(i/8)*TS; g.fillStyle=base; g.fillRect(ox,oy,TS,TS);
     const px=(x,y,c)=>{ g.fillStyle=c; g.fillRect(ox+x,oy+y,1,1); }; fn(px,ox,oy); };
   const speck=(px,c,n)=>{ for(let k=0;k<n;k++) px(R()*TS|0,R()*TS|0,c); };
-  const TL={asphalt:40,pave:41,copper:42,shop:43,shopLit:44,track:45};
+  const TL={asphalt:40,pave:41,copper:42,shop:43,shopLit:44,track:45,winCurt:46,winTv:47,winTv2:48};
   tile(TL.asphalt,'#5c5e62',px=>{ speck(px,'#6b6d71',40); speck(px,'#4d4f53',34); });
   tile(TL.pave,'#b9b3a7',px=>{ for(let k=0;k<TS;k++){ px(k,7,'#9c968b'); px(k,15,'#9c968b'); px(7,k<8?k:0,'#9c968b'); px(15,k>=8?k:8,'#9c968b'); } speck(px,'#c9c3b7',14); });
   tile(TL.copper,'#5f9e88',px=>{ for(let y=0;y<TS;y++) for(let x=0;x<TS;x+=4) px(x,y,'#4b8774'); speck(px,'#7dbca6',22); speck(px,'#3f7666',14); });
@@ -17,8 +21,17 @@ export function build(H){
   tile(TL.shop,'#26324a',shop); tile(TL.shopLit,'#26324a',shop);
   { const ox=(TL.shopLit%8)*TS, oy=Math.floor(TL.shopLit/8)*TS; ge.fillStyle='#ffd9a0'; ge.fillRect(ox+1,oy+1,7,TS-1); ge.fillRect(ox+9,oy+1,6,TS-1); }
   tile(TL.track,'#8f877a',px=>{ speck(px,'#6f675c',40); speck(px,'#aaa293',20); for(let y=1;y<TS;y+=4) for(let x=1;x<TS-1;x++) px(x,y,'#6b4a2e'); for(let y=0;y<TS;y++){ px(4,y,'#c8c8cc'); px(11,y,'#c8c8cc'); } });
+  // v1.33 three window tiles copied from the plain window: curtains (pale fabric by day, an orange glow at night), two TV-blue ones
+  const slot=i=>[(i%8)*TS,Math.floor(i/8)*TS], wt=slot(H.BL?H.BL[B.window].t:17), wimg=g.getImageData(wt[0],wt[1],TS,TS);
+  for(const i of [TL.winCurt,TL.winTv,TL.winTv2]){ const [ox,oy]=slot(i); g.putImageData(wimg,ox,oy); }
+  { const [ox,oy]=slot(TL.winCurt); g.fillStyle='#e8dcc8'; g.fillRect(ox+3,oy+2,2,12); g.fillRect(ox+11,oy+2,2,12); g.fillStyle='#c9b9a0'; g.fillRect(ox+4,oy+2,1,12); g.fillRect(ox+11,oy+2,1,12);
+    ge.fillStyle='#ff9a3c'; ge.fillRect(ox+5,oy+2,3,5); ge.fillRect(ox+9,oy+2,2,5); ge.fillRect(ox+5,oy+8,3,6); ge.fillRect(ox+9,oy+8,2,6); ge.fillStyle='#8a4a1c'; ge.fillRect(ox+3,oy+2,2,12); ge.fillRect(ox+11,oy+2,2,12); }
+  const tvPaint=(i,k,blu)=>{ const [ox,oy]=slot(i), c=`rgb(${(110+40*blu)*k|0},${(150+30*blu)*k|0},${255*k|0})`; ge.fillStyle='#000'; ge.fillRect(ox,oy,TS,TS); ge.fillStyle=c;
+    ge.fillRect(ox+3,oy+2,5,5); ge.fillRect(ox+9,oy+2,4,5); ge.fillRect(ox+3,oy+8,5,6); ge.fillRect(ox+9,oy+8,4,6); };
+  tvPaint(TL.winTv,.8,0); tvPaint(TL.winTv2,.7,1);
   H.atlas.needsUpdate=true; H.emTex.needsUpdate=true;
   if(!B.asphalt){ H.def('asphalt',TL.asphalt); H.def('pave',TL.pave); H.def('copper',TL.copper); H.def('shop',TL.shop); H.def('shopLit',TL.shopLit); H.def('track',TL.track); }
+  if(!B.winCurt){ H.def('winCurt',TL.winCurt); H.def('winTv',TL.winTv); H.def('winTv2',TL.winTv2); }
 
   // ---- the plan ----
   const RIV={n:-99,s:-80};                    // the Neckar: water z -99..-80, quay walls at -100 and -79
@@ -207,9 +220,22 @@ export function build(H){
   for(const z of [-1.6,1.6]) P(.14,1.9,.14,WT.x-10.3,T+.95,WT.z+z*1.9,'#3a2a1c');
   // benches round the Wasserturm + street lamps on the Planken
   for(let a=0;a<8;a++){ const an=a*Math.PI/4+Math.PI/8, x=WT.x+Math.sin(an)*11.5, z=WT.z+Math.cos(an)*11.5; P(1.8,.12,.5,x,T+.45,z,'#7a5232',an); P(1.8,.4,.1,x+Math.sin(an)*.25,T+.75,z+Math.cos(an)*.25,'#7a5232',an); }
-  const LAMPS=[];
-  for(let x=-96;x<=76;x+=12) for(const z of [PLK.z0+.6,PLK.z1+.4]){ P(.14,4,.14,x,T+2,z,'#2b2b2e'); P(.5,.3,.5,x,T+4.1,z,'#2b2b2e'); LAMPS.push([x,T+3.85,z]); }
-  for(let z=-66;z<=60;z+=12) for(const x of [AX.x0+.6,AX.x1+.4]){ P(.14,4,.14,x,T+2,z,'#2b2b2e'); P(.5,.3,.5,x,T+4.1,z,'#2b2b2e'); LAMPS.push([x,T+3.85,z]); }
+  // v1.33 street lamps all over town (iron in the props mesh, the glass in its own mesh that glows at night, a light pool under each)
+  const LAMPS=[], LH=[], POOL=[];
+  function lamp(x,z,k){ if(k){ P(.18,3.4,.18,x,T+1.7,z,'#24262a'); P(.3,.12,.3,x,T+.06,z,'#24262a'); P(.46,.14,.46,x,T+4.08,z,'#24262a'); P(.16,.22,.16,x,T+4.26,z,'#24262a'); LH.push([.36,.6,.36,x,T+3.72,z,'#fff2cc']); LAMPS.push([x,T+3.72,z]); }
+    else { P(.14,4,.14,x,T+2,z,'#2b2b2e'); P(.5,.18,.5,x,T+4.16,z,'#2b2b2e'); LH.push([.38,.14,.38,x,T+4,z,'#fff2cc']); LAMPS.push([x,T+3.85,z]); }
+    POOL.push([x,z]); }
+  for(let x=-96;x<=76;x+=12) for(const z of [PLK.z0+.6,PLK.z1+.4]) lamp(x,z);                          // the Planken
+  for(let z=-66;z<=60;z+=12) for(const x of [AX.x0+.6,AX.x1+.4]) lamp(x,z);                            // Breite Straße + Kurpfalzstraße
+  for(let x=-114;x<=114;x+=12) if(!(x>=BR.x0-2&&x<=BR.x1+2)&&!(x>-6&&x<32)) lamp(x,-77.4,1);           // quay lanterns between the trees
+  lamp(.6,-77.4,1); lamp(15.4,-77.4,1);                                                                 // two by the landing board
+  for(let x=-117;x<=117;x+=15) if(!(x>BR.x0-2&&x<BR.x1+2)) lamp(x,-70.4);                               // the Ringe
+  for(let z=-54;z<=90;z+=12) if(z<PLK.z0-1||z>PLK.z1+1) for(const x of [KR.x0+.6,KR.x1+.4]) lamp(x,z);   // Kaiserring
+  for(let x=-100;x<=76;x+=12) if(x<AX.x0-1||x>AX.x1+1) lamp(x,76.6);                                     // Bismarckstraße
+  for(let z=-54;z<=66;z+=12) lamp(-100.6,z);                                                             // Parkring
+  for(let a=0;a<8;a++){ const an=a*Math.PI/4+Math.PI/8; lamp(WT.x+Math.sin(an)*13.6,WT.z+Math.cos(an)*13.6,1); }    // round the Wasserturm
+  for(const z of [-96,-89.5,-83]) for(const x of [BR.x0+1.4,BR.x1-1.4]) lamp(x,z);                       // the Kurpfalzbrücke
+  for(let x=72;x<=120;x+=12) lamp(x,104,1);                                                              // Bahnhofsvorplatz
   // the Schloss: gold balls on the gate pillars, the yellow-red-yellow Baden flag on the middle ridge
   for(const x of [-16,-4]) P(.8,.8,.8,x,T+4.4,SCH.wz0+1,'#d8a636');
   { const fz=SCH.z0-5+6; P(.14,7,.14,-10,T+29.5,fz,'#2b2b2e'); P(.3,.3,.3,-10,T+33.1,fz,'#d8a636');
@@ -239,8 +265,17 @@ export function build(H){
 
   // lamp glow: one Points cloud, only drawn at night
   const lg=new THREE.BufferGeometry(); lg.setAttribute('position',new THREE.Float32BufferAttribute(LAMPS.flat(),3));
-  const lamps=new THREE.Points(lg,new THREE.PointsMaterial({color:0xffcf7a,size:1.1,map:H.roundDot(),transparent:true,depthWrite:false,blending:THREE.AdditiveBlending}));
+  const lamps=new THREE.Points(lg,new THREE.PointsMaterial({color:0xffcf7a,size:1.5,map:H.roundDot(),transparent:true,depthWrite:false,blending:THREE.AdditiveBlending}));
   lamps.visible=false; group.add(lamps);
+  // v1.33 the lamp glass (dark by day, glowing at night) and a warm pool of light on the ground under every lamp (one instanced mesh)
+  const headMat=new THREE.MeshLambertMaterial({vertexColors:true,emissive:0x000000});
+  const heads=new THREE.Mesh(blockyGeo(LH),headMat); heads.matrixAutoUpdate=false; group.add(heads);
+  const pc=document.createElement('canvas'); pc.width=pc.height=64; { const x=pc.getContext('2d'), gr=x.createRadialGradient(32,32,0,32,32,32);
+    gr.addColorStop(0,'rgba(255,255,255,1)'); gr.addColorStop(.45,'rgba(255,255,255,.55)'); gr.addColorStop(1,'rgba(255,255,255,0)'); x.fillStyle=gr; x.fillRect(0,0,64,64); }
+  const ptx=new THREE.CanvasTexture(pc);
+  const pools=new THREE.InstancedMesh(new THREE.PlaneGeometry(1,1).rotateX(-Math.PI/2),new THREE.MeshBasicMaterial({map:ptx,color:0xffb860,transparent:true,opacity:.6,depthWrite:false,blending:THREE.AdditiveBlending,fog:true}),POOL.length);
+  { const o=new THREE.Object3D(); POOL.forEach(([x,z],i)=>{ o.position.set(x,T+.035,z); o.scale.setScalar(7); o.updateMatrix(); pools.setMatrixAt(i,o.matrix); }); }
+  pools.instanceMatrix.needsUpdate=true; pools.frustumCulled=false; pools.visible=false; pools.renderOrder=1; group.add(pools);
 
   // boards (canvas textures, a little self-lit so they read at night)
   function board(w,h,cw,ch,paint,x,y,z,ry,two,cut){ const c=document.createElement('canvas'); c.width=cw; c.height=ch; paint(c.getContext('2d'),cw,ch);
@@ -250,9 +285,10 @@ export function build(H){
   const FONT='"Pixelify Sans", ui-monospace, monospace';
   board(9,1.6,576,102,(g,w,h)=>{ g.fillStyle='#1f3f7a'; g.fillRect(0,0,w,h); g.strokeStyle='#f4f1ea'; g.lineWidth=6; g.strokeRect(6,6,w-12,h-12); g.fillStyle='#f4f1ea'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 50px '+FONT; g.fillText('MANNHEIM',w/2,h*.4); g.font='400 22px '+FONT; g.fillText('Anlegestelle · Quadratestadt',w/2,h*.78); },
     8,T+3.4,-78.97,Math.PI);
-  board(15,1.5,640,64,(g,w,h)=>{ g.fillStyle='#14233f'; g.fillRect(0,0,w,h); g.fillStyle='#f4f1ea'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 40px '+FONT; g.fillText('MANNHEIM HAUPTBAHNHOF',w/2,h/2+2); },
-    (HBF.hx0+HBF.hx1+1)/2,T+12.6,HBF.z0-.03,Math.PI);
-  const clock=board(2.6,2.6,128,128,()=>{},(HBF.hx0+HBF.hx1+1)/2,T+14.65,HBF.z0-.04,Math.PI);
+  const NB=[];   // v1.33 boards that light up at night: [board, day, night]
+  NB.push([board(15,1.5,640,64,(g,w,h)=>{ g.fillStyle='#14233f'; g.fillRect(0,0,w,h); g.fillStyle='#f4f1ea'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 40px '+FONT; g.fillText('MANNHEIM HAUPTBAHNHOF',w/2,h/2+2); },
+    (HBF.hx0+HBF.hx1+1)/2,T+12.6,HBF.z0-.03,Math.PI),.3,.9]);
+  const clock=board(2.6,2.6,128,128,()=>{},(HBF.hx0+HBF.hx1+1)/2,T+14.65,HBF.z0-.04,Math.PI); NB.push([clock,.3,1.25]);
   function clockDraw(){ const g=clock.c.getContext('2d'), d=new Date(), hh=d.getHours()%12, mm=d.getMinutes(); g.clearRect(0,0,128,128);
     g.fillStyle='#f4f1ea'; g.beginPath(); g.arc(64,64,60,0,7); g.fill(); g.lineWidth=6; g.strokeStyle='#2a2a2e'; g.stroke();
     for(let i=0;i<12;i++){ const a=i*Math.PI/6; g.fillStyle='#2a2a2e'; g.fillRect(64+Math.sin(a)*48-3,64-Math.cos(a)*48-3,6,6); }
@@ -347,10 +383,16 @@ export function build(H){
     return q?q.code:'Quadrate';
   }
   function riverD(x,z){ return z>RIV.s+1?z-RIV.s-1:z<RIV.n?RIV.n-z:0; }
-  let clk=0;
-  function tick(dt,night){ lamps.visible=night; if((clk-=dt)<0){ clk=5; if(new Date().getMinutes()!==clockDraw.m) clockDraw(); } }
+  let clk=0, tvT=0, nightWas=null;
+  // v1.33 floodlights (drawn in the block shader at night, see mhMat): a=[cx,cz,radius,0] round, or [x0,z0,x1,z1] a box lit from the side b.zw faces; b=[y0,y1,dx,dz]
+  const flood=[{a:[WT.x,WT.z,10.6,0],b:[T,T+40,0,0]},{a:[SCH.x0-1,SCH.wz0-.5,SCH.x1+1,SCH.z1+1],b:[T,T+31,0,-1]},{a:[HBF.x0-1,HBF.z0-1,HBF.x1+1,HBF.z1+1],b:[T,T+22,0,-1]}];
+  function tick(dt,night){
+    if(night!==nightWas){ nightWas=night; lamps.visible=pools.visible=night; headMat.emissive.set(night?0xffd27a:0x000000); headMat.emissiveIntensity=night?1.3:0;
+      for(const [b,d,n] of NB) b.m.material.emissiveIntensity=night?n:d; }
+    if(night&&(tvT-=dt)<0){ tvT=.1+Math.random()*.35; tvPaint(TL.winTv,.45+Math.random()*.55,Math.random()); if(Math.random()<.5) tvPaint(TL.winTv2,.4+Math.random()*.5,Math.random()); H.emTex.needsUpdate=true; }
+    if((clk-=dt)<0){ clk=5; if(new Date().getMinutes()!==clockDraw.m) clockDraw(); } }
 
-  return { mhq:{baker:[BK.x+.4,BK.z-.75,Math.PI],kessler:[44.5,65.25,Math.PI],hannes:[13.5,-72.6,-2.4]}, group, place, riverD, tick, steps, QD, benz,
+  return { mhq:{baker:[BK.x+.4,BK.z-.75,Math.PI],kessler:[44.5,65.25,Math.PI],hannes:[13.5,-72.6,-2.4]}, group, place, riverD, tick, steps, QD, benz, flood,
     spawn:{x:4.5,z:-74.6,yaw:Math.PI}, jupp:{x:7.2,z:-77.4},
     arrive:[[124,-90],[96,-90.5],[66,-88.5],[40,-84.5],[22,-82.6],[12,-82.4]],
     trig:[[118,-90,'Willkommen in Mannheim! The city of squares. Streets have no names here, only letters and numbers.'],

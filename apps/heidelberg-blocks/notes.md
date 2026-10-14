@@ -538,6 +538,14 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   WAS a map of Mannheim. That explains Heidelberg."). All Mannheim folk turn to you + bark now (mhTick loops
   MH.folk; MH.mf built once in mhFolk(), positions from w.mhq). Leaving Mannheim drops the bread. Q.mhb 1 tried /
   2 warm / 3 Brezel, Q.mhh map turned. Probe t6.py (whole quest, cold path, leave) phone + desktop, 0 JS errors.
+- 2026-10-14 11:14 UTC v1.33 (helper, for Flax): MANNHEIM AT NIGHT. Lit windows vary now (warm curtains, a few
+  flickering blue TV windows in the Quadrate, not the Schloss/HBF) via a coordinate-hash set() wrapper in mannheim.js
+  (atlas slots 46-48 winCurt/winTv/winTv2, copied from the window tile; layout RNG unchanged). Street lamps (iron in
+  props, glass heads in LH mesh, Points halos, additive InstancedMesh light pools on the ground) along the Planken,
+  Breite Straße, quay, Ring, Kaiserring, Bismarckstraße, Parkring, the Kurpfalzbrücke, the Bahnhofsvorplatz and 8
+  round the Wasserturm (offset pi/8 so none blocks its board). Floodlights without real lights: w.flood zones ->
+  mhMat uniforms mhFA/mhFB/mhN, shader adds warm emissive by normal facing (Wasserturm round zone, Schloss + HBF
+  box zones facing -z). HBF board + clock brighten at night. w.tick(dt,night) toggles it all. 0 JS errors.
 
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
@@ -572,7 +580,7 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   towers and a green copper dome you can see over the roofs; (3) the Rhine-Neckar confluence west of the Quadrate
   (the Neckar running into a much wider Rhine, Ludwigshafen across the water as a far skyline, a spot to stand at
   the tip), maybe a Jupp option to sail there; (4) night: lit windows + street lamps in the Quadrate, the Wasserturm
-  floodlit (it is dark at night now), the Hauptbahnhof clock glowing; (5) crowds: walkers on the Planken + Breite
+  floodlit, the Hauptbahnhof clock glowing [DONE v1.33]; (5) crowds: walkers on the Planken + Breite
   Straße (route folk in MH.folk, reuse walkStep), people on the Paradeplatz benches, a tram on the Planken.
   Questions for Flax: are Herr Grumbach + Frau Kessler good names? Should Hannes come home on the boat with you?
   Faster or slower than 2:00 for the bread?
@@ -633,6 +641,8 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   itself (chunks 307k + skirts 69k), the busiest is the Königstuhl north view.
 - v1.30 Mannheim (separate scene, 64 chunks, ~135k tris world, gen ~160 ms + mesh ~190 ms headless): phone 390x844
   max 39 calls / 88k (landing, Wasserturm), Schloss views 15-16 / 30-33k; desktop 1280x720 Schloss 29-30 / 53-59k.
+- v1.33 Mannheim night (views_n: planken/wt/landing/schloss/hbf/aerial): phone 390x844 max 46 calls / 98k (landing),
+  planken 26/53k, wt 15/26k; desktop 1280x720 max 67/140k (landing), aerial 55/113k, planken 41/74k. Day +2 calls/+5k.
 
 ## testing
 - scratch: $SP/hb (index.html + mk.sh injects window.__G/__E into gaunt/sw/hm43/hb). The live file only has a
