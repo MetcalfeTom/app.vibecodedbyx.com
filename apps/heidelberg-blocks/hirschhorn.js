@@ -1,4 +1,4 @@
-// Heidelberg Blocks · Hirschhorn (v1.34, for Flax; v1.36 Marktplatz + Marktkirche): loaded only when Kapitän Jupp takes you UP the Neckar.
+// Heidelberg Blocks · Hirschhorn (v1.34, for Flax; v1.36 Marktplatz + Marktkirche; v1.37 wall houses, Mitteltor, Klosterkirche, weir + lock): loaded only when Kapitän Jupp takes you UP the Neckar.
 // build(H) writes a small valley town into the shared voxel grid: the Neckar bending round the Ersheim meadow, the old
 // town on the outside of the bend with its wall along the water, Burg Hirschhorn on the hill right above it, the old
 // Ersheim chapel across the river. +x = east, +z = south, the old town street at y = TOWN, the riverside path at 13.
@@ -69,6 +69,10 @@ export function build(H){
   // the church stands three steps up on its own terrace (Tc), so its tower shows over the wall houses from the river
   const MP={x0:10,x1:30,z0:-57,z1:-48}, MK={x0:13,x1:25,z0:-68,z1:-59}, MT={x0:26,x1:30,z0:-66,z1:-62}, Tc=T+3;
   rect(MP.x0,MP.x1,MP.z0,MP.z1,T,K.town); rect(13,31,-70,-58,Tc,K.town); rect(18,20,-56,-56,T+1,K.town); rect(18,20,-57,-57,T+2,K.town);
+  // v1.37 the former Carmelite monastery church (Klosterkirche) on a terrace on the slope below the castle, west side
+  // (exact spot unsure, ask Flax); a short lane from the Burgweg leads in from the west
+  const KK={x0:-42,x1:-33,z0:-67,z1:-61}, KY=31;
+  rect(-44,-28,-70,-57,KY,K.court); rect(-49,-45,-65,-62,KY,K.path);
   const CY=46, CS={x0:-26,x1:12,z0:-90,z1:-60};   // Burg Hirschhorn on its plateau right above the town
   rect(CS.x0,CS.x1,CS.z0,CS.z1,CY,K.court);
   rect(-15,16,-1,18,13,K.meadow);               // the chapel's little mound on the Ersheim meadow
@@ -108,7 +112,8 @@ export function build(H){
       const f=Math.floor((y-y0)/3), r=(y-y0)%3, onZ=ez&&!ex, u=onZ?x-x0:z-z0, n=onZ?Wd:D;
       const isWin=(onZ||(o.xw&&!ez))&&r===1&&wpos(u,n);
       let b;
-      if(S) b=ex&&ez?B.sandstone:isWin?(hsh(x,y,z)<.62?B.windowLit:B.window):S;
+      if(o.wallF&&z===z1&&f===0) b=isWin&&!ex?B.window:HB.rubble;   // v1.37 built into the town wall: stone up to the first floor
+      else if(S) b=ex&&ez?B.sandstone:isWin?(hsh(x,y,z)<.62?B.windowLit:B.window):S;
       else if(ex&&ez) b=f===0&&!gfw?B.sandstone:HB.beam;
       else if(f===0&&!gfw) b=isWin?winB(x,y,z):(o.gs||B.sandstone);
       else if(isWin) b=winB(x,y,z);
@@ -147,7 +152,7 @@ export function build(H){
   const sorted=(L)=>L.slice().sort((a,b)=>a[3]-b[3]);
   const ROWA=[[-34,-29,'W',2,'z','fw'],[-28,-24,'C',2,'z',0],[-23,-18,'W',3,'x',0],[-12,-7,'C',2,'z','fw'],[9,14,'W',2,'z',0],[15,19,'C',3,'z','fw'],[20,25,'W',2,'x',0],[26,30,'C',2,'z','fw']];
   const ROWB=[[-34,-28,'C',2,'z',0],[-27,-22,'W',2,'z','fw'],[-21,-16,'C',3,'x',0],[-15,-10,'W',2,'z','fw'],[-9,-3,'W',2,'z',0,'cafe'],[-2,3,'C',2,'z','fw'],[4,9,'W',3,'z',0],[31,35,'C',2,'x','fw']];
-  for(const [x0,x1,pl,fl,ri,gf] of sorted(ROWA)) house(x0,x1,-43,-37,{pl,fl,ridge:ri,gf,door:[Math.floor((x0+x1)/2),-43]});
+  for(const [x0,x1,pl,fl,ri,gf] of sorted(ROWA)) house(x0,x1,-43,-37,{pl,fl,ridge:ri,gf,door:[Math.floor((x0+x1)/2),-43],wallF:1});
   for(const [x0,x1,pl,fl,ri,gf,tag] of sorted(ROWB)) house(x0,x1,-55,-48,{pl,fl,ridge:ri,gf,door:[Math.floor((x0+x1)/2),-48],box0:tag==='cafe',gs:tag==='cafe'?B.white:0});
   // the gate tower over the stairs from the landing: path 13 -> street 19
   tower(4,8,-43,-37,12,T+8,{roof:HB.roofH,wy:[T+3,T+6],lit:1});
@@ -173,6 +178,29 @@ export function build(H){
   tower(MT.x0,MT.x1,MT.z0,MT.z1,Tc,Tc+23,{wall:B.white,roof:B.slate,st:2,wy:[Tc+5,Tc+10]});
   for(const [x,z] of [[28,MT.z0],[28,MT.z1],[MT.x0,-64],[MT.x1,-64]]) for(let y=Tc+19;y<=Tc+21;y++) set(x,y,z,HB.beam);   // the belfry louvres
   for(let x=MT.x0;x<=MT.x1;x++) for(let z=MT.z0;z<=MT.z1;z++) if(x===MT.x0||x===MT.x1||z===MT.z0||z===MT.z1) set(x,Tc+23,z,B.sandstone);
+  // ---- v1.37 the Mitteltor: a gate tower over the street, set into the row B fronts (exact spot unsure, ask Flax) ----
+  tower(-24,-21,-48,-44,T,T+13,{roof:HB.roofH,wy:[T+6,T+10],lit:1});
+  for(let x=-24;x<=-21;x++){ for(let z=-47;z<=-45;z++) for(let y=T;y<=T+2;y++) set(x,y,z,0); for(let z=-48;z<=-44;z++) set(x,T+3,z,B.sandstone); }
+  // ---- v1.37 the Klosterkirche: red sandstone, tall windows, steep roof, a narrower choir to the east and a small
+  // roof turret instead of a tower (as mendicant churches have); look kept generic ----
+  for(let x=KK.x0;x<=-30;x++) for(let z=KK.z0;z<=KK.z1;z++){ const ch=x>KK.x1; if(ch&&(z===KK.z0||z===KK.z1)) continue;
+    const zA=ch?KK.z0+1:KK.z0, zB=ch?KK.z1-1:KK.z1;
+    for(let y=KY;y<=KY+7;y++){ const ex=x===KK.x0||x===-30||(x===KK.x1&&(z===KK.z0||z===KK.z1)), ez=z===zA||z===zB;
+      if(!ex&&!ez){ set(x,y,z,B.stone); continue; }
+      const win=y>=KY+2&&y<=KY+5&&((ez&&!ex&&(ch?x===-31:[-40,-38,-36,-34].includes(x)))||(x===-30&&z===-64));
+      set(x,y,z, win?(y===KY+5?HB.chT:HB.chB):(ex&&ez)||y===KY?HB.rubble:B.sandstone); } }
+  for(let y=KY;y<=KY+2;y++) set(KK.x0,y,-64,B.door);
+  for(let L=0;;L++){ const za=KK.z0-1+Math.floor(L/2), zb=KK.z1+1-Math.floor(L/2); if(za>zb) break; const y=KY+8+L;
+    for(let z=za;z<=zb;z++) for(let x=KK.x0-1;x<=KK.x1+1;x++){ if(z===za||z===zb){ set(x,y,z,HB.roofH); continue; } if(x<KK.x0||x>KK.x1) continue; set(x,y,z,x===KK.x0||x===KK.x1?B.sandstone:B.stone); } }
+  for(let L=0;;L++){ const za=KK.z0-Math.floor(L/2), zb=KK.z1-Math.floor(L/2)+0; const a=KK.z0+Math.floor(L/2), b=KK.z1-Math.floor(L/2); if(a>b) break; const y=KY+8+L;
+    for(let z=a;z<=b;z++) for(let x=KK.x1+1;x<=-29;x++){ if(z===a||z===b||x===-29){ set(x,y,z,HB.roofH); continue; } set(x,y,z,B.stone); } }
+  for(let y=KY+16;y<=KY+19;y++) set(-38,y,-64,y===KY+19?B.slate:B.white); set(-38,KY+20,-64,B.slate); set(-38,KY+21,-64,B.gold);
+  // ---- v1.37 the Neckar barrage upstream (east leg): a weir with piers + gates across the river, the lock chamber
+  // along the outer bank (which side + where exactly: unsure, ask Flax) ----
+  for(const px of [44,49,54,59]) for(let x=px;x<=px+1;x++) for(let z=29;z<=32;z++){ for(let y=4;y<=15;y++) set(x,y,z,B.stone); if(z>=31){ set(x,16,z,B.white); set(x,17,z,B.white); set(x,18,z,B.slate); } }
+  for(let x=46;x<=58;x++) if(x<49||x>50&&x<54||x>55){ for(let y=4;y<=11;y++) set(x,y,31,y>=10?B.slate:B.stone); for(let z=29;z<=30;z++) set(x,15,z,B.stone); }
+  for(let z=18;z<=44;z++) for(const x of [61,67]) for(let y=4;y<=12;y++) set(x,y,z,B.stone);
+  for(const z of [18,44]) for(let x=62;x<=66;x++) for(let y=4;y<=12;y++) set(x,y,z,y>=11?B.slate:B.stone);
   // ---- Burg Hirschhorn ----
   for(let x=CS.x0;x<=CS.x1;x++) for(let z=CS.z0;z<=CS.z1;z++){
     const ring=x<=CS.x0+1||x>=CS.x1-1||z<=CS.z0+1||z>=CS.z1-1; if(!ring) continue;
@@ -215,8 +243,9 @@ export function build(H){
     LH.push([.34,.42,.34,x,y+3.0,z,'#ffe2a8']); LAMPS.push(x,y+3.0,z); POOL.push([x,z,y]); }
   function wallLamp(x,z,y,nz){ P(.06,.06,.5,x,y+2.95,z+nz*.25,'#24282c'); P(.38,.07,.38,x,y+2.92,z+nz*.55,'#24282c');
     LH.push([.28,.36,.28,x,y+2.7,z+nz*.55,'#ffe2a8']); LAMPS.push(x,y+2.7,z+nz*.55); POOL.push([x,z+nz*1.3,y]); }
-  for(const x of [-30.5,-20.5,-9.5,11.5,22.5]) wallLamp(x,-43,T,-1);
-  for(const x of [-25.5,-12.5,0.5,13.5,25.5]) wallLamp(x,-47,T,1);
+  for(const x of [-30.5,-18.5,-9.5,11.5,22.5]) wallLamp(x,-43,T,-1);
+  for(const x of [-25.5,-12.5,0.5]) wallLamp(x,-47,T,1);
+  postLamp(10.6,-48.6,T); postLamp(29.4,-48.6,T);
   for(const x of [-30.5,-16.5,-2.5,12.5,27.5]) postLamp(x,-32.6,13);
   postLamp(-14.5,-61.8,CY); postLamp(0.5,-61.8,CY); postLamp(-21.5,-73.5,CY); postLamp(0.5,-2.2,13); postLamp(-46.5,-50.5,21); postLamp(-49,-68.5,31);
   // the café: an awning and the terrace with parasols and guests
@@ -247,6 +276,8 @@ export function build(H){
   stall(25.5,-51,'#b8403a',[['#8a5ab8','#a87ad0'],['#e8a0c0','#d8708a'],['#c8402a','#e8e0d0'],['#8a4a9a','#c8a0d8']]);
   tree(11,-54,T,4,1); bench(11,-51.6,T,0); bench(21,-57.3,T,0);
   for(let z=-55.4;z<=-48.2;z+=.8) P(1.2,.04,.6,19.5,T+.02,z,'#b8ab94');
+  P(16,.06,.06,52,16.95,29.05,'#3a4a5a'); P(16,.06,.06,52,16.5,29.05,'#3a4a5a'); for(let x=44.5;x<=60.5;x+=2) P(.07,.95,.07,x,16.47,29.05,'#3a4a5a');
+  for(const x of [61.5,66.5]) for(let z=18.5;z<=44.5;z+=2) P(.08,.9,.08,x,13.45,z,'#e8e0d0');
   // the castle: the well and the terrace tables
   P(1.8,.8,1.8,-6,CY+.4,-75,'#8a7a6a'); P(1.3,.06,1.3,-6,CY+.79,-75,'#2a4a5a'); for(const dx of [-.8,.8]) P(.12,1.6,.12,-6+dx,CY+1.6,-75,'#5a3a22'); P(2.1,.1,1.2,-6,CY+2.45,-75,'#7e3324'); P(.08,.08,1.6,-6,CY+2.1,-75,'#5a3a22',Math.PI/2);
   table(-6,-63.4,CY,'#f4ead6'); table(-2.5,-63.6,CY,0);
@@ -379,6 +410,10 @@ export function build(H){
       look:person({ shirt:'#7a6a5a', pants:'#3a3a40', hair:'#d8d4cc', skin:'#e8b892', sit:.45, swing:still, extra:[[.46,.1,.46, 0,1.54,0,'#4a4a4a']] }),
       barks:['*nods at everyone*','Market day. Best day.','The tower is right on time again.'],
       talk(){ return ['From this bench I see the whole Marktplatz. The stalls, the street, and who buys how many apples.','Behind me the market church, above me the castle, in front of me Frau Haas. That\'s all a man needs.']; } },
+    { id:'hh_lindner', name:'Frau Lindner, Klosterkirche', short:'Frau Lindner', at:[-37,-58.6,Math.PI,KY], fixed:1,
+      look:person({ shirt:'#3a5a6a', pants:'#4a4038', hair:'#8a5a3a', skin:'#efc6a2', swing:still, armUp:'R', extra:[[.5,.36,.04, 0,1.2,.36,'#f4f1ea']] }),
+      barks:['*sketches the windows*','Those windows. Again.','Hold still, church.'],
+      talk(){ return ['I\'m drawing the old monastery church. Third time this year. The light is different every time.','Up here you\'re halfway to the castle and nobody is in a hurry. Perfect for drawing.']; } },
     { id:'hh_ines', name:'Ines, at the railing', short:'Ines', at:[-11.2,-59.55,0,CY], fixed:1,
       look:person({ shirt:'#2f6a7a', pants:'#3a3a48', hair:'#2a1a12', skin:'#c8956a', swing:still, armUp:'R', extra:[[.5,.12,.06, 0,1.62,.2,'#2a2a2a'],[.14,.1,.04, .2,1.95,.3,'#1a1a1a']] }),
       barks:['Ole, look, the chapel!','Wait, one more photo.','You can see the whole bend from here.'],
@@ -400,13 +435,16 @@ export function build(H){
   // ---- names ----
   function place(x,z,y,wet){
     if(!wet&&x>=1&&x<=12&&z>=-37&&z<=-28&&y<T-2) return 'Anlegestelle';
+    if(!wet&&x>=43&&x<=68&&z>=17&&z<=45&&y>=12) return x>=60.5?'Schleuse':'Wehr';
     if(wet||rD(x,z)<HW) return 'Neckar';
     if(x>=CS.x0-2&&x<=CS.x1+1&&z>=CS.z0-1&&z<=CS.z1+1&&y>CY-3){ if(x>=-22&&x<=-15&&z>=-89&&z<=-82) return 'Bergfried'; return z>=-67?'Burgterrasse':'Burg Hirschhorn'; }
+    if(x>=-44&&x<=-28&&z>=-70&&z<=-57&&y>=KY-1) return 'Klosterkirche';
     if(bwC.has(Math.floor(x)+','+Math.floor(z))) return 'Burgweg';
     if(inside(x,z)) return Math.hypot(x-1,z-8)<17&&y<CHY+4?'Ersheimer Kapelle':'Ersheim';
     if(x>=1&&x<=12&&z>=-37&&z<=-28&&y<T-2) return 'Anlegestelle';
     if(x>=TW.x0-3&&x<=TW.x1+3&&z>=-37&&z<=-32&&y<T-2) return 'Uferweg';
     if(x>=4&&x<=9&&z>=-44&&z<=-37) return 'Stadttor';
+    if(x>=-24&&x<=-20&&z>=-48&&z<=-43) return 'Mitteltor';
     if(x>=MK.x0-.5&&x<=MT.x1+1.5&&z>=-69.5&&z<=-57.6&&y<Tc+34) return 'Marktkirche';
     if(x>=MP.x0&&x<=MP.x1+1&&z>=MP.z0&&z<=MP.z1+1&&y<T+8) return 'Marktplatz';
     if(x>=TW.x0&&x<=TW.x1+1&&z>=-57&&z<=-37){ if(x>=-6&&x<=4&&z>=-43) return 'Altstadt · Terrasse'; return 'Altstadt'; }
@@ -414,7 +452,7 @@ export function build(H){
   function riverD(x,z){ return Math.max(0,rD(x,z)-HW); }
   let nightWas=null;
   // the castle, the chapel and the town wall floodlit at night (drawn in the block shader, see mhMat)
-  const flood=[{a:[CS.x0-2,CS.z0-1,CS.x1+1,CS.z1+1],b:[CY-6,CY+26,0,1]},{a:[1,8,13,0],b:[CHY,CHY+20,0,0]},{a:[TW.x0,-38,TW.x1+1,-35.9],b:[12,T+1,0,1]},{a:[MK.x0,-61,MT.x1+1,-57],b:[T,Tc+34,0,1]}];
+  const flood=[{a:[CS.x0-2,CS.z0-1,CS.x1+1,CS.z1+1],b:[CY-6,CY+26,0,1]},{a:[1,8,13,0],b:[CHY,CHY+20,0,0]},{a:[TW.x0,-38,TW.x1+1,-35.9],b:[12,T+1,0,1]},{a:[MK.x0,-61,MT.x1+1,-57],b:[T,Tc+34,0,1]},{a:[KK.x0-1,-62,-28,-57],b:[KY,KY+24,0,1]}];
   function tick(dt,night){
     if(night!==nightWas){ nightWas=night; lamps.visible=pools.visible=night; headMat.emissive.set(night?0xffd27a:0x000000); headMat.emissiveIntensity=night?1.3:0;
       for(const b of NB) b.material.emissiveIntensity=night?.85:.3; }

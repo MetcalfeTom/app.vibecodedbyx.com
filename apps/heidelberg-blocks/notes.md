@@ -589,6 +589,21 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   floodlit at night (flood zone 4). Place names Marktplatz/Marktkirche. Hint + Jupp + Frau Seiler point there.
   Phone 390x844: markt 15/55k, castle 52/123k, aerial 58/112k; desktop markt 26/82k, castle 73/197k, aerial 74/172k.
   0 JS errors, full trip probe (phone) incl. Mannheim + second Hirschhorn trip.
+- 2026-10-14 13:04 UTC v1.37 (helper, Flax 12:32 rebuild, step 2): THE LAYOUT. (a) Wall houses: row A's ground floors
+  on the river face are now the town wall itself (house() o.wallF: rubble stone with windows at z1 for f 0), so from
+  the water it reads as stone wall below, half-timbered floors on top. (b) The MITTELTOR: gate tower over the street
+  x -24..-21 z -48..-44 to T+13 (tiled roof, lit windows), passage z -47..-45 y T..T+2 with a red sandstone lintel at
+  T+3 (walker lanes still fit); the wall lamp moved from x -20.5 to -18.5; row B's two lamps that lost their houses to
+  the square became post lamps at (10.6/29.4,-48.6). (c) The KLOSTERKIRCHE on a terrace at KY=31 (x -44..-28,
+  z -70..-57) on the slope below the castle, west side, a short lane in from the Burgweg (x -49..-45 z -65..-62): red
+  sandstone nave x -42..-33 z -67..-61 with four tall arched windows each side (hh_chB/chT), west door x -42 z -64,
+  narrower choir x -32..-30 with an east window, steep tiled roofs, a small white/slate roof turret with a gold top
+  (no tower: mendicant church). Floodlit at night (zone 5). Frau Lindner sketches it (fixed, -37,-58.6). (d) The
+  WEIR + LOCK upstream on the east leg: four piers x 44/49/54/59 (2 wide, z 29..32, white pier houses with slate
+  roofs on z 31..32), slate-topped gates at z 31, a railed walkway at y 16 on z 29..30; lock chamber walls x 61 + 67
+  z 18..44 with gates at z 18/44 and bollards. Place names Mitteltor, Klosterkirche, Wehr, Schleuse. float scan:
+  only the Mitteltor lintel, the gatehouse passage, the gate stairs and the weir walkway between piers (all meant).
+  Budget below. 0 JS errors, phone trip probe passed.
 
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
@@ -666,9 +681,14 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   lock and weir are on (built: upstream, east leg, lock on the town side); whether there is a road bridge (Jupp's
   "no bridge here" line REMOVED - not sure); street names (none used except Marktplatz); the B37 / railway along
   the river (left out).
-  PLAN: v1.36 Marktplatz + Marktkirche (east half, north of the street, cut into the slope), drop the bridge lines;
-  v1.37 wall houses (stone ground floor flush with the wall, continuous frontage), Mitteltor over the street,
-  Klosterkirche on the slope below the castle, weir + lock; v1.38 polish if usage allows.
+  PLAN: v1.36 Marktplatz + Marktkirche (east half, north of the street, cut into the slope), drop the bridge lines
+  [DONE]; v1.37 wall houses, Mitteltor over the street, Klosterkirche on the slope below the castle (west), weir +
+  lock (east leg, lock on the outer = town-side bank) [DONE]; next: move whatever Flax corrects (Mitteltor spot,
+  Klosterkirche east/west, lock side), a stair lane from the street up to the Klosterkirche, the B37/railway only if
+  Flax wants them.
+  Coordinates v1.37: MP x 10..30 z -57..-48, MK x 13..25 z -68..-59 + tower MT x 26..30 z -66..-62 (Tc = T+3);
+  Mitteltor x -24..-21 z -48..-44; Klosterkirche KK x -42..-33 z -67..-61 + choir to x -30, terrace KY 31;
+  weir x 44..60 z 29..32, lock x 61..67 z 18..44.
 - Mannheim layout (mannheim.js): Neckar water z -99..-80, quay promenade z -78..-71 (y TOWN), Ring z -70..-63,
   axis x -14..-7 (block centre -10.5), Planken z 18..23, Kaiserring x 80..87, rows rowZ(r)=-62+14r(+2 from row 6),
   east blocks x0=-6+15(n-1), west x0=-25-15(n-1), Schloss x -85..64 z 84..105, HBF x 70..124 z 114..125,
@@ -723,6 +743,9 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   123k (aerial), street 36/111k; desktop 1280x720 max 73/207k (castle terrace), aerial 66/171k. Voxel chunks 230k tris.
 - v1.35 desktop 1280x720: Mannheim crowd planken 60/97k, window 39/63k, parade 41/77k, breite 67/120k, landing 76/142k
   (mhStats 139k tris); Hirschhorn railing 58/188k, kids from behind 50/113k, along the bank 49/140k.
+- v1.37 Hirschhorn layout: desktop 1280x720 mitteltor 33/112k, wallR (from the water) 49/111k, kloster 18/71k,
+  klosterW 61/162k, weir 31/114k, aerialS 75/176k; phone 390x844 day + night mitteltor 27/81k, kloster 17/57k,
+  aerialS 61/115k.
 - v1.33 Mannheim night (views_n: planken/wt/landing/schloss/hbf/aerial): phone 390x844 max 46 calls / 98k (landing),
   planken 26/53k, wt 15/26k; desktop 1280x720 max 67/140k (landing), aerial 55/113k, planken 41/74k. Day +2 calls/+5k.
 
