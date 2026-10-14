@@ -31,14 +31,21 @@
   - Shared with Classic/Moon: WebAudio SFX after the first gesture (mute button + M, saved as `doom3d-mute`), muzzle flash, hit marker (red X on kill), red hurt vignette, arrow keys, Enter/R restarts from the end card, MENU button, keys cleared on blur.
   - three.js 0.160 import map -> r170 by full URL, no import map. Fixed: first Moon start skipped its tint (mood applied before initScene), end card kept "YOU ESCAPED", double rAF loops on restart.
   - Draw calls (renderer.info, 390x844 headless): take phase 19-26, wave with 18 invaders + pods + BFG + tracers 35. Tris ~15-20k.
+- 2026-10-14 00:21: the invasion is now called WORLD DOMINATION on the start screen and HUD (hamburglar06); win card says WORLD DOMINATED. Mouse fix (hamburglar06 "fix the mouse controls"):
+  - Bug: requestPointerLock({unadjustedMovement: true}) is refused with NotSupportedError on Linux Chrome (confirmed in headless Chromium) and some other browsers; the old code swallowed it, so the mouse was never captured: no mouse look, and every click only asked for the lock again (no shot). Now it retries without raw input inside the same click. The start click also asked twice ("pointer lock pending"); one request per click now.
+  - Left button fires on press (was on release via 'click') and holding it auto-fires at the touch SHOOT rate. Mouse not captured = "CLICK TO AIM" cue; 3 refused requests in a row = drag-to-look fallback ("DRAG TO LOOK · CLICK TO FIRE").
+  - Pause card: Esc (losing the lock), P, the ⏸ button on phones, or hiding the tab pauses; RESUME / Enter / Space / a click on the view continues and grabs the mouse again. MOUSE SPEED slider 0.2-2.5x (default 1x = 0.0018 rad per count, was 0.0022 fixed), saved as `doom3d-mouse-sens`. Single movement spikes are clamped to 240 counts. Axes were never inverted. showMenu() frees the mouse.
+  - Tilt aim was built and headless-tested, then dropped when chat said to wrap up (see todos).
 
 ## Issues
+- Mouse: never ask for unadjustedMovement without a plain fallback (Linux Chrome refuses it). Headless Chromium can lock the pointer once the plain request is used; CDP mouse events under lock report fake jumps (movementX = -x), so test look with synthetic MouseEvent movementX instead.
 - Hitscan rays come from eye height (1.6); hit cylinders are T.h + 0.7 tall so short runners can be hit when aiming straight ahead.
 - Ruins block shots (AABB) — test spawns need a clear line (spawn point area is ruin-free within 12 m).
 
 ## Todos
-- Tilt aim for phones (pushedbutton): optional, off by default, iOS permission from the toggle tap, recentre on enable/resume, fallback note if no events in 1 s.
-- Invader art pass (Zenn's pick or paperwork aliens: clipboards, stamps, tiny ties).
+- Tilt aim for phones (pushedbutton): optional, off by default, iOS permission from the toggle tap, recentre on enable/resume, fallback note if no events in 1 s. A working version was written and dropped unshipped on 10-14: build the device quaternion like three's old DeviceOrientationControls (Euler(beta, alpha, -gamma, 'YXZ') x (-90 deg about X) x (-screen angle about Z)), take yaw/pitch of its forward vector, add per-event deltas x SENS (1/1.5/2/3) with a 0.0007 rad deadzone, skip yaw when the phone lies flat, ignore jumps > 0.5 rad, ease the queued turn in at 1-exp(-24 dt). Toggle on the start screen + pause card for touch only. Tested with synthetic DeviceOrientationEvent in portrait and landscape.
+- Wave balance: nobody has played a full natural run yet (tests skipped phases). Check wave 4-5 pod counts, drain rates and whether 3/5 is too easy or too hard.
+- Invader art pass (Zenn's pick or paperwork aliens: clipboards, stamps, tiny ties). Invaders are still placeholder shapes in INV_LOOK.
 - Boss: a giant auditor/mothership event for the final wave.
 - More polish: footstep dust, pod scorch marks that stay, beacon capture flare.
 - Could add different weapon types (shotgun, rocket launcher)
@@ -49,6 +56,7 @@
 - animate() routes to invFrame(): fixed 60 Hz step (invStep), hitstop via timeScale, trauma shake applied to camera rotation only around render().
 - Movement input is shared: gatherMove(delta) fills `velocity` from keys/arrows, gamepad, touch stick, held SHOOT. Invasion moves 1.25x faster (beacons are far apart).
 - shoot() / fireBFG() / gameOver() dispatch to invShoot / invFireBFG / invEnd('dead') when MODE === 'invasion'.
+- Pause: pauseGame()/resumeGame() set gameRunning false/true and stop/start the rAF loop; PAUSED flag; body.playing (game on) and body.mouse-free / mouse-drag classes drive the ⏸ button and the aim cue. Mouse handlers: mousedown/mouseup/contextmenu + P/Esc keys next to the pointer-lock plumbing.
 - World: radius 72 playable, ground 280x280 / 64 segs, invH(x,z) height function flattens 7 m around every beacon, mountains past R-4. Mothership parks at (0, 92, -165).
 - Test hook: `// @testhook` marker at the end of the invasion block; tests swap it for window.__T in a test copy only. Never ship window.__T.
 - Classic notes below still hold for the arena.
