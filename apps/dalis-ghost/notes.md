@@ -109,6 +109,7 @@ Marci's rooms so far: Madrid fine-arts education (expelled from the academy, 192
 - v1 (2026-10-07 ~18:04 UTC) 2D phone version: 7 rounds; the ghost hides behind one of 9 things on a 3x3 dream desert (12 things: egg/Figueres, soft watch/1931, Chupa Chups lollipop 1969, diving helmet London 1936, film reel Buñuel/Hitchcock, cookbook Les Dîners de Gala 1973, ocelot Babou, moustache/Velázquez, drawers/Venus de Milo 1936, crutch, Port Lligat boat, ants). Tap = hot/cold by grid distance (hot <=1, warm <=1.5, cold <=2, freezing), the tapped thing shows its fact; 4 tries; caught = his 3-choice question about that thing, right answer wins the piece (flies to the cover bar). End card: stars, best (localStorage dalis-ghost:best), share. Lesson: .card{display:flex} beat [hidden]; add .card[hidden]{display:none}.
 
 - v2.15 (2026-10-14 10:06 UTC) dream floor room 6, The Gala Dinner, for Marci: a cloche shell game at a melting banquet table, Gala's empty chair, a Dumas salad among the wrong dishes, and the detective's first lines.
+- v2.15.1 (2026-10-14 10:10 UTC) hall texts: keys 5 to 0, the room count follows UPS, a '✦ new dream' line for awake saves without the dinner; 6-wide ↑ titles shrink and hyphenate (Soft Construction overflowed at 80 px).
 
 ## structure
 - v1 (2D) is in git history (commit bb4e67447).
