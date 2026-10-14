@@ -524,6 +524,20 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   figures and a tall column with a gold tip, four water jets, four lime trees, four benches. Canvas boards: "fi"
   is a ligature there too -> write 'f\u200Cirst'. Probe t4.py (drive, exit, leave, re-enter) + t5.py (plaque,
   fountain). 0 JS errors phone.
+- 2026-10-14 00:39 UTC v1.32 (helper, Mannheim step 2b, for Flax): THE L4 DELIVERY. Herr Grumbach, a grumpy baker
+  (white toque, grey moustache), stands at BÄCKEREI GRUMBACH on the Friedrichsring (U1's north front, a striped
+  awning + counter with loaves, right across the Ring from the landing). His delivery boy is off with his knee, so
+  you carry one Kümmelbrot to Frau Kessler at L4 (north door of L4, by the Schloss; doormat + geranium). 2:00 warm
+  (chip '🥖 L4 · 1:42' in #prow), and while you carry it the place label drops the block codes ('Quadrate',
+  'Friedrichsring'), so only the corner signs tell you where you are. He explains the system once (A-K west, L-U
+  east of the Breite Straße, numbers count away from it). Cold: Kessler still takes it ("I'll toast it"), Grumbach
+  hands you a fresh one. Warm: Kessler is impressed, Grumbach pushes a Brezel across the counter ("I have a
+  reputation on this Ring"); after that he offers repeat runs with your best time (Q.mhbt). HANNES from the Uniplatz
+  stands on the quay (took the S-Bahn), the self-declared Mannheim expert: ask him while you carry the bread and his
+  upside-down map sends you north-west (truth: south-east); after a warm delivery he turns the map round ("So it
+  WAS a map of Mannheim. That explains Heidelberg."). All Mannheim folk turn to you + bark now (mhTick loops
+  MH.folk; MH.mf built once in mhFolk(), positions from w.mhq). Leaving Mannheim drops the bread. Q.mhb 1 tried /
+  2 warm / 3 Brezel, Q.mhh map turned. Probe t6.py (whole quest, cold path, leave) phone + desktop, 0 JS errors.
 
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
@@ -552,7 +566,17 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
 - Ansgar ideas: he could sit on his stool with soup after his round; a 'don't tell Ansgar' mini quest
 - NEXT RUN (main 22:13, for Flax): Karlstor; a busier east and west Altstadt (stalls, a bench crowd, lit windows).
   (Jupp's "cruise or Mannheim?" choice + Mannheim DONE v1.30)
-- MANNHEIM queue (Flax 22:58 + 23:5x, in this order; Benz + Paradeplatz DONE v1.31): v1.31 Carl Benz's 1886 Patent-Motorwagen on a plinth (plain
+- MANNHEIM NEXT (v1.33+, for Flax; v1.30-v1.32 done the first queue): (1) the Planken as a shopping street: shop
+  fronts with awnings + boards on both sides between the Paradeplatz and the Wasserturm, a few window displays, an
+  ice-cream parlour; (2) the Jesuitenkirche (A4, west of the Schloss): a pale sandstone baroque front with two
+  towers and a green copper dome you can see over the roofs; (3) the Rhine-Neckar confluence west of the Quadrate
+  (the Neckar running into a much wider Rhine, Ludwigshafen across the water as a far skyline, a spot to stand at
+  the tip), maybe a Jupp option to sail there; (4) night: lit windows + street lamps in the Quadrate, the Wasserturm
+  floodlit (it is dark at night now), the Hauptbahnhof clock glowing; (5) crowds: walkers on the Planken + Breite
+  Straße (route folk in MH.folk, reuse walkStep), people on the Paradeplatz benches, a tram on the Planken.
+  Questions for Flax: are Herr Grumbach + Frau Kessler good names? Should Hannes come home on the boat with you?
+  Faster or slower than 2:00 for the bread?
+- MANNHEIM queue (Flax 22:58 + 23:5x, in this order; Benz + Paradeplatz DONE v1.31; Hannes, L4 delivery, baker DONE v1.32): v1.31 Carl Benz's 1886 Patent-Motorwagen on a plinth (plain
   plaque "Carl Benz, Mannheim 1886, the first car", Bertha Benz 1888 line, NO brand logos/stars; drivable slow
   putter if cheap), the Paradeplatz (fountain pyramid monument + trees, where the Planken cross), Hannes from the
   Uniplatz as the self-declared Mannheim expert whose map turns out to be upside down (he already carries a map
@@ -563,6 +587,7 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   axis x -14..-7 (block centre -10.5), Planken z 18..23, Kaiserring x 80..87, rows rowZ(r)=-62+14r(+2 from row 6),
   east blocks x0=-6+15(n-1), west x0=-25-15(n-1), Schloss x -85..64 z 84..105, HBF x 70..124 z 114..125,
   Friedrichsplatz x 88..127 z -2..43 (Wasserturm 106.5,20.5). Spawn (4.5,-74.6), Jupp (7.2,-77.4).
+  Benz dais x 20..23 z -77..-72; Paradeplatz fountain (-.5,28.5); Grumbach (-.85,-62.75); Kessler (44.5,65.25); Hannes (13.5,-72.6).
 - Mannheim: the ride in passes between two tall quay walls (TOWN-WATER = 8); a grassy dike on one bank would
   open it up (cranes need the north quay)
 - Ruderboote race under the Alte Brücke (plan only): rent a rowing boat on the Neckarwiese bank, race a rival rower

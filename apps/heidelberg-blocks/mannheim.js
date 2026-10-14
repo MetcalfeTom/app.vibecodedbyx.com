@@ -223,6 +223,12 @@ export function build(H){
   // the Benz dais: a low slab (the car sits on it until you drive off), the plaque on a post facing the landing
   P(3.6,.3,5.6,BZ.x,T+.15,BZ.z,'#8f8a80'); P(3.75,.06,5.75,BZ.x,T+.32,BZ.z,'#b8b2a4');
   P(.14,1.05,.14,BZ.x0-.45,T+.52,BZ.z,'#3a2a1c');
+  // v1.31b Bäckerei Grumbach on the Friedrichsring (U1's north front): a striped awning, a counter with loaves; Frau Kessler's door in L4
+  const BK={x:-1.25,z:-62};
+  for(let i=0;i<6;i++) P(.9,.1,1.3,BK.x-2.25+i*.9,T+2.9,BK.z-.62,i%2?'#f4f1ea':'#b8322a',0,-.22);
+  P(1.8,.9,.7,BK.x-1.7,T+.45,BK.z-.4,'#7a4a2a'); P(1.9,.08,.8,BK.x-1.7,T+.94,BK.z-.4,'#5a3418');
+  P(.5,.22,.28,BK.x-2.2,T+1.09,BK.z-.42,'#c8873a'); P(.5,.22,.28,BK.x-1.6,T+1.09,BK.z-.36,'#a8652a'); P(.36,.1,.3,BK.x-1.05,T+1.03,BK.z-.4,'#8a4a1a');
+  P(1,.04,.62,44.5,T+.02,65.6,'#6a4a2a'); P(.42,.5,.42,43.2,T+.25,65.6,'#b85a3a'); P(.56,.42,.56,43.2,T+.7,65.6,'#4a7a3a'); P(.14,.14,.14,43.2,T+.98,65.5,'#d84a6a');
   // two trains at the platforms behind the Hauptbahnhof
   for(const z of [HBF.z1+5.5,HBF.z1+15.5]){ P(40,3,2.8,100,T+1.9,z,'#e8e8ea'); P(40.05,.8,2.85,100,T+2.5,z,'#2a3550'); P(40.1,.4,2.9,100,T+1.1,z,'#c23a2a'); }
   // the gold figure on top of the Wasserturm (Amphitrite), a little blocky
@@ -260,6 +266,8 @@ export function build(H){
       g.fillStyle='#f4e6c0'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 27px '+FONT; g.fillText('Carl Benz, Mannheim 1886,',w/2,h*.38); g.font='700 36px '+FONT; g.fillText('the f\u200Cirst car',w/2,h*.68); },
     BZ.x0-.55,T+1.35,BZ.z,-Math.PI/2);
   board(2.5,1.05,8,8,(g,w,h)=>{ g.fillStyle='#4a2f17'; g.fillRect(0,0,w,h); },BZ.x0-.53,T+1.35,BZ.z,Math.PI/2);
+  board(5,.8,400,64,(g,w,h)=>{ g.fillStyle='#3a2414'; g.fillRect(0,0,w,h); g.strokeStyle='#d8b060'; g.lineWidth=4; g.strokeRect(4,4,w-8,h-8); g.fillStyle='#f4e6c0'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 34px '+FONT; g.fillText('BÄCKEREI GRUMBACH',w/2,h/2+2); },
+    BK.x,T+3.5,BK.z-.03,Math.PI);
   for(const [x,y,z] of SCHP) board(3.4,3.4,136,136,(g,w,h)=>{ g.clearRect(0,0,w,h);
       g.save(); g.beginPath(); g.ellipse(w/2,h*.58,w*.34,h*.38,0,0,7); g.clip();
       for(let i=-6;i<7;i++) for(let j=-6;j<7;j++){ const cx=w/2+(i-j)*11, cy=h*.58+(i+j)*11; g.fillStyle=(i+j)&1?'#f4f1ea':'#2f6fb8'; g.beginPath(); g.moveTo(cx,cy-11); g.lineTo(cx+11,cy); g.lineTo(cx,cy+11); g.lineTo(cx-11,cy); g.fill(); }
@@ -342,7 +350,7 @@ export function build(H){
   let clk=0;
   function tick(dt,night){ lamps.visible=night; if((clk-=dt)<0){ clk=5; if(new Date().getMinutes()!==clockDraw.m) clockDraw(); } }
 
-  return { group, place, riverD, tick, steps, QD, benz,
+  return { mhq:{baker:[BK.x+.4,BK.z-.75,Math.PI],kessler:[44.5,65.25,Math.PI],hannes:[13.5,-72.6,-2.4]}, group, place, riverD, tick, steps, QD, benz,
     spawn:{x:4.5,z:-74.6,yaw:Math.PI}, jupp:{x:7.2,z:-77.4},
     arrive:[[124,-90],[96,-90.5],[66,-88.5],[40,-84.5],[22,-82.6],[12,-82.4]],
     trig:[[118,-90,'Willkommen in Mannheim! The city of squares. Streets have no names here, only letters and numbers.'],
