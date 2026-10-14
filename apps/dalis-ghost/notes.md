@@ -118,6 +118,16 @@ Marci's rooms so far: Madrid fine-arts education (expelled from the academy, 192
 - Budget: 54 draw calls, 15k triangles at 1280x720; phone 51 calls. Portrait cam pulled back (P .4, 3.0, 14.2) so lamps + detective fit.
 - Probes: scratchpad dg10 (s2.sh desktop full flow with __pose/__shoot, s3.sh phone, s4.sh hall buttons, s5.sh phone stage view).
 
+## dream floor room 8: 1944, The Bee and the Pomegranate (v2.18, Marci's list C)
+- Homage to Dream Caused by the Flight of a Bee Around a Pomegranate a Second Before Awakening (1944), our own scene: a calm streaky sea you can walk on, a pale far coast, a wind-carved crag, a flat rock floating just above the water with our own sleeper (pale sheet, head on her arm, torso pivots at the hip so she can sit up), a small pomegranate (the bee's home) and a big one on a hinge (two halves, ruby seeds on the cut faces), a rowboat and a spiral shell. An elephant on 11 m spider legs carrying an obelisk walks the horizon (z -44) as the dream's clock. NO rifle in the scene (only in a fact).
+- Game: shoo the bee while the elephant crosses (DUR 20/22/24 s of progress). The bee orbits the small pom, then dives at the big one on a bezier (DIVE 2.9/2.3/2.15 s, first dive x1.4). Past u .62 everything slows to x.38 ('a second before awakening'), the big pom trembles open a crack and the sleeper stirs. Tap the bee itself (screen-space near(), r .45, threshold 1.3) or Space/Enter/key 1/🐝 Shoo (shoos the most advanced diving bee, cooldown .35; swatting air = cooldown .9 + she stirs). Tapping a bee that is only orbiting does nothing (a note), so you can't keep it pinned. Round 2+ feints (FEINT .35/.3), round 3 has 2 bees.
+- A sting (R.wake): the pom bursts, the fish leaps out at her, two tigers leap out of its mouth over her, she sits up, the detective apologises, strike + G.day +.03, the ghost giggles, then everything rewinds into the pom and she lies back down. 10 strikes = cooked.
+- Three dreams = R.found: the ripe pom splits by itself with the ghost curled up inside, he wakes, climbs out, chase (GH.from 'pom').
+- late:true + extra:true. Key '=' / 8th ↑ button; ups grid now 4 wide on desktop too (2 rows of 4). The hall's '✦ new dream' line is newDreamLine(): the newest extra room nobody has played yet.
+- Facts used (checked): 1944, painted in the US; Gala on a floating rock, fish from a pomegranate, two tigers from the fish, a bayonet about to touch her arm; Dalí said it shows Freud's idea that a tiny thing like a bee can set off a long dream a second before waking; the spider-legged elephant with an obelisk returns in The Temptation of St Anthony (1946) and The Elephants (1948); Thyssen-Bornemisza Museum, Madrid. Clue facts: Cap de Creus rocks carved by the wind, Catalan coast.
+- Budget: 43 draw calls, 12k triangles at 1280x720 (chase view).
+- Probes: scratchpad dg11 (b2.sh desktop/phone full flow, poses a dive via R.B, calls R.wake directly; headless runs ~4x slow so don't wait on real dives).
+
 ## log
 - v1 (2026-10-07 ~18:04 UTC) 2D phone version: 7 rounds; the ghost hides behind one of 9 things on a 3x3 dream desert (12 things: egg/Figueres, soft watch/1931, Chupa Chups lollipop 1969, diving helmet London 1936, film reel Buñuel/Hitchcock, cookbook Les Dîners de Gala 1973, ocelot Babou, moustache/Velázquez, drawers/Venus de Milo 1936, crutch, Port Lligat boat, ants). Tap = hot/cold by grid distance (hot <=1, warm <=1.5, cold <=2, freezing), the tapped thing shows its fact; 4 tries; caught = his 3-choice question about that thing, right answer wins the piece (flies to the cover bar). End card: stars, best (localStorage dalis-ghost:best), share. Lesson: .card{display:flex} beat [hidden]; add .card[hidden]{display:none}.
 
@@ -126,6 +136,7 @@ Marci's rooms so far: Madrid fine-arts education (expelled from the academy, 192
 - v2.16 (2026-10-14 10:21 UTC) a seat at the table: all six dreams + the dinner won = the detective sits at Gala's table, gold 'Detective' card stays for good, candles relight. Probed 1280x720 + 390x844: state won, SAVE.seat 1, no errors.
 - v2.17 (2026-10-14 10:40 UTC) dream floor room 7, The Flying Photo (1948), for Marci: snap the shutter while three cats, a chair and a bucket of water are all in the air, three photos, the ghost hides inside each print. Probed 1280x720 + 390x844 full flow: chase reached, no errors.
 - v2.17.1 (2026-10-14 10:43 UTC) the photo recipe no longer says to throw the cats (ours leap by themselves).
+- v2.18 (2026-10-14 11:30 UTC) dream floor room 8, The Bee and the Pomegranate (1944), for Marci (list C): she sleeps on a floating rock at sea while a bee circles a little pomegranate; shoo its dives off the big one until the elephant crosses; three rounds, then the pom splits and the ghost runs. Hall grows to 8 up buttons (key =).
 
 ## structure
 - v1 (2D) is in git history (commit bb4e67447).
