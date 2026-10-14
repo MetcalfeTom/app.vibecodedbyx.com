@@ -571,6 +571,12 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   (hirschhorn.js): two swans by the Ersheim bank (-32,-15), Ines + Ole at the castle terrace railing, kids Ida + Theo
   skipping stones on the Ersheim bank (-21,-6.6, y 12). Lamps at Planken z 18.6/23.4 keep the lanes clear. 0 JS
   errors, full trip probe (phone) incl. Mannheim + second Hirschhorn trip.
+- 2026-10-14 12:38 UTC v1.35.1 (helper, Flax 12:35 "castle in hirschhorn has stones in the air flying"): the castle's
+  curtain-wall loop had slipped into the end-of-line comment in v1.34 (`// the terrace ... for(let y=CY..)`), so only
+  the merlons at CY+6 were built, floating. Loop back on its own line; a scan of the castle area (float.py: solid
+  blocks with air below, roofs/leaves skipped) now only finds the gatehouse passage lintel + the town gate stair
+  ceilings. Also removed "No bridge here" from Jupp + Frau Seiler (not sure there's no bridge). LESSON: never put
+  code after a // comment on one line when patching; node --check can't catch it.
 
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
@@ -627,6 +633,30 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   cake to the castle?), the Carmelite monastery church below the castle (ask Flax first). Mannheim crowd DONE v1.35
   (tram still open; verdict: a big grid city never gets cosy in blocks, keep it a side trip, Hirschhorn is the lovely
   scene).
+- HIRSCHHORN REBUILD (Flax 12:32 UTC 10-14: "lovely but not original. Also marketplace and church are missing. Please
+  rebuild more original way." He is a local + our sign inspector: a Neckar valley local should recognise the town).
+  REAL LAYOUT we build to (own knowledge, no web; only what I'm confident of):
+  * the old town sits on the steep outside of a tight Neckar bend, on the slope between the river and the castle
+    ridge; across the water, inside the loop, the flat Ersheim side with the Ersheimer Kapelle in its graveyard
+    (one of the oldest churches of the Neckar valley; the graveyard is still in use). [game: town north, Ersheim
+    south inside the U of RP - kept]
+  * along the river the old town wall, with half-timbered houses built into it / standing on it (stone below,
+    timber-framed floors above) - the classic view from the water.
+  * the Marktplatz in the old town with the Protestant Marktkirche (early 17th c.).
+  * the Mitteltor: a gate tower inside the old town over the main street.
+  * the former Carmelite monastery church (Klosterkirche, Catholic, Gothic) on the slope between the town and the
+    castle.
+  * Burg Hirschhorn on the ridge right above the town: Bergfried + Renaissance Palas (a hotel/restaurant today).
+  * a Neckar barrage at Hirschhorn: weir + lock (Staustufe).
+  UNSURE (kept generic, questions for Flax): which end of the town the Marktplatz is at and how the Marktkirche's
+  tower looks (built: square tower, slate spire, clock - generic); where exactly the Mitteltor stands; the
+  Klosterkirche's exact spot (east or west below the castle) and look; which side + which end of the town the
+  lock and weir are on (built: upstream, east leg, lock on the town side); whether there is a road bridge (Jupp's
+  "no bridge here" line REMOVED - not sure); street names (none used except Marktplatz); the B37 / railway along
+  the river (left out).
+  PLAN: v1.36 Marktplatz + Marktkirche (east half, north of the street, cut into the slope), drop the bridge lines;
+  v1.37 wall houses (stone ground floor flush with the wall, continuous frontage), Mitteltor over the street,
+  Klosterkirche on the slope below the castle, weir + lock; v1.38 polish if usage allows.
 - Mannheim layout (mannheim.js): Neckar water z -99..-80, quay promenade z -78..-71 (y TOWN), Ring z -70..-63,
   axis x -14..-7 (block centre -10.5), Planken z 18..23, Kaiserring x 80..87, rows rowZ(r)=-62+14r(+2 from row 6),
   east blocks x0=-6+15(n-1), west x0=-25-15(n-1), Schloss x -85..64 z 84..105, HBF x 70..124 z 114..125,

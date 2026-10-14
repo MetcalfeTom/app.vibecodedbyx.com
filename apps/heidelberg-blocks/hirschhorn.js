@@ -149,7 +149,8 @@ export function build(H){
   // ---- Burg Hirschhorn ----
   for(let x=CS.x0;x<=CS.x1;x++) for(let z=CS.z0;z<=CS.z1;z++){
     const ring=x<=CS.x0+1||x>=CS.x1-1||z<=CS.z0+1||z>=CS.z1-1; if(!ring) continue;
-    if(z>=CS.z1-1&&x>=-15&&x<=1) continue; const yt=CY+5;   // the terrace: open, with a railing over the drop (solid() below) for(let y=CY;y<=yt;y++) set(x,y,z,HB.rubble);
+    if(z>=CS.z1-1&&x>=-15&&x<=1) continue;   // the terrace: open, with a railing over the drop (solid() below)
+    const yt=CY+5; for(let y=CY;y<=yt;y++) set(x,y,z,HB.rubble);   // v1.35.1: this loop had slipped into the comment above (floating merlons, Flax 12:35)
     if((x===CS.x0||x===CS.x1||z===CS.z0||z===CS.z1)&&(x+z)%2===0) set(x,CY+6,z,HB.rubble); }
   tower(-27,-23,-79,-73,CY-8,CY+9,{roof:HB.roofH,wy:[CY+6]});                         // the gatehouse, the Burgweg comes in from the west
   for(let x=-27;x<=-23;x++) for(let z=-77;z<=-75;z++){ for(let y=CY;y<=CY+3;y++) set(x,y,z,0); set(x,CY-1,z,B.cobble); }
@@ -282,7 +283,7 @@ export function build(H){
       look:person({ shirt:'#22304f', pants:'#3a3a44', hair:'#b8643a', skin:'#f0c8a4', swing:still, extra:[[.42,.1,.42, 0,1.9,0,'#22304f'],[.42,.04,.16, 0,1.86,.24,'#141414'],[.26,.34,.03, .3,1.0,.2,'#c8b088']] }),
       barks:['Boats! Well. One boat. Liselotte.','Mind the step, the jetty wobbles.','*counts the ducks* Three. Still three.','Castle weather today.'],
       talk(){ return ['Willkommen in Hirschhorn! Did Jupp bring you? He always takes the bends a little wide.','They call us the pearl of the Neckar valley. Well. We call us that.',
-        'The castle is right above us. The Burgweg starts at the west end of the old town, past the café.','Across the water is Ersheim, with the old chapel. No bridge here. Swimmers climb out on the low bank, everyone else admires it from the terrace.']; } },
+        'The castle is right above us. The Burgweg starts at the west end of the old town, past the café.','Across the water is Ersheim, with the old chapel. Swimmers climb out on the low bank, everyone else admires it from the terrace.']; } },
     { id:'hh_anni', name:'Anni, Café', short:'Anni', at:[-5.5,-46.2,0,T], head:2.2,
       look:person({ shirt:'#7a3a4a', pants:'#3a3040', hair:'#6a3a1a', skin:'#eec3a0', swing:still, extra:[[.46,.62,.06, 0,.78,.16,'#f4efe2'],[.2,.2,.2, 0,1.95,-.14,'#6a3a1a']] }),
       barks:['Kaffee, Kuchen, Aussicht!','Two Apfelkuchen for the terrace!','*wipes a table*','The cat is not on the menu. She just thinks she runs the place.'],
