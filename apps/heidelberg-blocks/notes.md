@@ -577,6 +577,18 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   blocks with air below, roofs/leaves skipped) now only finds the gatehouse passage lintel + the town gate stair
   ceilings. Also removed "No bridge here" from Jupp + Frau Seiler (not sure there's no bridge). LESSON: never put
   code after a // comment on one line when patching; node --check can't catch it.
+- 2026-10-14 12:50 UTC v1.36 (helper, Flax 12:32 rebuild, step 1): THE MARKTPLATZ + THE MARKTKIRCHE. Row B opens up
+  north of the street in the east half (x 10..30, z -57..-48; the three houses there gone, the east one moved to
+  x 31..35). The Protestant market church stands three steps up on a red sandstone terrace (Tc = T+3) cut into
+  the slope under the castle rock: nave x 13..25 z -68..-59 (white plaster, red sandstone corners/plinth/cornice,
+  four tall leaded windows with round-arched tops = new atlas tiles 39 + 63 as hh_chB/hh_chT, door x 19 with a
+  sandstone frame, steep red tiled roof), tower at the east end x 26..30 z -66..-62 up to Tc+23 (belfry louvres,
+  clock board on the south face, slate spire with a gold knob, ~y 54). Look kept generic (unsure what the real one
+  looks like). Market stalls (Frau Haas vegetables, Herr Fuchs autumn flowers), a linden + bench, Herr Brenner on
+  the bench below the terrace, 'Marktplatz' sign on the house at x 9, a pale path to the steps, the church front
+  floodlit at night (flood zone 4). Place names Marktplatz/Marktkirche. Hint + Jupp + Frau Seiler point there.
+  Phone 390x844: markt 15/55k, castle 52/123k, aerial 58/112k; desktop markt 26/82k, castle 73/197k, aerial 74/172k.
+  0 JS errors, full trip probe (phone) incl. Mannheim + second Hirschhorn trip.
 
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.

@@ -1,4 +1,4 @@
-// Heidelberg Blocks · Hirschhorn (v1.34, for Flax): loaded only when Kapitän Jupp takes you UP the Neckar.
+// Heidelberg Blocks · Hirschhorn (v1.34, for Flax; v1.36 Marktplatz + Marktkirche): loaded only when Kapitän Jupp takes you UP the Neckar.
 // build(H) writes a small valley town into the shared voxel grid: the Neckar bending round the Ersheim meadow, the old
 // town on the outside of the bend with its wall along the water, Burg Hirschhorn on the hill right above it, the old
 // Ersheim chapel across the river. +x = east, +z = south, the old town street at y = TOWN, the riverside path at 13.
@@ -28,6 +28,10 @@ export function build(H){
     px(3,13,'#cdbfa6',10,2);
     if(lit){ ge.fillStyle='#ffbf6a'; for(const [a,b] of [[4,2],[9,2],[4,8],[9,8]]) ge.fillRect(ox+a,oy+b,3,5); } });
   winT(TL.win,'#3f6a4a','#2f5238',0); winT(TL.winL,'#3f6a4a','#2f5238',1); winT(TL.winR,'#9a3c2c','#7a2c20',1);
+  // v1.36 church windows: leaded glass in a red sandstone frame, the top block round-arched (slots 39 + 63 are free)
+  const glass=(px,x,y)=>px(x,y,((x+y)%4===0||(x-y+16)%4===0)?'#3a3f46':((x*7+y*3)%5<2?'#7890a8':'#5f7890'));
+  tile(39,'#b06a4e',px=>{ for(let y=0;y<14;y++) for(let x=3;x<13;x++) glass(px,x,y); px(0,14,'#c88a6a',16,2); px(0,0,'#9a5a40',2,16); px(14,0,'#9a5a40',2,16); });
+  tile(63,'#b06a4e',px=>{ for(let y=0;y<16;y++) for(let x=3;x<13;x++){ const dx=x-7.5, dy=y-8; if(y>=8||dx*dx+dy*dy<=27) glass(px,x,y); } px(0,0,'#9a5a40',2,16); px(14,0,'#9a5a40',2,16); });
   tile(TL.beam,BM,px=>{ for(let y=0;y<TS;y+=3) px(0,y,BM2,TS,1); speck(px,'#3a2416',14); });
   tile(TL.rubble,'#8f8574',px=>{ const C=['#a8705a','#b48266','#9a9384','#8c5e4c','#c09478','#a59d8c','#b9a58a'];
     for(const [y,hh] of [[0,5],[5,6],[11,5]]){ let x=-(R()*4|0); while(x<TS){ const w=4+(R()*5|0), x0=Math.max(0,x), c=C[R()*C.length|0];
@@ -35,6 +39,7 @@ export function build(H){
   tile(TL.roofH,'#7e3324',px=>{ for(let y=0;y<TS;y+=4){ const o=(y/4%2)*2; for(let x=-o;x<TS;x+=4){ px(Math.max(0,x),y,'#a24a34',3,3); px(Math.max(0,x),y+3,'#6a2a1c',3,1); } } speck(px,'#b85a40',8); });
   H.atlas.needsUpdate=true; H.emTex.needsUpdate=true;
   const HB={}; for(const k in TL){ const n='hh_'+k; HB[k]=B[n]||H.def(n,TL[k]); }
+  HB.chB=B.hh_chB||H.def('hh_chB',39); HB.chT=B.hh_chT||H.def('hh_chT',63);
 
   // ---- the valley: the Neckar bends round the Ersheim meadow; the old town sits on the outside of the bend ----
   const HW=12;   // half the river's width
@@ -60,6 +65,10 @@ export function build(H){
   rect(TW.x0,TW.x1,-47,-44,T,K.street);
   rect(-6,3,-43,-38,T,K.deck);                  // the café terrace over the river
   for(let x=TW.x0;x<=TW.x1;x++) for(let z=-60;z<=-56;z++){ const i=I(x,z); if(hm[i]>T+3) km[i]=K.rock; }
+  // v1.36 the Marktplatz (x 10..30, z -57..-48) opens north of the street; the Marktkirche's plot is cut into the slope behind it
+  // the church stands three steps up on its own terrace (Tc), so its tower shows over the wall houses from the river
+  const MP={x0:10,x1:30,z0:-57,z1:-48}, MK={x0:13,x1:25,z0:-68,z1:-59}, MT={x0:26,x1:30,z0:-66,z1:-62}, Tc=T+3;
+  rect(MP.x0,MP.x1,MP.z0,MP.z1,T,K.town); rect(13,31,-70,-58,Tc,K.town); rect(18,20,-56,-56,T+1,K.town); rect(18,20,-57,-57,T+2,K.town);
   const CY=46, CS={x0:-26,x1:12,z0:-90,z1:-60};   // Burg Hirschhorn on its plateau right above the town
   rect(CS.x0,CS.x1,CS.z0,CS.z1,CY,K.court);
   rect(-15,16,-1,18,13,K.meadow);               // the chapel's little mound on the Ersheim meadow
@@ -137,7 +146,7 @@ export function build(H){
   for(let x=TW.x0;x<=-35;x++) set(x,T,-37,HB.rubble);
   const sorted=(L)=>L.slice().sort((a,b)=>a[3]-b[3]);
   const ROWA=[[-34,-29,'W',2,'z','fw'],[-28,-24,'C',2,'z',0],[-23,-18,'W',3,'x',0],[-12,-7,'C',2,'z','fw'],[9,14,'W',2,'z',0],[15,19,'C',3,'z','fw'],[20,25,'W',2,'x',0],[26,30,'C',2,'z','fw']];
-  const ROWB=[[-34,-28,'C',2,'z',0],[-27,-22,'W',2,'z','fw'],[-21,-16,'C',3,'x',0],[-15,-10,'W',2,'z','fw'],[-9,-3,'W',2,'z',0,'cafe'],[-2,3,'C',2,'z','fw'],[4,9,'W',3,'z',0],[10,15,'C',2,'x','fw'],[16,21,'W',2,'z',0],[22,27,'C',3,'z','fw'],[28,34,'W',2,'z',0]];
+  const ROWB=[[-34,-28,'C',2,'z',0],[-27,-22,'W',2,'z','fw'],[-21,-16,'C',3,'x',0],[-15,-10,'W',2,'z','fw'],[-9,-3,'W',2,'z',0,'cafe'],[-2,3,'C',2,'z','fw'],[4,9,'W',3,'z',0],[31,35,'C',2,'x','fw']];
   for(const [x0,x1,pl,fl,ri,gf] of sorted(ROWA)) house(x0,x1,-43,-37,{pl,fl,ridge:ri,gf,door:[Math.floor((x0+x1)/2),-43]});
   for(const [x0,x1,pl,fl,ri,gf,tag] of sorted(ROWB)) house(x0,x1,-55,-48,{pl,fl,ridge:ri,gf,door:[Math.floor((x0+x1)/2),-48],box0:tag==='cafe',gs:tag==='cafe'?B.white:0});
   // the gate tower over the stairs from the landing: path 13 -> street 19
@@ -146,6 +155,24 @@ export function build(H){
   for(let x=5;x<=7;x++){ set(x,T-1,-44,B.cobble); for(let y=T;y<=T+3;y++) set(x,y,-43,0); }
   tower(-17,-13,-43,-37,10,T+10,{wy:[T+4,T+7]});                                       // a wall tower with battlements
   tower(31,36,-43,-37,10,T+12,{roof:HB.roofH,wy:[T+3,T+6,T+9],lit:1});                 // the corner tower at the east end
+  // ---- v1.36 the Marktkirche on the uphill side of the Marktplatz (Flax 12:32: "marketplace and church are missing").
+  // Kept generic where I'm not sure: white plaster, red sandstone corners + plinth, tall leaded windows, red tiled roof,
+  // the tower at the east end with a clock and a slate spire.
+  for(let x=13;x<=31;x++) for(let y=T;y<Tc;y++) if(x<18||x>20) set(x,y,-58,B.sandstone);   // the terrace wall + its steps
+  for(let x=18;x<=20;x++){ set(x,T,-56,B.sandstone); set(x,T,-57,B.sandstone); set(x,T+1,-57,B.sandstone); }
+  for(let x=MK.x0;x<=MK.x1;x++) for(let z=MK.z0;z<=MK.z1;z++) for(let y=Tc;y<=Tc+7;y++){
+    const ex=x===MK.x0||x===MK.x1, ez=z===MK.z0||z===MK.z1;
+    if(!ex&&!ez){ set(x,y,z,B.stone); continue; }
+    const u=x-MK.x0, win=ez&&!ex&&[2,4,8,10].includes(u)&&y>=Tc+2&&y<=Tc+5;
+    set(x,y,z, (ex&&ez)||y===Tc||y===Tc+7 ? B.sandstone : win ? (y===Tc+5?HB.chT:HB.chB) : B.white); }
+  { const dx=19, dz=MK.z1; for(let y=Tc;y<=Tc+3;y++) for(const x of [18,20]) set(x,y,dz,B.sandstone); for(const x of [18,19,20]) set(x,Tc+3,dz,B.sandstone); set(dx,Tc,dz,B.door); set(dx,Tc+1,dz,B.door); set(dx,Tc+2,dz,B.door); }
+  for(let L=0;;L++){ const za=MK.z0-1+Math.floor(L/2), zb=MK.z1+1-Math.floor(L/2); if(za>zb) break; const y=Tc+8+L;
+    for(let z=za;z<=zb;z++) for(let x=MK.x0;x<=MK.x1+1;x++){
+      if(z===za||z===zb){ set(x,y,z,HB.roofH); continue; }
+      if(x===MK.x1+1) continue; set(x,y,z,x===MK.x0||x===MK.x1?B.white:B.stone); } }
+  tower(MT.x0,MT.x1,MT.z0,MT.z1,Tc,Tc+23,{wall:B.white,roof:B.slate,st:2,wy:[Tc+5,Tc+10]});
+  for(const [x,z] of [[28,MT.z0],[28,MT.z1],[MT.x0,-64],[MT.x1,-64]]) for(let y=Tc+19;y<=Tc+21;y++) set(x,y,z,HB.beam);   // the belfry louvres
+  for(let x=MT.x0;x<=MT.x1;x++) for(let z=MT.z0;z<=MT.z1;z++) if(x===MT.x0||x===MT.x1||z===MT.z0||z===MT.z1) set(x,Tc+23,z,B.sandstone);
   // ---- Burg Hirschhorn ----
   for(let x=CS.x0;x<=CS.x1;x++) for(let z=CS.z0;z<=CS.z1;z++){
     const ring=x<=CS.x0+1||x>=CS.x1-1||z<=CS.z0+1||z>=CS.z1-1; if(!ring) continue;
@@ -211,6 +238,15 @@ export function build(H){
     let [a,b]=q(0,0); P(1.6,.08,.42,a,y+.45,b,'#7a5434',ry); [a,b]=q(0,-.2); P(1.6,.36,.06,a,y+.7,b,'#7a5434',ry);
     for(const dx of [-.65,.65]){ [a,b]=q(dx,0); P(.08,.45,.4,a,y+.22,b,'#2e3236',ry); } };
   bench(-8.5,-34.9,13,Math.PI); bench(20.5,-34.9,13,Math.PI); bench(-10,-63.5,CY,Math.PI); bench(-2,15.4,CHY,0); bench(9.5,-1.6+0.3,13,Math.PI);
+  // v1.36 the Marktplatz: two market stalls (vegetables, autumn flowers), a linden with a bench, a path to the church door
+  const stall=(x,z,awn,goods)=>{ P(2.4,.86,.9,x,T+.43,z,'#7a5434'); P(2.56,.08,1.02,x,T+.9,z,'#a87a4a');
+    for(const [dx,dz,h] of [[-1.18,-.42,2.5],[1.18,-.42,2.5],[-1.18,.42,2.1],[1.18,.42,2.1]]) P(.1,h,.1,x+dx,T+h/2,z+dz,'#5a3a22');
+    for(let i=0;i<5;i++) P(.53,.07,1.36,x-1.06+i*.53,T+2.3,z+.06,i%2?'#f4ead6':awn,0,-.3);
+    goods.forEach((g,i)=>{ const gx=x-.84+i*.56; P(.48,.16,.6,gx,T+1.02,z+.05,'#8a6a40'); for(let k=0;k<3;k++) P(.15,.15,.15,gx-.14+(k%2)*.24,T+1.18,z-.12+k*.15,g[(k+i)%g.length]); }); };
+  stall(14.5,-51,'#3a7a4a',[['#c8302a','#e04a32'],['#e8862a','#d8702a'],['#6a9a3a','#8ab04a'],['#e8c23a','#c89a2a']]);
+  stall(25.5,-51,'#b8403a',[['#8a5ab8','#a87ad0'],['#e8a0c0','#d8708a'],['#c8402a','#e8e0d0'],['#8a4a9a','#c8a0d8']]);
+  tree(11,-54,T,4,1); bench(11,-51.6,T,0); bench(21,-57.3,T,0);
+  for(let z=-55.4;z<=-48.2;z+=.8) P(1.2,.04,.6,19.5,T+.02,z,'#b8ab94');
   // the castle: the well and the terrace tables
   P(1.8,.8,1.8,-6,CY+.4,-75,'#8a7a6a'); P(1.3,.06,1.3,-6,CY+.79,-75,'#2a4a5a'); for(const dx of [-.8,.8]) P(.12,1.6,.12,-6+dx,CY+1.6,-75,'#5a3a22'); P(2.1,.1,1.2,-6,CY+2.45,-75,'#7e3324'); P(.08,.08,1.6,-6,CY+2.1,-75,'#5a3a22',Math.PI/2);
   table(-6,-63.4,CY,'#f4ead6'); table(-2.5,-63.6,CY,0);
@@ -264,6 +300,10 @@ export function build(H){
   NB.push(board(3.2,.8,384,96,sign('Ersheimer Kapelle',0,'#f1e7cf','#3a3a3a'),0,CHY+1.2,-1.45,Math.PI,true));
   P(.1,1.2,.1,-1.7,CHY+.6,-1.45,'#4a3a2a'); P(.1,1.2,.1,1.7,CHY+.6,-1.45,'#4a3a2a');
   NB.push(board(2.4,.7,288,84,sign('Burgweg ↑',0,'#f1e7cf','#3a5a2a'),-36.2,T+2.1,-47.6,Math.PI/2));
+  NB.push(board(2.6,.7,312,84,sign('Marktplatz',0,'#f1e7cf','#3a3a3a'),10.03,T+2.6,-50.5,Math.PI/2));
+  NB.push(board(1.9,1.9,192,192,(g,w,h)=>{ g.fillStyle='#1a1a1a'; g.fillRect(0,0,w,h); g.fillStyle='#f1ead8'; g.beginPath(); g.arc(w/2,h/2,w*.44,0,7); g.fill();
+    g.strokeStyle='#1a1a1a'; g.lineWidth=6; for(let i=0;i<12;i++){ const a=i*Math.PI/6, r1=w*.36, r2=w*.42; g.beginPath(); g.moveTo(w/2+Math.sin(a)*r1,h/2-Math.cos(a)*r1); g.lineTo(w/2+Math.sin(a)*r2,h/2-Math.cos(a)*r2); g.stroke(); }
+    g.fillStyle='#c8a040'; g.fillRect(w/2-4,h/2-w*.3,8,w*.3); g.save(); g.translate(w/2,h/2); g.rotate(Math.PI*.62); g.fillRect(-5,-w*.22,10,w*.22); g.restore(); },28.5,Tc+15.5,MT.z1+1.03,0));
   P(.1,2,.1,-36.3,T+1,-47.6,'#4a3a2a');
 
   // far hills beyond the edges of the map, the same valley carried on (the river legs too)
@@ -283,7 +323,7 @@ export function build(H){
       look:person({ shirt:'#22304f', pants:'#3a3a44', hair:'#b8643a', skin:'#f0c8a4', swing:still, extra:[[.42,.1,.42, 0,1.9,0,'#22304f'],[.42,.04,.16, 0,1.86,.24,'#141414'],[.26,.34,.03, .3,1.0,.2,'#c8b088']] }),
       barks:['Boats! Well. One boat. Liselotte.','Mind the step, the jetty wobbles.','*counts the ducks* Three. Still three.','Castle weather today.'],
       talk(){ return ['Willkommen in Hirschhorn! Did Jupp bring you? He always takes the bends a little wide.','They call us the pearl of the Neckar valley. Well. We call us that.',
-        'The castle is right above us. The Burgweg starts at the west end of the old town, past the café.','Across the water is Ersheim, with the old chapel. Swimmers climb out on the low bank, everyone else admires it from the terrace.']; } },
+        'Up the stairs through the gate, then right: the Marktplatz, with the market church.','The castle is right above us. The Burgweg starts at the west end of the old town, past the café.','Across the water is Ersheim, with the old chapel. Swimmers climb out on the low bank, everyone else admires it from the terrace.']; } },
     { id:'hh_anni', name:'Anni, Café', short:'Anni', at:[-5.5,-46.2,0,T], head:2.2,
       look:person({ shirt:'#7a3a4a', pants:'#3a3040', hair:'#6a3a1a', skin:'#eec3a0', swing:still, extra:[[.46,.62,.06, 0,.78,.16,'#f4efe2'],[.2,.2,.2, 0,1.95,-.14,'#6a3a1a']] }),
       barks:['Kaffee, Kuchen, Aussicht!','Two Apfelkuchen for the terrace!','*wipes a table*','The cat is not on the menu. She just thinks she runs the place.'],
@@ -327,6 +367,18 @@ export function build(H){
       look:person({ shirt:'#c8462a', pants:'#5a5040', hair:'#3a2a1a', skin:'#e3b392', extra:[[.4,.5,.22, 0,1.15,-.27,'#3a5a3a'],[.44,.1,.44, 0,1.9,0,'#7a6a3a'],[.04,1.25,.04, .4,.68,.16,'#6a4a2a']] }),
       barks:['Puh. Steep, steep, steep.','The view is worth it. Allegedly.','Almost at the top!'],
       talk(){ return ['Up to the castle and down again, twice. Training for the Odenwald.','The trick is: never look at how far it still is. Look at the river.']; } },
+    { id:'hh_haas', name:'Frau Haas, Marktstand', short:'Frau Haas', at:[14.5,-52.1,0,T], head:2.1, fixed:1,
+      look:person({ shirt:'#6a4a3a', pants:'#3a3a32', hair:'#a8a098', skin:'#efc6a2', swing:still, extra:[[.5,.6,.06, 0,.8,.17,'#3a6a4a'],[.46,.12,.46, 0,1.92,0,'#a8a098']] }),
+      barks:['Äpfel! Kürbis! Fresh from the Odenwald!','*weighs a pumpkin by hand*','Two for one on the onions. Only today. Every day.'],
+      talk(){ return ['Apples, pumpkins, onions, all picked this week. Taste one, go on.','The church behind me keeps the time for the whole square. When the clock says go home, I go home.']; } },
+    { id:'hh_fuchs', name:'Herr Fuchs, Blumen', short:'Herr Fuchs', at:[25.5,-52.1,0,T], head:2.1, fixed:1,
+      look:person({ shirt:'#4a5a7a', pants:'#2a2a30', hair:'#5a4a3a', skin:'#e3b392', swing:still, extra:[[.5,.6,.06, 0,.8,.17,'#8a3a3a']] }),
+      barks:['Asters! Heather! It\'s October!','*ties a bouquet*','For someone special? Or for yourself. Also special.'],
+      talk(){ return ['Asters, heather and chrysanthemums. October colours, like the hills.','Take a bunch up to the castle. The view needs no flowers, but the table does.']; } },
+    { id:'hh_brenner', name:'Herr Brenner, Marktplatz', short:'Herr Brenner', at:[21,-57.25,0,T], fixed:1,
+      look:person({ shirt:'#7a6a5a', pants:'#3a3a40', hair:'#d8d4cc', skin:'#e8b892', sit:.45, swing:still, extra:[[.46,.1,.46, 0,1.54,0,'#4a4a4a']] }),
+      barks:['*nods at everyone*','Market day. Best day.','The tower is right on time again.'],
+      talk(){ return ['From this bench I see the whole Marktplatz. The stalls, the street, and who buys how many apples.','Behind me the market church, above me the castle, in front of me Frau Haas. That\'s all a man needs.']; } },
     { id:'hh_ines', name:'Ines, at the railing', short:'Ines', at:[-11.2,-59.55,0,CY], fixed:1,
       look:person({ shirt:'#2f6a7a', pants:'#3a3a48', hair:'#2a1a12', skin:'#c8956a', swing:still, armUp:'R', extra:[[.5,.12,.06, 0,1.62,.2,'#2a2a2a'],[.14,.1,.04, .2,1.95,.3,'#1a1a1a']] }),
       barks:['Ole, look, the chapel!','Wait, one more photo.','You can see the whole bend from here.'],
@@ -355,12 +407,14 @@ export function build(H){
     if(x>=1&&x<=12&&z>=-37&&z<=-28&&y<T-2) return 'Anlegestelle';
     if(x>=TW.x0-3&&x<=TW.x1+3&&z>=-37&&z<=-32&&y<T-2) return 'Uferweg';
     if(x>=4&&x<=9&&z>=-44&&z<=-37) return 'Stadttor';
+    if(x>=MK.x0-.5&&x<=MT.x1+1.5&&z>=-69.5&&z<=-57.6&&y<Tc+34) return 'Marktkirche';
+    if(x>=MP.x0&&x<=MP.x1+1&&z>=MP.z0&&z<=MP.z1+1&&y<T+8) return 'Marktplatz';
     if(x>=TW.x0&&x<=TW.x1+1&&z>=-57&&z<=-37){ if(x>=-6&&x<=4&&z>=-43) return 'Altstadt · Terrasse'; return 'Altstadt'; }
     return y>T+4?'Odenwald':'Neckarufer'; }
   function riverD(x,z){ return Math.max(0,rD(x,z)-HW); }
   let nightWas=null;
   // the castle, the chapel and the town wall floodlit at night (drawn in the block shader, see mhMat)
-  const flood=[{a:[CS.x0-2,CS.z0-1,CS.x1+1,CS.z1+1],b:[CY-6,CY+26,0,1]},{a:[1,8,13,0],b:[CHY,CHY+20,0,0]},{a:[TW.x0,-38,TW.x1+1,-35.9],b:[12,T+1,0,1]}];
+  const flood=[{a:[CS.x0-2,CS.z0-1,CS.x1+1,CS.z1+1],b:[CY-6,CY+26,0,1]},{a:[1,8,13,0],b:[CHY,CHY+20,0,0]},{a:[TW.x0,-38,TW.x1+1,-35.9],b:[12,T+1,0,1]},{a:[MK.x0,-61,MT.x1+1,-57],b:[T,Tc+34,0,1]}];
   function tick(dt,night){
     if(night!==nightWas){ nightWas=night; lamps.visible=pools.visible=night; headMat.emissive.set(night?0xffd27a:0x000000); headMat.emissiveIntensity=night?1.3:0;
       for(const b of NB) b.material.emissiveIntensity=night?.85:.3; }
@@ -369,7 +423,7 @@ export function build(H){
   const solid=(x,y,z)=>z===-59&&x>=-15&&x<=1&&y>=CY&&y<=CY+2;   // the terrace railing stops you, but you can see straight down past it
   return { group, place, riverD, tick, flood, folk, solid, steps:[{x:6.5,z:-33.5},{x:-1,z:-5}],
     spawn:{x:5.5,z:-30.5,y:12,yaw:.75}, jupp:{x:9,z:-29.6,y:12},
-    hint:'Hirschhorn! The castle is right above the old town: the Burgweg starts at its west end. Kapitän Jupp takes you home when you like.',
+    hint:'Hirschhorn! Up the stairs and right: the Marktplatz with the market church. The Burgweg up to the castle starts at the west end. Kapitän Jupp takes you home when you like.',
     jb:['Moin! Liselotte waits right here.','Hirschhorn. Small town, big castle.','Heidelberg is downstream. Just say when.','Up the hill you see the whole bend of the Neckar. My knees say no.','Smell that? Kaffee from the terrace.'],
     arrive:[[-58,128],[-58,80],[-56,30],[-48,0],[-34,-16],[-16,-23.5],[0,-24.6],[6.5,-24.8]],
     trig:[[-58,100,'Hirschhorn ahead! Look up, over the trees on the right: the castle.'],
