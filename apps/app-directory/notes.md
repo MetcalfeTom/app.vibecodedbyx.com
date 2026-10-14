@@ -1,6 +1,7 @@
 # App Directory
 
 ## log
+- 2026-10-14 11:27 UTC (Tatum): the 'genre all ↓' value up top is a button: it scrolls to the genre chips (smooth unless reduced motion), focuses the active chip, and the chip row glows cyan for 1.6 s.
 - 2026-10-14 11:06 UTC (Tatum): 'last sync' is now 'last change' (it always was the newest app's change time in the list, worked out once on load, no polling), the time ticks on every 30 s, and a small ↻ button beside it downloads both lists again (title says how many new apps; fresh row and counts update). Hidden on phones like before.
 - 2026-10-13 22:47 (hamburglar06): the git log board's heading now says 'app activity' (was 'git log · busiest apps'), sort group aria-label 'Sort app activity'.
 - 2026-10-13 19:32 UTC: the commit window's hash moved down beside its +/- graph, the same gl-h chip as the change log rows (hamburglar06); the date line is just the date again.
