@@ -633,6 +633,17 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   CDP touch probe (?touch, emulation + touches in one session, 390x844) in Heidelberg, Mannheim and Hirschhorn: drags
   from the old zone (30%,60%) and just outside the ring only turned the view, a 4 px tap on the ring did not move,
   a ring drag walked. 0 JS errors.
+- 2026-10-14 14:23 UTC v1.39 (helper, Flax 13:23 "we said we want a ruderboot competition"): RUDERBOOTE. A jetty
+  with two moored rowing boats + a blackletter "Ruderboote / Verleih · race the club" sign on the Neckarwiese bank
+  (ROWJ -65,-45.5; sign x -61.6 so it doesn't hide the jetty). Ride button (R) within 4.5: "🚣 Rowing race vs Ole".
+  Fade to the start line east of the bridge (50,-20, facing west), Ready/3/2/1/Los!, race Ole from the rowing club
+  (generic name) down the Neckar: 3 red buoy gates (28,-18) (-22,-24) (-42,-30) ±4, under an arch of the Alte Brücke
+  (z -13..-7 is Ole's), to green flags at x -58. Missed gate = +3 s. ◀/▶ buttons (touch) or A/D pull one oar each,
+  W both; a fresh tap strokes at once, holding repeats only every .6 s, so tapping wins (perfect taps ~22-23 s,
+  Ole ~25.4 s, holding loses). Bonk on walls/piers bounces back. 16 cheering people with flags on the bridge
+  parapets (hop during the race). Result in the HUD, best in localStorage 'hb-row-best', back on the meadow after
+  7 s (or 🏁 any time). Seat is aft so the oar shafts show; drag still looks around (eases back after 1.2 s).
+  Mike's stone untouched (bridge gate, far from the course). Code: ROW/rowTick/rowAmb before fadeDo.
 
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
@@ -727,10 +738,8 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   Benz dais x 20..23 z -77..-72; Paradeplatz fountain (-.5,28.5); Grumbach (-.85,-62.75); Kessler (44.5,65.25); Hannes (13.5,-72.6).
 - Mannheim: the ride in passes between two tall quay walls (TOWN-WATER = 8); a grassy dike on one bank would
   open it up (cranes need the north quay)
-- Ruderboote race under the Alte Brücke (plan only): rent a rowing boat on the Neckarwiese bank, race a rival rower
-  (generic name) round buoys under the bridge arches and back; phone = two big oar buttons, desktop = A/D strokes;
-  each stroke an impulse + drag, steering from stroke imbalance; timer + best time in localStorage; start from
-  Jupp's boat code (boatTick) for the water height and the camera.
+- Ruderboote (v1.39): ask Flax if the course is right (start east of the bridge, finish off the Neckarwiese); ideas:
+  a 2-player ghost of your best run, a slalom variant, Ole's rematch line
 - Students: at night Mira/Aylin/Hannes are gone; they could sit on the fountain rim singing, or Hannes could turn
   up in the Karzer after his list is done
 - Karzer: the bare patch sits over a random graffiti tile (a silhouette shows round it); an OV entry for face
@@ -777,6 +786,8 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
 - v1.38: phone 390x844 Gedenkhalle 43/67k, L2 roof 19/33k, Wasserspiele walk 20/32k, cascade 15/22k, Friedrichsplatz
   aerial 24/36k, Hirschhorn gate 32/103k, Heidelberg N edge 11/78k; desktop 1280x720 hall 76/110k, gate 47/146k,
   Wasserspiele 18/45k, Mannheim E edge 14/26k. Ridge ring = +3 calls, ~0.9k tris.
+- v1.39: phone 390x844 jetty 69/190k, start line 42/122k, approaching the bridge 84/171k; desktop 1280x720 jetty
+  123/250k, start 110/245k, bridge 125/234k. Race meshes are lazy (built within 260 of the jetty).
 - v1.37 Hirschhorn layout: desktop 1280x720 mitteltor 33/112k, wallR (from the water) 49/111k, kloster 18/71k,
   klosterW 61/162k, weir 31/114k, aerialS 75/176k; phone 390x844 day + night mitteltor 27/81k, kloster 17/57k,
   aerialS 61/115k.
