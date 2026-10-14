@@ -626,6 +626,14 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   left and mid-left left P.x/z unchanged (yaw/pitch moved), a 6 px tap in the stick zone did not move, a stick drag
   walked ~6 blocks in 1.4 s. Mouse was already look-only. 0 JS errors, phone trip probe passed.
 
+- 2026-10-14 14:00 UTC v1.38.1 (helper, Angie 13:52 "the thumbstick box is huge"): the stick is now a FIXED ring
+  bottom-left (#stick 7rem at left max(1rem,safe) / bottom --bot+.6rem, dim .5 at rest, full while held); only a touch
+  within the ring + 22 px starts walking (stickHit), the knob is clamped in the ring (no more floating stick), every
+  other drag looks. The v1.38 dashed #szone box is gone. Tutorial "Drag to walk" sits on the ring, label above.
+  CDP touch probe (?touch, emulation + touches in one session, 390x844) in Heidelberg, Mannheim and Hirschhorn: drags
+  from the old zone (30%,60%) and just outside the ring only turned the view, a 4 px tap on the ring did not move,
+  a ring drag walked. 0 JS errors.
+
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
 - fannar22 2026-10-11 23:50: rising into the sky at the east/west map edge in the river (fixed v1.1, probe hb_edge.js).
