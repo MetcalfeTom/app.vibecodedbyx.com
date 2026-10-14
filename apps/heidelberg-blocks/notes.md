@@ -513,6 +513,17 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   vox/colTop/colLow are swapped out and cached (MH.hv/MH.mv). Jupp stands on the Mannheim quay and barks. Font
   ligatures off app-wide (Pixelify's "fi" read as "A"). Probes $SP/mannheim/t1.py (whole trip, slow) + t2.py
   (skips, views, back-leg landing). 0 JS errors phone + desktop.
+- 2026-10-14 00:29 UTC v1.31 (helper, Mannheim step 2a, for Flax): CARL BENZ'S 1886 PATENT-MOTORWAGEN on a low stone
+  dais on the quay east of the landing (BZ x 20..23, z -77..-72; plain brown plaque "Carl Benz, Mannheim 1886, the
+  first car", NO logos/stars): three spoked wheels (big rear pair, small front), tubular frame, tiller + brass
+  handle, bench seat, engine + water tank, flat flywheel, chains. It IS the VEH in Mannheim: vehSwap(1) in mhEnter
+  parks the Heidelberg Denkmobil in MH.hveh and hands VEH a 'benz' (vmax 4.4, acc 1.7, low putter f0 19/fk 4.2),
+  vehSwap(0) in mhLeave restores it (and you step out first). R / the ride button reads 'Drive the Motorwagen' near
+  it; it sits .3 up while on the dais; Jupp won't talk while you drive. Two new Jupp barks (first car; Bertha Benz
+  drove to Pforzheim in 1888). THE PARADEPLATZ (O1): sandstone round basin, a stone base with four seated bronze
+  figures and a tall column with a gold tip, four water jets, four lime trees, four benches. Canvas boards: "fi"
+  is a ligature there too -> write 'f\u200Cirst'. Probe t4.py (drive, exit, leave, re-enter) + t5.py (plaque,
+  fountain). 0 JS errors phone.
 
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
@@ -541,7 +552,7 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
 - Ansgar ideas: he could sit on his stool with soup after his round; a 'don't tell Ansgar' mini quest
 - NEXT RUN (main 22:13, for Flax): Karlstor; a busier east and west Altstadt (stalls, a bench crowd, lit windows).
   (Jupp's "cruise or Mannheim?" choice + Mannheim DONE v1.30)
-- MANNHEIM queue (Flax 22:58 + 23:5x, in this order): v1.31 Carl Benz's 1886 Patent-Motorwagen on a plinth (plain
+- MANNHEIM queue (Flax 22:58 + 23:5x, in this order; Benz + Paradeplatz DONE v1.31): v1.31 Carl Benz's 1886 Patent-Motorwagen on a plinth (plain
   plaque "Carl Benz, Mannheim 1886, the first car", Bertha Benz 1888 line, NO brand logos/stars; drivable slow
   putter if cheap), the Paradeplatz (fountain pyramid monument + trees, where the Planken cross), Hannes from the
   Uniplatz as the self-declared Mannheim expert whose map turns out to be upside down (he already carries a map

@@ -1,4 +1,4 @@
-// Heidelberg Blocks · Mannheim (v1.30, for Flax): loaded only when Kapitän Jupp takes you down the Neckar.
+// Heidelberg Blocks · Mannheim (v1.30-31, for Flax): loaded only when Kapitän Jupp takes you down the Neckar.
 // build(H) writes the Quadratestadt into the shared voxel grid (the main file meshes it with the same blocks)
 // and returns the props, the place names and the boat's arrival route. +x = east, +z = south, streets at y = TOWN.
 export function build(H){
@@ -164,6 +164,16 @@ export function build(H){
   for(let k=1;k<=4;k++) for(let x=HBF.hx0+k;x<=HBF.hx1-k;x++) for(let z=HBF.z0+k;z<=HBF.z1-k;z++) set(x,T+16+k,z,B.slate);   // the hall's hipped roof
   for(let x=HBF.x0;x<=127;x+=1) for(let z=HBF.z1+3;z<=143;z+=5) if(x%18<14) set(x,T,z,B.trim);   // platforms (low kerbs)
 
+  // ---- the Paradeplatz (O1): a stone pyramid fountain in a round basin, lime trees at the corners ----
+  const PP={x:-.5,z:28.5};
+  for(let x=-5;x<=4;x++) for(let z=24;z<=33;z++){ const d=Math.hypot(x+.5-PP.x,z+.5-PP.z); if(d>3.4) continue;
+    if(d>2.45) set(x,T,z,B.quay); else set(x,T-1,z,B.blue); }
+  for(let x=-2;x<=0;x++) for(let z=27;z<=29;z++) for(let y=T-1;y<T+2;y++) set(x,y,z,y===T+1&&(x!==-1||z!==28)?B.quay:B.stone);
+  for(let y=T+2;y<T+7;y++) set(-1,y,28,y===T+6?B.bronze:B.stone);
+  // ---- Carl Benz's Patent-Motorwagen: a low stone dais on the quay east of the landing ----
+  const BZ={x:22,z:-74,x0:20,x1:23,z0:-77,z1:-72};
+  for(let x=BZ.x0;x<=BZ.x1;x++) for(let z=BZ.z0;z<=BZ.z1;z++) set(x,T-1,z,x===BZ.x0||x===BZ.x1||z===BZ.z0||z===BZ.z1?B.trim:B.stone);
+
   // ---- trees: on the quay promenade, the Ring, the Schlossgarten, the Friedrichsplatz ----
   function tree(x,z,big){ if(get(x,T,z)) return; const h=big?6:4+(R()*2|0), r=big?3.1:2.3, cy=T+h, leaf=R()<.7?B.leaves:R()<.5?B.leavesY:B.leavesR;
     for(let dx=-3;dx<=3;dx++) for(let dz=-3;dz<=3;dz++) for(let dy=-2;dy<=3;dy++){ const dd=(dx*dx+dz*dz)/(r*r)+(dy*dy)/((r*.85)*(r*.85)); if(dd<=1&&!get(x+dx,cy+dy,z+dz)) set(x+dx,cy+dy,z+dz,leaf); }
@@ -172,6 +182,7 @@ export function build(H){
   for(let i=0;i<70;i++){ const x=-126+Math.floor(R()*188), z=108+Math.floor(R()*34); if(x<64||z>110) tree(x,z,R()<.4); }
   for(let i=0;i<16;i++){ const x=-127+Math.floor(R()*18), z=-60+Math.floor(R()*160); tree(x,z); }
   for(const [x,z] of [[92,0],[92,10],[92,31],[92,41],[100,40],[113,40],[124,40],[100,1],[113,1],[124,1]]) tree(x,z,true);
+  for(const [x,z] of [[-5,24],[3,24],[-5,33],[3,33]]) tree(x,z);   // Paradeplatz
 
   // ---- props: one vertex-coloured mesh (cranes, containers, bollards, benches), boards, corner signs ----
   const group=new THREE.Group(), L=[];
@@ -203,6 +214,15 @@ export function build(H){
   for(const x of [-16,-4]) P(.8,.8,.8,x,T+4.4,SCH.wz0+1,'#d8a636');
   { const fz=SCH.z0-5+6; P(.14,7,.14,-10,T+29.5,fz,'#2b2b2e'); P(.3,.3,.3,-10,T+33.1,fz,'#d8a636');
     [['#e8c23a',32.4],['#c8202a',31.8],['#e8c23a',31.2]].forEach(([c,y])=>P(2.6,.6,.06,-8.62,T+y,fz,c)); }
+  // the Paradeplatz fountain: four bronze figures on the base, water spouting into the basin, a gilded top, benches
+  const fig=(x,z,back,c,sc)=>{ for(const p of H.person({skin:c,hair:c,shirt:c,pants:c,shoes:c,sit:.45})) { const k=back?-1:1; L.push([p[0]*sc,p[1]*sc,p[2]*sc,x+p[3]*sc*k,T+2+p[4]*sc,z+p[5]*sc*k,c,0,0,0]); } };
+  fig(-1.4,29.45,0,'#7a5a2e',.62); fig(.4,29.45,0,'#6e5028',.62); fig(-1.4,27.55,1,'#6e5028',.62); fig(.4,27.55,1,'#7a5a2e',.62);
+  P(.34,.34,.34,-.5,T+7.25,28.5,'#d8a636'); P(.14,.5,.14,-.5,T+7.65,28.5,'#d8a636');
+  for(const [dx,dz] of [[1.6,0],[-1.6,0],[0,1.6],[0,-1.6]]){ P(.14,1.1,.14,-.5+dx*1.08,T+.55,28.5+dz*1.08,'#bfe4f0'); P(.5,.06,.5,-.5+dx*1.08,T+.03,28.5+dz*1.08,'#e8f6fa'); }
+  for(const [x,z,r] of [[-4.6,28.5,Math.PI/2],[3.6,28.5,Math.PI/2],[-.5,24.9,0],[-.5,32.1,0]]){ P(1.9,.12,.5,x,T+.45,z,'#7a5232',r); P(.12,.45,.4,x+(r?0:-.8),T+.22,z+(r?-.8:0),'#2b2b2e',r); P(.12,.45,.4,x+(r?0:.8),T+.22,z+(r?.8:0),'#2b2b2e',r); }
+  // the Benz dais: a low slab (the car sits on it until you drive off), the plaque on a post facing the landing
+  P(3.6,.3,5.6,BZ.x,T+.15,BZ.z,'#8f8a80'); P(3.75,.06,5.75,BZ.x,T+.32,BZ.z,'#b8b2a4');
+  P(.14,1.05,.14,BZ.x0-.45,T+.52,BZ.z,'#3a2a1c');
   // two trains at the platforms behind the Hauptbahnhof
   for(const z of [HBF.z1+5.5,HBF.z1+15.5]){ P(40,3,2.8,100,T+1.9,z,'#e8e8ea'); P(40.05,.8,2.85,100,T+2.5,z,'#2a3550'); P(40.1,.4,2.9,100,T+1.1,z,'#c23a2a'); }
   // the gold figure on top of the Wasserturm (Amphitrite), a little blocky
@@ -236,6 +256,10 @@ export function build(H){
   board(6,1.2,384,77,(g,w,h)=>{ g.fillStyle='#f1e7cf'; g.fillRect(0,0,w,h); g.fillStyle='#5a2a1c'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 30px '+FONT; g.fillText('Wasserturm',w/2,h*.38); g.font='400 18px '+FONT; g.fillText('Friedrichsplatz · 1889',w/2,h*.76); },
     WT.x-10.4,T+1.25,WT.z,-Math.PI/2,true);
 
+  board(2.5,1.05,400,168,(g,w,h)=>{ g.fillStyle='#5a3a1c'; g.fillRect(0,0,w,h); g.strokeStyle='#d8b060'; g.lineWidth=8; g.strokeRect(8,8,w-16,h-16);
+      g.fillStyle='#f4e6c0'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 27px '+FONT; g.fillText('Carl Benz, Mannheim 1886,',w/2,h*.38); g.font='700 36px '+FONT; g.fillText('the f\u200Cirst car',w/2,h*.68); },
+    BZ.x0-.55,T+1.35,BZ.z,-Math.PI/2);
+  board(2.5,1.05,8,8,(g,w,h)=>{ g.fillStyle='#4a2f17'; g.fillRect(0,0,w,h); },BZ.x0-.53,T+1.35,BZ.z,Math.PI/2);
   for(const [x,y,z] of SCHP) board(3.4,3.4,136,136,(g,w,h)=>{ g.clearRect(0,0,w,h);
       g.save(); g.beginPath(); g.ellipse(w/2,h*.58,w*.34,h*.38,0,0,7); g.clip();
       for(let i=-6;i<7;i++) for(let j=-6;j<7;j++){ const cx=w/2+(i-j)*11, cy=h*.58+(i+j)*11; g.fillStyle=(i+j)&1?'#f4f1ea':'#2f6fb8'; g.beginPath(); g.moveTo(cx,cy-11); g.lineTo(cx+11,cy); g.lineTo(cx,cy+11); g.lineTo(cx-11,cy); g.fill(); }
@@ -272,6 +296,26 @@ export function build(H){
   for(const [x,z] of [[-330,-260],[-315,-262],[360,250]]){ S.push([5,64,5,x,T+32,z,'#c9c3b8'],[5.3,4,5.3,x,T+58,z,'#b8402c'],[5.3,4,5.3,x,T+48,z,'#e8e2d8']); }
   const sk=new THREE.Mesh(blockyGeo(S),new THREE.MeshLambertMaterial({vertexColors:true})); sk.matrixAutoUpdate=false; group.add(sk);
 
+  // ---- the Patent-Motorwagen: three spoked wheels, a tube frame, a bench over the engine, a flat flywheel at the back, a tiller ----
+  const BP=[], FR='#1c1c22', BR2='#b8923a', TY2='#151515', SPK='#d8d4c8', WD='#6b4a2e', LE='#4a2a22';
+  const bp=(w,h,d,x,y,z,c,ry,rx)=>BP.push([w,h,d,x,y,z,c,ry||0,0,rx||0]);
+  function wheel(x,y,z,r,n){ const ch=2*r*Math.sin(Math.PI/n)+.02;
+    for(let k=0;k<n;k++){ const a=k*2*Math.PI/n; bp(.07,.075,ch,x,y+r*Math.cos(a),z+r*Math.sin(a),TY2,0,a); }
+    for(let k=0;k<6;k++){ const a=k*Math.PI/6; bp(.025,.025,2*r-.06,x,y,z,SPK,0,a); }
+    bp(.16,.12,.12,x,y,z,BR2); }
+  wheel(.74,.62,-.72,.62,14); wheel(-.74,.62,-.72,.62,14); wheel(0,.36,1.18,.36,10);
+  bp(1.62,.06,.06,0,.62,-.72,FR);                                                    // rear axle
+  for(const x of [.42,-.42]) bp(.07,.07,1.9,x,.58,.1,FR);                             // the two frame tubes
+  bp(.9,.06,.06,0,.58,1.02,FR); bp(.06,.62,.06,0,.68,1.18,FR);   // front cross tube + fork
+  bp(.05,.85,.05,0,.95,.62,FR,0,-.25); bp(.42,.05,.05,0,1.38,.52,BR2);               // the tiller and its handle
+  bp(.9,.04,.55,0,.63,.62,WD);                                                       // footboard
+  bp(.96,.36,.7,0,.8,-.28,FR); bp(.98,.04,.72,0,.99,-.28,BR2);                       // the seat box, brass edge
+  bp(.92,.16,.52,0,1.09,-.24,LE); bp(.92,.42,.1,0,1.33,-.56,LE);                     // cushion + backrest
+  bp(.3,.3,.62,.18,.62,-1.02,'#3a3a40'); bp(.24,.38,.24,-.22,1.04,-.98,BR2);         // the engine + its water tank
+  bp(.78,.05,.78,0,.5,-1.22,BR2); bp(.78,.05,.78,0,.5,-1.22,BR2,Math.PI/4);         // the flat flywheel
+  for(const x of [.62,-.62]) bp(.04,.04,.42,x,.62,-.9,'#2a2a2a');                    // the chains
+  const benz={x:BZ.x,z:BZ.z,h:Math.PI,parts:BP,onDais:(x,z)=>x>BZ.x0+.3&&x<BZ.x1+.7&&z>BZ.z0+.3&&z<BZ.z1+.7};
+
   // ---- names ----
   function nearQ(x,z,m){ let best=null, bd=m; for(const q of QD){ const dx=Math.max(q.x0-x,0,x-q.x1-1), dz=Math.max(q.z0-z,0,z-q.z1-1), d=Math.hypot(dx,dz); if(d<bd){ bd=d; best=q; } } return best; }
   function place(x,z,y,wet){
@@ -298,7 +342,7 @@ export function build(H){
   let clk=0;
   function tick(dt,night){ lamps.visible=night; if((clk-=dt)<0){ clk=5; if(new Date().getMinutes()!==clockDraw.m) clockDraw(); } }
 
-  return { group, place, riverD, tick, steps, QD,
+  return { group, place, riverD, tick, steps, QD, benz,
     spawn:{x:4.5,z:-74.6,yaw:Math.PI}, jupp:{x:7.2,z:-77.4},
     arrive:[[124,-90],[96,-90.5],[66,-88.5],[40,-84.5],[22,-82.6],[12,-82.4]],
     trig:[[118,-90,'Willkommen in Mannheim! The city of squares. Streets have no names here, only letters and numbers.'],
