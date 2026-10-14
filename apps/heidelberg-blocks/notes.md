@@ -644,6 +644,19 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   parapets (hop during the race). Result in the HUD, best in localStorage 'hb-row-best', back on the meadow after
   7 s (or 🏁 any time). Seat is aft so the oar shafts show; drag still looks around (eases back after 1.2 s).
   Mike's stone untouched (bridge gate, far from the course). Code: ROW/rowTick/rowAmb before fadeDo.
+- 2026-10-14 14:40 UTC v1.40 (helper, Flax 13:06 + 14:21 "Now i need the Helikopter please"): RUNDFLUG. A helipad
+  pontoon in the Neckar off the Neckarwiese (HELP -95,-34, west of the rowing course; canvas H + yellow ring, edge
+  lights, windsock, gangway to the bank) with a red-and-white helicopter (no marks, no registration), and a blackletter
+  "Rundflug / Heidelberg von oben · with Birte" sign. Board from the bank (HELJ -95,-45.3, R / 🚁 button). Pilot Birte
+  (generic name) spins up, lifts off, flies a ~60 s CatmullRom loop (HELW): east along the Neckar, over the Alte Brücke,
+  round the castle (east, south, west at y 84-90), back over the Altstadt and the river, hovers and sets down over 6 s.
+  The view turns to the bridge / castle / Altstadt on its own (HELPOI), drag looks anywhere (eases back after 2 s).
+  Five short commentary lines (bridge 1780s sandstone, castle 1690s French troops + 1764 lightning, Altstadt
+  Heiliggeistkirche + Hauptstraße, Philosophenweg). ⏭ skips straight to the pad. Aboard: the cabin shell + tail rotor
+  hide (camera sits inside), skids, spinning rotor, window posts and a low dash stay. Fog 110/520 + far 560 while
+  airborne, restored on landing. secFound() is blocked while flying (flying over the Hortus counted as finding it).
+  Also: on touch the rowing hints sit up top (body.rowing) and flight hints use the full width (body.flying).
+  The earlier plan (from the L2 roof over Mannheim, Heidelberg and Hirschhorn) is NOT built: ask Flax if he wants it.
 
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
@@ -738,6 +751,8 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   Benz dais x 20..23 z -77..-72; Paradeplatz fountain (-.5,28.5); Grumbach (-.85,-62.75); Kessler (44.5,65.25); Hannes (13.5,-72.6).
 - Mannheim: the ride in passes between two tall quay walls (TOWN-WATER = 8); a grassy dike on one bank would
   open it up (cranes need the north quay)
+- Rundflug (v1.40): ask Flax if he still wants the three-town flight (L2 roof in Mannheim, MH.w.l2, over Heidelberg and
+  Hirschhorn and back), a rotor sound, a night flight with the castle lit
 - Ruderboote (v1.39): ask Flax if the course is right (start east of the bridge, finish off the Neckarwiese); ideas:
   a 2-player ghost of your best run, a slalom variant, Ole's rematch line
 - Students: at night Mira/Aylin/Hannes are gone; they could sit on the fountain rim singing, or Hannes could turn
@@ -788,6 +803,8 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   Wasserspiele 18/45k, Mannheim E edge 14/26k. Ridge ring = +3 calls, ~0.9k tris.
 - v1.39: phone 390x844 jetty 69/190k, start line 42/122k, approaching the bridge 84/171k; desktop 1280x720 jetty
   123/250k, start 110/245k, bridge 125/234k. Race meshes are lazy (built within 260 of the jetty).
+- v1.40 flight: phone 390x844 pad 59/164k, lift 74/184k, bridge 33/120k, castle 122/241k (busiest), castle south
+  95/240k, Altstadt 69/188k; desktop 1280x720 castle 150/307k, castle south 156/316k, lift 130/301k.
 - v1.37 Hirschhorn layout: desktop 1280x720 mitteltor 33/112k, wallR (from the water) 49/111k, kloster 18/71k,
   klosterW 61/162k, weir 31/114k, aerialS 75/176k; phone 390x844 day + night mitteltor 27/81k, kloster 17/57k,
   aerialS 61/115k.
