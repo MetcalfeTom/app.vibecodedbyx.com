@@ -493,6 +493,26 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   erstiSide() (appended after karzSide) shows ✓/☐ per item; all three + talk -> Q.ersti=2 + toast. Mira and Aylin
   point at Hannes and react to the list. Probe p/stu.py (reloads with saved state for the finish). Budget day:
   plaza 122k/26 desktop, 105k/20 phone. 0 JS errors.
+- 2026-10-14 00:16 UTC v1.30 (helper, Mannheim step 1, for Flax): KAPITÄN JUPP NOW ASKS "where to?" (a choice box
+  #jch: 1 = the old Heidelberg round, 2 = down to Mannheim; Esc/walking off closes it). The Mannheim ride: a real
+  Heidelberg leg west out of the map (MH_OUT), then the 'Neckarfahrt' trip card (#mhcard: a little river map with
+  the castle, the Ladenburg + lock stops and a boat running along it, Jupp's lines about the Schleusen; min 9 s down,
+  6 s up, "Skip the ride" button / R key), then a Mannheim arrival leg (w.arrive) to the Anlegestelle. Home is the
+  same in reverse (MH_HOME -> card -> MH_BACK -> homeLand at the Heidelberg dock). The whole town lives in
+  apps/heidelberg-blocks/mannheim.js, loaded with import() only on the first ride (MH_BASE from location.pathname,
+  ?v=130, retry nonce after a failure; a failed load shows an error line on the card and brings you home).
+  Mannheim: the Quadrate (rows A-K west + L-U east of the Breite/Kurpfalzstraße, no I; G1 Marktplatz and O1
+  Paradeplatz left open), a blue corner sign with the block code at every corner (one mesh), the Planken, the
+  Ringe, the Wasserturm with its copper dome + gold figure on the Friedrichsplatz (basin, benches, board), the
+  Schloss (a long front mirror-symmetric about the axis: end pavilions, Ehrenhof wings with head pavilions, a
+  corps de logis, a middle risalit with giant pilasters, a column portico + balcony over the main door, a
+  pediment with blue-white lozenge arms, a Baden flag on the ridge, gate pillars with gold balls), the
+  Hauptbahnhof (sandstone front, clock with the real time, MANNHEIM HAUPTBAHNHOF board, hipped hall roof, trains
+  behind), the Kurpfalzbrücke, harbour cranes on rails, containers, silos, two moored barges, river steps.
+  Separate scene (MH.scene) + own block material mhMat() (no Heidelberg position lighting); Heidelberg's
+  vox/colTop/colLow are swapped out and cached (MH.hv/MH.mv). Jupp stands on the Mannheim quay and barks. Font
+  ligatures off app-wide (Pixelify's "fi" read as "A"). Probes $SP/mannheim/t1.py (whole trip, slow) + t2.py
+  (skips, views, back-leg landing). 0 JS errors phone + desktop.
 
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
@@ -519,9 +539,21 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   carpet, hatch, clock, Perkeo all hang on those numbers; the south wall could move to z 98 now the back walk is there)
 - castle: only terrace 1 (the Kräutergarten, v1.27) has a way in; terraces 2-4 behind it are still for looking at
 - Ansgar ideas: he could sit on his stool with soup after his round; a 'don't tell Ansgar' mini quest
-- NEXT RUN (main 22:13, for Flax): Karlstor; a busier east and west Altstadt (stalls, a bench crowd, lit windows);
-  Flax 21:54: Kapitän Jupp asks "Heidelberg cruise or ride to Mannheim?", and Mannheim becomes a whole new scene
-  later (the boat ride down the Neckar as the way there).
+- NEXT RUN (main 22:13, for Flax): Karlstor; a busier east and west Altstadt (stalls, a bench crowd, lit windows).
+  (Jupp's "cruise or Mannheim?" choice + Mannheim DONE v1.30)
+- MANNHEIM queue (Flax 22:58 + 23:5x, in this order): v1.31 Carl Benz's 1886 Patent-Motorwagen on a plinth (plain
+  plaque "Carl Benz, Mannheim 1886, the first car", Bertha Benz 1888 line, NO brand logos/stars; drivable slow
+  putter if cheap), the Paradeplatz (fountain pyramid monument + trees, where the Planken cross), Hannes from the
+  Uniplatz as the self-declared Mannheim expert whose map turns out to be upside down (he already carries a map
+  of "Mannheim" since v1.29), a parcel delivery to a block code (e.g. L4) by the corner signs only, before the
+  bread goes cold, and a grumpy baker. v1.32+: Planken shops, Jesuitenkirche dome, Rhine-Neckar confluence, night
+  lights (Wasserturm is dark at night now), crowds.
+- Mannheim layout (mannheim.js): Neckar water z -99..-80, quay promenade z -78..-71 (y TOWN), Ring z -70..-63,
+  axis x -14..-7 (block centre -10.5), Planken z 18..23, Kaiserring x 80..87, rows rowZ(r)=-62+14r(+2 from row 6),
+  east blocks x0=-6+15(n-1), west x0=-25-15(n-1), Schloss x -85..64 z 84..105, HBF x 70..124 z 114..125,
+  Friedrichsplatz x 88..127 z -2..43 (Wasserturm 106.5,20.5). Spawn (4.5,-74.6), Jupp (7.2,-77.4).
+- Mannheim: the ride in passes between two tall quay walls (TOWN-WATER = 8); a grassy dike on one bank would
+  open it up (cranes need the north quay)
 - Ruderboote race under the Alte Brücke (plan only): rent a rowing boat on the Neckarwiese bank, race a rival rower
   (generic name) round buoys under the bridge arches and back; phone = two big oar buttons, desktop = A/D strokes;
   each stroke an impulse + drag, steering from stroke imbalance; timer + best time in localStorage; start from
@@ -563,6 +595,8 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
 - v1.24 (speed pass 1, probe $SP/hbpol/p/perf.py, 11 views x golden/night): portrait 390x844 max 258k/90 calls
   (was 105), desktop 1280x720 max 315k/134 (was 142), landscape 844x390 max 320k/118 (was 151). Tris are the world
   itself (chunks 307k + skirts 69k), the busiest is the Königstuhl north view.
+- v1.30 Mannheim (separate scene, 64 chunks, ~135k tris world, gen ~160 ms + mesh ~190 ms headless): phone 390x844
+  max 39 calls / 88k (landing, Wasserturm), Schloss views 15-16 / 30-33k; desktop 1280x720 Schloss 29-30 / 53-59k.
 
 ## testing
 - scratch: $SP/hb (index.html + mk.sh injects window.__G/__E into gaunt/sw/hm43/hb). The live file only has a
