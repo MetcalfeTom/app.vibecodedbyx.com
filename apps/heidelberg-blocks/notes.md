@@ -546,6 +546,22 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   round the Wasserturm (offset pi/8 so none blocks its board). Floodlights without real lights: w.flood zones ->
   mhMat uniforms mhFA/mhFB/mhN, shader adds warm emissive by normal facing (Wasserturm round zone, Schloss + HBF
   box zones facing -z). HBF board + clock brighten at night. w.tick(dt,night) toggles it all. 0 JS errors.
+- 2026-10-14 12:11 UTC v1.34 (helper, for Flax 10:59 "i like to go to hirschhorn by boat"): HIRSCHHORN BY BOAT. Jupp's
+  where-to box has 3 options now (1/2/3 keys): round trip, 'Up to Hirschhorn' (hhGo, upstream = east from the quay,
+  HH_OUT/HH_TOUT lines, card 'Heidelberg → Hirschhorn': Heidelberg lock, Neckargemünd + Dilsberg, Neckarsteinach's four
+  castles; card .hh variant with hills, a castle mark and four towers), 'Down to Mannheim'. The town is hirschhorn.js
+  (same build(H) contract as mannheim.js + folk/solid/home/thome/jb/hint): the Neckar bending round the Ersheim
+  meadow, the half-timbered old town (two rows, own atlas tiles 49-62: plaster W/C post/rail/diag, shutter windows
+  green/red, beam, wall stone, roof tiles) on its river wall with a gate tower + stairs up from the landing jetty, a
+  wall tower and a corner tower, window boxes with geraniums, the café on the corner with its terrace over the river,
+  Burg Hirschhorn on its rock above (curtain wall, gatehouse, Bergfried, Palas, a north wing, yard with well + linden,
+  an open terrace with a railing you can look straight down from: virtual solid cells via w.solid in solidAt), the
+  Burgweg up from the west end, the Ersheim chapel with tower + graveyard across the river, autumn Odenwald all
+  round, lamps + floodlights at night. Folk: Frau Seiler (landing), Anni (café), Herr Vogt (angler, fixed), Frau
+  Keller (chapel), Herr Albrecht (Burgwirt) + walkers Ruth & Klaus, Herr Lenz with Bello, Mia jogging, a Wanderer up
+  the Burgweg (MH.folk routes run walkStep in mhTick). index.html generalised: MH.k + MH.T + awUse() swap the town
+  fields, AWM per-town module promises, mhCard/mhLeave/mhGoHome/mhLand/mhSpawn read the town. 0 JS errors, phone +
+  desktop, Mannheim trip re-tested.
 
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
@@ -591,6 +607,15 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   of "Mannheim" since v1.29), a parcel delivery to a block code (e.g. L4) by the corner signs only, before the
   bread goes cold, and a grumpy baker. v1.32+: Planken shops, Jesuitenkirche dome, Rhine-Neckar confluence, night
   lights (Wasserturm is dark at night now), crowds.
+- HIRSCHHORN (v1.34+, for Flax) layout (hirschhorn.js): river polyline RP, half width 12 (water z -32..-8 in front of
+  the town), Ersheim = inside the loop (meadow y 13, chapel nave x -6..7 z 5..11, tower x -10..-7, graveyard wall
+  x -15..16 z -1..18), Uferweg z -36..-33 (y 13), town wall z -38..-37, row A z -43..-37, street z -47..-44 (y 19),
+  row B z -55..-48, café x -9..-3 (terrace x -6..3 z -43..-38), gate tower x 4..8 (stairs x 5..7), jetty x 2..10
+  z -32..-29 (y 12), castle plateau x -26..12 z -90..-60 at CY 46 (terrace x -15..1, railing z -59), Burgweg BW from
+  (-36,-45.5) to the gatehouse (-27.5,-76). Spawn (5.5,-30.5), Jupp (9,-29.6). Boat lands at (6.5,-24.8).
+- HIRSCHHORN NEXT ideas: Neckarsteinach's four castles as a real stop on the way (a far skyline or a stop), the lock,
+  more folk on the castle terrace, the Burgweg steps + benches, a little Hirschhorn quest (Anni's cake to the castle?),
+  Mannheim crowd pass (Planken walkers, tram) if Flax still wants Mannheim.
 - Mannheim layout (mannheim.js): Neckar water z -99..-80, quay promenade z -78..-71 (y TOWN), Ring z -70..-63,
   axis x -14..-7 (block centre -10.5), Planken z 18..23, Kaiserring x 80..87, rows rowZ(r)=-62+14r(+2 from row 6),
   east blocks x0=-6+15(n-1), west x0=-25-15(n-1), Schloss x -85..64 z 84..105, HBF x 70..124 z 114..125,
@@ -641,6 +666,8 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   itself (chunks 307k + skirts 69k), the busiest is the Königstuhl north view.
 - v1.30 Mannheim (separate scene, 64 chunks, ~135k tris world, gen ~160 ms + mesh ~190 ms headless): phone 390x844
   max 39 calls / 88k (landing, Wasserturm), Schloss views 15-16 / 30-33k; desktop 1280x720 Schloss 29-30 / 53-59k.
+- v1.34 Hirschhorn (views_hh: landing/across/street/castle/aerialS/chapel, day + night): phone 390x844 max 53 calls /
+  123k (aerial), street 36/111k; desktop 1280x720 max 73/207k (castle terrace), aerial 66/171k. Voxel chunks 230k tris.
 - v1.33 Mannheim night (views_n: planken/wt/landing/schloss/hbf/aerial): phone 390x844 max 46 calls / 98k (landing),
   planken 26/53k, wt 15/26k; desktop 1280x720 max 67/140k (landing), aerial 55/113k, planken 41/74k. Day +2 calls/+5k.
 
