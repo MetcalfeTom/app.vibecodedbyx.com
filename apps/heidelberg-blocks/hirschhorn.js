@@ -243,6 +243,10 @@ export function build(H){
     for(const p of [[.3,.18,.46, 0,.06,0,m?'#8a8a7a':'#8a6a44'],[.18,.18,.2, 0,.24,.22,m?'#2a6a3a':'#7a5a3a'],[.1,.05,.12, 0,.21,.36,'#e8b830'],[.12,.1,.12, 0,.12,-.24,m?'#f4f1ea':'#6a4a2a']])
       DK.push([p[0],p[1],p[2],x+p[3]*c+p[5]*s,p[4],z-p[3]*s+p[5]*c,p[6],ry]); }
   const ducks=new THREE.Mesh(blockyGeo(DK),new THREE.MeshLambertMaterial({vertexColors:true})); ducks.position.set(18,W-.1,-21); group.add(ducks);
+  const SW=[]; for(let i=0;i<2;i++){ const a=i*Math.PI, x=Math.sin(a)*3.2, z=Math.cos(a)*3.2, ry=a+Math.PI/2, c=Math.cos(ry), s=Math.sin(ry);
+    for(const p of [[.5,.3,.8, 0,.1,0,'#f4f4ee'],[.36,.22,.5, 0,.3,-.18,'#ffffff'],[.12,.62,.12, 0,.55,.32,'#f4f4ee'],[.16,.14,.24, 0,.88,.4,'#f4f4ee'],[.08,.07,.16, 0,.85,.58,'#e07a2a'],[.06,.06,.04, 0,.9,.52,'#1a1a1a']])
+      SW.push([p[0],p[1],p[2],x+p[3]*c+p[5]*s,p[4],z-p[3]*s+p[5]*c,p[6],ry]); }
+  const swans=new THREE.Mesh(blockyGeo(SW),new THREE.MeshLambertMaterial({vertexColors:true})); swans.position.set(-32,W-.12,-15); group.add(swans);
 
   // boards (canvas, a little self-lit so they read at night)
   function board(w,h,cw,ch,paint,x,y,z,ry,two){ const c=document.createElement('canvas'); c.width=cw; c.height=ch; paint(c.getContext('2d'),cw,ch);
@@ -322,6 +326,22 @@ export function build(H){
       look:person({ shirt:'#c8462a', pants:'#5a5040', hair:'#3a2a1a', skin:'#e3b392', extra:[[.4,.5,.22, 0,1.15,-.27,'#3a5a3a'],[.44,.1,.44, 0,1.9,0,'#7a6a3a'],[.04,1.25,.04, .4,.68,.16,'#6a4a2a']] }),
       barks:['Puh. Steep, steep, steep.','The view is worth it. Allegedly.','Almost at the top!'],
       talk(){ return ['Up to the castle and down again, twice. Training for the Odenwald.','The trick is: never look at how far it still is. Look at the river.']; } },
+    { id:'hh_ines', name:'Ines, at the railing', short:'Ines', at:[-11.2,-59.55,0,CY], fixed:1,
+      look:person({ shirt:'#2f6a7a', pants:'#3a3a48', hair:'#2a1a12', skin:'#c8956a', swing:still, armUp:'R', extra:[[.5,.12,.06, 0,1.62,.2,'#2a2a2a'],[.14,.1,.04, .2,1.95,.3,'#1a1a1a']] }),
+      barks:['Ole, look, the chapel!','Wait, one more photo.','You can see the whole bend from here.'],
+      talk(){ return ['Isn\'t it unreal? The river goes all the way round that meadow and comes back.','Ole wants to go down for cake. I want one more photo. And then one more.']; } },
+    { id:'hh_ole', name:'Ole, at the railing', short:'Ole', at:[-12.1,-59.55,0,CY], fixed:1,
+      look:person({ shirt:'#c8a040', pants:'#4a4a3a', hair:'#c8a070', skin:'#efc6a2', swing:still }),
+      barks:['Cake?','*leans on the railing*','We could live here. In the castle. Obviously.'],
+      talk(){ return ['We came up the Burgweg. My legs are still down there somewhere.','Anni\'s café is right at the bottom. Just saying.']; } },
+    { id:'hh_ida', name:'Ida, Ersheim bank', short:'Ida', at:[-21,-6.6,Math.PI,12], scale:.72, head:2.0,
+      look:person({ shirt:'#e05a3a', pants:'#3a4a7a', hair:'#d8a050', skin:'#f2cba8', swing:still, armUp:'R', extra:[[.12,.22,.12, -.24,1.72,-.06,'#d8a050']] }),
+      barks:['Four hops! FOUR!','*plop*','Theo, that was a sinker.'],
+      talk(){ return ['We\'re skipping stones. My record is four hops. Theo\'s record is one plop.','Flat stones only. The round ones go straight to the fish.']; } },
+    { id:'hh_theo', name:'Theo, Ersheim bank', short:'Theo', at:[-19.4,-6.4,Math.PI-.3,12], scale:.66, head:2.0,
+      look:person({ shirt:'#3a8a5a', pants:'#4a3a2a', hair:'#5a3a22', skin:'#e8b892', swing:still }),
+      barks:['That counted!','*searches for a flat stone*','The ducks are cheering for me.'],
+      talk(){ return ['It counted. It hopped once in my head.','Ida says the chapel is really, really old. Older than Oma!']; } },
   ];
 
   // ---- names ----
@@ -343,7 +363,7 @@ export function build(H){
   function tick(dt,night){
     if(night!==nightWas){ nightWas=night; lamps.visible=pools.visible=night; headMat.emissive.set(night?0xffd27a:0x000000); headMat.emissiveIntensity=night?1.3:0;
       for(const b of NB) b.material.emissiveIntensity=night?.85:.3; }
-    ducks.rotation.y+=dt*.09; ducks.position.y=W-.1+Math.sin(performance.now()/900)*.03; }
+    ducks.rotation.y+=dt*.09; ducks.position.y=W-.1+Math.sin(performance.now()/900)*.03; swans.rotation.y-=dt*.05; }
 
   const solid=(x,y,z)=>z===-59&&x>=-15&&x<=1&&y>=CY&&y<=CY+2;   // the terrace railing stops you, but you can see straight down past it
   return { group, place, riverD, tick, flood, folk, solid, steps:[{x:6.5,z:-33.5},{x:-1,z:-5}],

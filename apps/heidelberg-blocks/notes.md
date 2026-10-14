@@ -562,6 +562,15 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   the Burgweg (MH.folk routes run walkStep in mhTick). index.html generalised: MH.k + MH.T + awUse() swap the town
   fields, AWM per-town module promises, mhCard/mhLeave/mhGoHome/mhLand/mhSpawn read the town. 0 JS errors, phone +
   desktop, Mannheim trip re-tested.
+- 2026-10-14 12:28 UTC v1.35 (helper, for Flax 10:57 "Mannheim is lonely" + Hirschhorn life): MANNHEIM CROWD PASS +
+  more Hirschhorn folk. index.html mhCrowd() adds 16 Mannheim folk to mhFolk (scale + route init there too): Planken
+  walkers in lanes z 19.3 Frau Hübner (bags), 20.1 Oma Hannelore (stick, x -40..10) + Herr Schulz (newspaper,
+  x 20..72), 20.9 Deniz (coffee), 21.7 Herr Petersen (briefcase), 22.3/22.95 Tobi & Sanne (spaghetti ice); Jana + Ayla
+  window shopping at E1 (fixed, z 18.45); Breite Straße Paul (balloon Kurt) + Paul's Papa (x -10.2/-11.4) and Emre
+  (x -8.4, off to the train); Finn + Kiki at the Paradeplatz fountain; the Kayas on its bench (sit .45). Hirschhorn
+  (hirschhorn.js): two swans by the Ersheim bank (-32,-15), Ines + Ole at the castle terrace railing, kids Ida + Theo
+  skipping stones on the Ersheim bank (-21,-6.6, y 12). Lamps at Planken z 18.6/23.4 keep the lanes clear. 0 JS
+  errors, full trip probe (phone) incl. Mannheim + second Hirschhorn trip.
 
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
@@ -597,7 +606,7 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   (the Neckar running into a much wider Rhine, Ludwigshafen across the water as a far skyline, a spot to stand at
   the tip), maybe a Jupp option to sail there; (4) night: lit windows + street lamps in the Quadrate, the Wasserturm
   floodlit, the Hauptbahnhof clock glowing [DONE v1.33]; (5) crowds: walkers on the Planken + Breite
-  Straße (route folk in MH.folk, reuse walkStep), people on the Paradeplatz benches, a tram on the Planken.
+  Straße (route folk in MH.folk, reuse walkStep), people on the Paradeplatz benches [DONE v1.35], a tram on the Planken.
   Questions for Flax: are Herr Grumbach + Frau Kessler good names? Should Hannes come home on the boat with you?
   Faster or slower than 2:00 for the bread?
 - MANNHEIM queue (Flax 22:58 + 23:5x, in this order; Benz + Paradeplatz DONE v1.31; Hannes, L4 delivery, baker DONE v1.32): v1.31 Carl Benz's 1886 Patent-Motorwagen on a plinth (plain
@@ -614,8 +623,10 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   z -32..-29 (y 12), castle plateau x -26..12 z -90..-60 at CY 46 (terrace x -15..1, railing z -59), Burgweg BW from
   (-36,-45.5) to the gatehouse (-27.5,-76). Spawn (5.5,-30.5), Jupp (9,-29.6). Boat lands at (6.5,-24.8).
 - HIRSCHHORN NEXT ideas: Neckarsteinach's four castles as a real stop on the way (a far skyline or a stop), the lock,
-  more folk on the castle terrace, the Burgweg steps + benches, a little Hirschhorn quest (Anni's cake to the castle?),
-  Mannheim crowd pass (Planken walkers, tram) if Flax still wants Mannheim.
+  more folk on the castle terrace [Ines + Ole v1.35], the Burgweg steps + benches, a little Hirschhorn quest (Anni's
+  cake to the castle?), the Carmelite monastery church below the castle (ask Flax first). Mannheim crowd DONE v1.35
+  (tram still open; verdict: a big grid city never gets cosy in blocks, keep it a side trip, Hirschhorn is the lovely
+  scene).
 - Mannheim layout (mannheim.js): Neckar water z -99..-80, quay promenade z -78..-71 (y TOWN), Ring z -70..-63,
   axis x -14..-7 (block centre -10.5), Planken z 18..23, Kaiserring x 80..87, rows rowZ(r)=-62+14r(+2 from row 6),
   east blocks x0=-6+15(n-1), west x0=-25-15(n-1), Schloss x -85..64 z 84..105, HBF x 70..124 z 114..125,
@@ -668,6 +679,8 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   max 39 calls / 88k (landing, Wasserturm), Schloss views 15-16 / 30-33k; desktop 1280x720 Schloss 29-30 / 53-59k.
 - v1.34 Hirschhorn (views_hh: landing/across/street/castle/aerialS/chapel, day + night): phone 390x844 max 53 calls /
   123k (aerial), street 36/111k; desktop 1280x720 max 73/207k (castle terrace), aerial 66/171k. Voxel chunks 230k tris.
+- v1.35 desktop 1280x720: Mannheim crowd planken 60/97k, window 39/63k, parade 41/77k, breite 67/120k, landing 76/142k
+  (mhStats 139k tris); Hirschhorn railing 58/188k, kids from behind 50/113k, along the bank 49/140k.
 - v1.33 Mannheim night (views_n: planken/wt/landing/schloss/hbf/aerial): phone 390x844 max 46 calls / 98k (landing),
   planken 26/53k, wt 15/26k; desktop 1280x720 max 67/140k (landing), aerial 55/113k, planken 41/74k. Day +2 calls/+5k.
 
