@@ -105,11 +105,17 @@ Marci's rooms so far: Madrid fine-arts education (expelled from the academy, 192
 - Budget: 39 draw calls, 26k triangles at 1280x720 (beans was 51 / 90k).
 - Probes: scratchpad dg9/t (s5.sh peek pose + wrong pick, s6.sh 5-cloche mid-swap pose on phone); the headless test browser renders about 1 frame a second, so poll in the page for states rather than sleeping.
 
+## a seat at the table (v2.16, Marci: 'seat at the table is good')
+- Trigger: winning The Gala Dinner when every other ↑ room already has stars (R.seat() called at the top of won()). If the last star came from another room, the hall's awake line tells the player to win the dinner once more.
+- Scene (R.seatGo): cloches float off, the detective sits in the chair beside the head of the table (NOT Gala's chair), the ghost sits opposite, a glove lowers a gold place card reading 'Detective' (the game knows no names), clink + chime, the candles relight (R.relit undoes the burn-down), then won() with a special endMsg.
+- SAVE.seat=1 keeps the card on the table for good (R.reset shows it). SAVE.r.dinner is stored at scene start, so leaving mid-scene keeps the star.
+
 ## log
 - v1 (2026-10-07 ~18:04 UTC) 2D phone version: 7 rounds; the ghost hides behind one of 9 things on a 3x3 dream desert (12 things: egg/Figueres, soft watch/1931, Chupa Chups lollipop 1969, diving helmet London 1936, film reel Buñuel/Hitchcock, cookbook Les Dîners de Gala 1973, ocelot Babou, moustache/Velázquez, drawers/Venus de Milo 1936, crutch, Port Lligat boat, ants). Tap = hot/cold by grid distance (hot <=1, warm <=1.5, cold <=2, freezing), the tapped thing shows its fact; 4 tries; caught = his 3-choice question about that thing, right answer wins the piece (flies to the cover bar). End card: stars, best (localStorage dalis-ghost:best), share. Lesson: .card{display:flex} beat [hidden]; add .card[hidden]{display:none}.
 
 - v2.15 (2026-10-14 10:06 UTC) dream floor room 6, The Gala Dinner, for Marci: a cloche shell game at a melting banquet table, Gala's empty chair, a Dumas salad among the wrong dishes, and the detective's first lines.
 - v2.15.1 (2026-10-14 10:10 UTC) hall texts: keys 5 to 0, the room count follows UPS, a '✦ new dream' line for awake saves without the dinner; 6-wide ↑ titles shrink and hyphenate (Soft Construction overflowed at 80 px).
+- v2.16 (2026-10-14 10:21 UTC) a seat at the table: all six dreams + the dinner won = the detective sits at Gala's table, gold 'Detective' card stays for good, candles relight. Probed 1280x720 + 390x844: state won, SAVE.seat 1, no errors.
 
 ## structure
 - v1 (2D) is in git history (commit bb4e67447).
