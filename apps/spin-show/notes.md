@@ -1,7 +1,7 @@
 # Spin Show
 
 angienimo's (Angie) game show. Tabs: 🎮 Game · 🌀 Chaos · 🏆 Shelf · 🎟️ Prizes.
-- 🎮 Game Wheel: default pool 🆕 Minis = Spin Show's OWN small games (Egg Catch, Goose Chase, Stack It) played in an arcade overlay; ⭐ Best / 🎮 All still land on other sloppy apps (card with screenshot + PLAY).
+- 🎮 Game Wheel: default pool 🆕 Minis = Spin Show's OWN small games (Egg Catch, Goose Chase, Stack It, Whack-a-Goose, Pancake Flip, Balloon Pop) played in an arcade overlay; ⭐ Best / 🎮 All still land on other sloppy apps (card with screenshot + PLAY).
 - 🌀 CHAOS WHEEL (renamed from Quirky Wheel at Angie's 12:03 ask, use that name everywhere): mostly bonuses for the next run (×2 coins, extra life, slow-mo, disco, golden rush, goose heckler, tiny mode, head start) plus prizes (jackpot, trophy, +25, pet rock, duck, hat, fortune, sneeze, spin again). The only 'catch' is the goose (heckler in-game / steals coins on a solo spin). Bankrupt is retired.
 - FLOW (Angie 12:02): Game Wheel picks a mini -> Chaos Wheel lights up and you MUST spin it -> bonus badge -> PLAY. Phones auto-switch to the Chaos tab and back. One free solo Chaos spin per game spin (S.free); a solo bonus is banked (max 3) for the next game.
 - Trophy Shelf is its own TAB (Angie 12:01 + 12:17 'I said make the trophy a new tab'): no bottom strip any more.
@@ -25,6 +25,8 @@ angienimo's (Angie) game show. Tabs: 🎮 Game · 🌀 Chaos · 🏆 Shelf · �
 
 - 2026-10-14 13:28 v1.3 version tag + collectible art (Angie 13:22 'trophy artwork look better same with prizes tab'). Trophies: metal gradients (gold/silver/bronze/wood defs tg* in the page's hidden <svg><defs>, shared by every inline trophy), cup rims showing the inside, highlights + glint, wooden plinth with an engraved tier plate (screws) and a ribbon medal; tier = trinkets wood, r:* silver, else from the cup's gradient. Shelf slots get a warm spotlight. Prize Counter: skins are real mini wheels (12 slices, 16 bulbs, pointer; neon glows, candy stripes, gold), the Chaos Ticket is an ADMIT ONE stub, trinkets stand on little wooden ledges. Tested desktop 1280x800 + 390x844: 0 JS errors, no overflow.
 
+- 2026-10-14 13:45 v1.4 six games on the wheel (Angie 13:22 'Put more than 3 games on the wheel'). Whack-a-Goose 🔨 (3x3 holes, golden goose 5, rubber ducks from L2 = don't hit, an escaped goose honks a heart off; arrows hop holes, Space whacks; coins s/2), Pancake Flip 🥞 (flip-o-meter + bubbles, flip each side in the green = +3 / butter +5, raw or burnt = heart, 5 pancakes per level; coins s/3), Balloon Pop 🎈 (escaped balloon = heart, storm-cloud balloons from L2 ZAP you, golden 5; arrows move a crosshair; coins s/3). Engine: pointer taps queue in G.input.taps (cleared every step), keyboard Space pushes a tap at G.aim, arrow presses queue in G.hop (quick taps between frames were lost with edge detection). New trophies m:whack40 Goose Bonker, m:flip60 Short Stack Chef, m:pop60 Pop Star; Tried Them All now needs all 6 (art says ALL 6). Tested desktop 1280x800 + 390x844 with a tap bot: all three score, end, save bests; 6 best cards on the shelf; 0 JS errors.
+
 ## issues
 - Headless test browser has no colour emoji font: helper's run.sh points FONTCONFIG_FILE at a fonts.conf with twemoji.ttf so screenshots show emoji.
 
@@ -35,6 +37,6 @@ angienimo's (Angie) game show. Tabs: 🎮 Game · 🌀 Chaos · 🏆 Shelf · �
 - Intro card with 4 bonuses overflows a 390x844 phone (scrolls); max-height 740 hides the bonus descriptions (the badges under the screen still show them).
 
 ## todos
-- More minis (Angie to pick): e.g. a whack-a-goose, a pancake flip, a balloon pop
+- Balance the 3 new minis after Angie plays (Whack escape = heart may be harsh; Balloon Pop spawn rate)
 - Tune coin prices after Angie plays (a run gives ~10-40 coins)
 - More chaos: upside-down wheel, double or nothing, mystery box
