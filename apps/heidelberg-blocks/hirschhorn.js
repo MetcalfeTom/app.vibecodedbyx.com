@@ -83,6 +83,8 @@ export function build(H){
     for(let s=0;s<=n;s++){ const t=s/n, x=a[0]+(b[0]-a[0])*t, z=a[1]+(b[1]-a[1])*t, h=Math.round(a[2]+(b[2]-a[2])*t);
       for(let dx=-1.4;dx<=1.41;dx+=.7) for(let dz=-1.4;dz<=1.41;dz+=.7){ if(dx*dx+dz*dz>2.1) continue; const cx=Math.floor(x+dx), cz=Math.floor(z+dz), k=I(cx,cz);
         if(km[k]===K.town||km[k]===K.street||km[k]===K.court) continue; hm[k]=h; km[k]=K.path; bwC.add(cx+','+cz); } } }
+  // v1.38 a level forecourt before the gatehouse (Flax 13:23: the castle entrance looked messy)
+  for(let x=-33;x<=-28;x++) for(let z=-79;z<=-73;z++){ const k=I(x,z); hm[k]=CY; km[k]=K.court; bwC.add(x+','+z); }
   // write the columns (steep ground turns to rock)
   const TOP={[K.bed]:B.sand,[K.shore]:B.gravel,[K.meadow]:B.grass,[K.forest]:B.forest,[K.path]:B.gravel,[K.town]:B.cobble,[K.street]:B.cobble,[K.deck]:B.plank,[K.court]:B.cobble,[K.rock]:B.stone};
   for(let x=-128;x<=127;x++) for(let z=-112;z<=143;z++){ const k=I(x,z), h=hm[k], kd=km[k];
@@ -209,6 +211,8 @@ export function build(H){
     if((x===CS.x0||x===CS.x1||z===CS.z0||z===CS.z1)&&(x+z)%2===0) set(x,CY+6,z,HB.rubble); }
   tower(-27,-23,-79,-73,CY-8,CY+9,{roof:HB.roofH,wy:[CY+6]});                         // the gatehouse, the Burgweg comes in from the west
   for(let x=-27;x<=-23;x++) for(let z=-77;z<=-75;z++){ for(let y=CY;y<=CY+3;y++) set(x,y,z,0); set(x,CY-1,z,B.cobble); }
+  for(let x=-26;x<=-24;x++) for(let y=CY;y<=CY+3;y++){ set(x,y,-78,HB.rubble); set(x,y,-74,HB.rubble); }   // v1.38 one clean stone passage
+  for(const x of [-27,-23]){ for(let y=CY;y<=CY+3;y++){ set(x,y,-78,B.sandstone); set(x,y,-74,B.sandstone); } for(let z=-78;z<=-74;z++) set(x,CY+4,z,B.sandstone); }   // sandstone jambs + lintel at both portals
   tower(-21,-16,-88,-83,CY,CY+22,{wy:[CY+9,CY+15,CY+19]});                            // the Bergfried
   house(2,10,-86,-66,{y0:CY,fl:3,solid:B.white,ridge:'z',st:2,door:[2,-76],xw:1});    // the Palas
   house(-12,-1,-88,-84,{y0:CY,fl:2,pl:'C',ridge:'x',st:2,gf:0,door:[-6,-84]});        // an older wing along the north wall
@@ -330,12 +334,12 @@ export function build(H){
   NB.push(board(4,1,400,100,sign('Burg Hirschhorn',0,'#f1e7cf','#5a2a1c'),-27.04,CY+5,-76,-Math.PI/2));
   NB.push(board(3.2,.8,384,96,sign('Ersheimer Kapelle',0,'#f1e7cf','#3a3a3a'),0,CHY+1.2,-1.45,Math.PI,true));
   P(.1,1.2,.1,-1.7,CHY+.6,-1.45,'#4a3a2a'); P(.1,1.2,.1,1.7,CHY+.6,-1.45,'#4a3a2a');
-  NB.push(board(2.4,.7,288,84,sign('Burgweg ↑',0,'#f1e7cf','#3a5a2a'),-36.2,T+2.1,-47.6,Math.PI/2));
+  NB.push(board(1.8,.6,216,72,sign('Burgweg ↑',0,'#f1e7cf','#3a5a2a'),-34.9,T+2.2,-44.3,Math.PI/2));   // v1.38 on its own post, clear of the wall (Flax 13:23)
   NB.push(board(2.6,.7,312,84,sign('Marktplatz',0,'#f1e7cf','#3a3a3a'),10.03,T+2.6,-50.5,Math.PI/2));
   NB.push(board(1.9,1.9,192,192,(g,w,h)=>{ g.fillStyle='#1a1a1a'; g.fillRect(0,0,w,h); g.fillStyle='#f1ead8'; g.beginPath(); g.arc(w/2,h/2,w*.44,0,7); g.fill();
     g.strokeStyle='#1a1a1a'; g.lineWidth=6; for(let i=0;i<12;i++){ const a=i*Math.PI/6, r1=w*.36, r2=w*.42; g.beginPath(); g.moveTo(w/2+Math.sin(a)*r1,h/2-Math.cos(a)*r1); g.lineTo(w/2+Math.sin(a)*r2,h/2-Math.cos(a)*r2); g.stroke(); }
     g.fillStyle='#c8a040'; g.fillRect(w/2-4,h/2-w*.3,8,w*.3); g.save(); g.translate(w/2,h/2); g.rotate(Math.PI*.62); g.fillRect(-5,-w*.22,10,w*.22); g.restore(); },28.5,Tc+15.5,MT.z1+1.03,0));
-  P(.1,2,.1,-36.3,T+1,-47.6,'#4a3a2a');
+  P(.15,2.6,.15,-35.04,T+1.3,-44.3,'#9a7a4e');
 
   // far hills beyond the edges of the map, the same valley carried on (the river legs too)
   { const S=8, R0=360, n=Math.round(2*R0/S)+1, pos=[], col=[], idx=[], c=new THREE.Color();

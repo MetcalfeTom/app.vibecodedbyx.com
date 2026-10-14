@@ -73,8 +73,11 @@ export function build(H){
   // Friedrichsplatz: gravel paths, a paved ring round the tower, a long basin to the east
   for(let x=FP.x0;x<=127;x++) for(let z=FP.z0;z<=FP.z1;z++){ const d=Math.hypot(x+.5-WT.x,z+.5-WT.z);
     if(d<13||Math.abs(z+.5-WT.z)<2||Math.abs(x+.5-WT.x)<2||x===FP.x0) set(x,T-1,z,d<13?B.pave:B.gravel); }
-  const BAS={x0:115,x1:126,z0:12,z1:29};
+  const BAS={x0:120,x1:126,z0:3,z1:38};   // v1.38 the long fountain basin east of the tower (was x 115..126 z 12..29)
   for(let x=BAS.x0;x<=BAS.x1;x++) for(let z=BAS.z0;z<=BAS.z1;z++){ const rim=x===BAS.x0||x===BAS.x1||z===BAS.z0||z===BAS.z1; if(rim) set(x,T,z,B.trim); else set(x,T-1,z,B.blue); }
+  // v1.38 the Wasserspiele (Flax): a three-step cascade comes down from the tower's terrace into the basin
+  // (its water + the animated jets are meshes, see 'jets' below)
+  for(let z=18;z<=22;z++){ for(let x=116;x<=119;x++){ const h=x<=117?3:x===118?2:1; for(let y=T;y<T+h;y++) set(x,y,z,B.trim); } set(BAS.x0,T,z,0); set(BAS.x0,T-1,z,B.blue); }
 
   // ---- the Neckar landing: steps for swimmers, bollards come as props ----
   const steps=[];
@@ -108,6 +111,19 @@ export function build(H){
     const cuts=[[4,4],[3,6],[6,3],[9],[5,4]][Math.floor(R()*5)];   // widths along x (9 in all)
     let x=fx0; for(let i=0;i<cuts.length;i++){ const xb=i===cuts.length-1?fx1:x+cuts[i]-1;
       block(x,fz0,xb,fz1,3+Math.floor(R()*3),WALLS[Math.floor(R()*WALLS.length)],R()<.45?(R()<.6?B.slate:B.roof):null); x=xb+1; } }
+  // ---- v1.38 L2 (Flax): one house over the whole block, cream, flat roof. A bricked-up doorway on its west side
+  // (x 10, z 70..71) is a ghost: index.html's solidAt lets you walk through it (w.ghost). Inside a quiet memorial hall
+  // with a stone floor; a stone stair along the south + east walls climbs through a hatch onto the roof ----
+  const L2={x0:10,x1:18,z0:67,z1:74}, LT=T+10, L2G=[10,10,T,T+2,70,71];   // ghost box: x0,x1,y0,y1,z0,z1
+  for(let x=L2.x0;x<=L2.x1;x++) for(let z=L2.z0;z<=L2.z1;z++) for(let y=T;y<T+24;y++) set(x,y,z,0);
+  block(L2.x0,L2.z0,L2.x1,L2.z1,3,B.cream,null);
+  for(let x=L2.x0+1;x<L2.x1;x++) for(let z=L2.z0+1;z<L2.z1;z++){ set(x,T-1,z,B.stone); for(let y=T;y<LT;y++) set(x,y,z,0); }
+  for(let y=T;y<=T+2;y++){ set(10,y,69,B.sandstone); set(10,y,72,B.sandstone); set(10,y,70,B.cream); set(10,y,71,B.cream); }
+  const L2S=[[12,73],[13,73],[14,73],[15,73],[16,73],[17,73],[17,72],[17,71],[17,70],[17,69],[17,68]];   // 11 steps, the last one level with the roof
+  L2S.forEach(([x,z],i)=>{ for(let y=T;y<=T+i;y++) set(x,y,z,y===T+i?B.sandstone:B.stone); });
+  set(17,LT,71,0); set(17,LT,70,0); set(17,LT,69,0);   // the hatch
+  for(let x=L2.x0;x<=L2.x1;x++) for(let z=L2.z0;z<=L2.z1;z++) if(x===L2.x0||x===L2.x1||z===L2.z0||z===L2.z1) set(x,LT+1,z,B.parapet);   // a low parapet (no stepping over)
+  for(let y=LT+1;y<=LT+3;y++){ set(11,y,73,B.sandstone); set(12,y,73,B.sandstone); } set(11,LT+4,73,B.trim); set(12,LT+4,73,B.trim);   // a chimney
   // Oststadt: two big blocks beyond the Kaiserring, south of the Friedrichsplatz
   block(90,48,104,62,4,B.cream,B.slate); block(110,48,124,62,5,B.ochre,null); block(90,68,104,86,4,B.white,B.roof); block(110,68,124,86,3,B.pink,B.slate);
   // north bank: harbour sheds and three silos
@@ -196,6 +212,7 @@ export function build(H){
   for(let i=0;i<16;i++){ const x=-127+Math.floor(R()*18), z=-60+Math.floor(R()*160); tree(x,z); }
   for(const [x,z] of [[92,0],[92,10],[92,31],[92,41],[100,40],[113,40],[124,40],[100,1],[113,1],[124,1]]) tree(x,z,true);
   for(const [x,z] of [[-5,24],[3,24],[-5,33],[3,33]]) tree(x,z);   // Paradeplatz
+  for(const [x,z] of [[97,6],[116,6],[97,35],[116,35]]) tree(x,z);     // v1.38 lawns round the Wasserspiele
 
   // ---- props: one vertex-coloured mesh (cranes, containers, bollards, benches), boards, corner signs ----
   const group=new THREE.Group(), L=[];
@@ -260,6 +277,14 @@ export function build(H){
   // the gold figure on top of the Wasserturm (Amphitrite), a little blocky
   const amph=H.person({ skin:'#d8a636', hair:'#c8962a', shirt:'#d8a636', pants:'#d8a636', shoes:'#c8962a', extra:[[.08,1.6,.08, .42,1.6,0,'#c8962a']] }).map(p=>{ const q=p.slice(); q[6]=q[6]==='#1d1714'||q[6]==='#9a4a3a'?'#a8761e':q[6]; q[8]=0; return q; });
   for(const p of amph) L.push([p[0]*1.3,p[1]*1.3,p[2]*1.3,WT.x+p[3]*1.3,T+37+p[4]*1.3,WT.z+p[5]*1.3,p[6],0,0,0]);
+  // v1.38 the L2 hall: a stone altar under the tablet with candles, two benches, flowers, wall lights; a rooftop bench + pots
+  P(3.2,.9,.7,14,T+.45,68.4,'#8f897e'); P(3.4,.08,.8,14,T+.94,68.4,'#a59f93');
+  for(const [x,h] of [[12.9,.34],[13.4,.24],[14,.4],[14.6,.24],[15.1,.34]]){ P(.12,h,.12,x,T+.98+h/2,68.4,'#f4efe2'); LH.push([.07,.12,.07,x,T+1.04+h,68.4,'#ffcf6a']); LAMPS.push([x,T+1.1+h,68.4]); }
+  for(const x of [12.1,15.9]){ P(.36,.5,.36,x,T+.25,68.55,'#6a6258'); for(let k=0;k<5;k++) P(.16,.16,.16,x-.12+(k%3)*.12,T+.58+(k>2?.1:0),68.5+(k&1)*.1,k%2?'#e8e4dc':'#b8202a'); }
+  for(const x of [12.6,15.4]){ P(2.2,.1,.46,x,T+.48,71.2,'#6a4a30'); P(2.2,.5,.08,x,T+.78,71.45,'#6a4a30'); for(const s of [-.9,.9]) P(.1,.44,.4,x+s,T+.22,71.2,'#4a3422'); }
+  for(const z of [69.5,71.5]){ P(.14,.3,.1,11.05,T+3.4,z,'#3a3530'); LH.push([.18,.22,.1,11.1,T+3.62,z,'#ffe2a8']); LAMPS.push([11.2,T+3.62,z]); }
+  P(2,.1,.46,14,LT+1.48,72.6,'#6a4a30'); P(2,.5,.08,14,LT+1.78,72.85,'#6a4a30'); for(const s of [-.8,.8]) P(.1,.44,.4,14+s,LT+1.22,72.6,'#4a3422');
+  for(const [x,z] of [[11.6,68.4],[16.4,73.4]]){ P(.6,.5,.6,x,LT+1.25,z,'#a0582f'); P(.7,.6,.7,x,LT+1.8,z,'#3f7f3a'); }
   const propMat=new THREE.MeshLambertMaterial({vertexColors:true});
   const pm=new THREE.Mesh(blockyGeo(L),propMat); pm.matrixAutoUpdate=false; group.add(pm);
 
@@ -329,7 +354,31 @@ export function build(H){
   // basin water on the Friedrichsplatz
   const bw=new THREE.Mesh(new THREE.PlaneGeometry(BAS.x1-BAS.x0-1,BAS.z1-BAS.z0-1),new THREE.MeshPhongMaterial({color:0x6f9fb8,shininess:90,transparent:true,opacity:.85}));
   bw.rotation.x=-Math.PI/2; bw.position.set((BAS.x0+BAS.x1+1)/2,T-.15,(BAS.z0+BAS.z1+1)/2); bw.matrixAutoUpdate=false; bw.updateMatrix(); group.add(bw);
+  // v1.38 the cascade's water (one see-through mesh) + the fountain jets (one instanced mesh, they breathe in tick)
+  const CASW=[], wc='#d6f0fa';
+  CASW.push([2,.05,5,117,T+3.03,20.5,wc],[1,.05,5,118.5,T+2.03,20.5,wc],[1,.05,5,119.5,T+1.03,20.5,wc]);
+  CASW.push([.05,1,5,118.03,T+2.5,20.5,wc],[.05,1,5,119.03,T+1.5,20.5,wc],[.05,1.15,5,120.03,T+.43,20.5,wc]);
+  const cw=new THREE.Mesh(blockyGeo(CASW),new THREE.MeshLambertMaterial({vertexColors:true,transparent:true,opacity:.72,depthWrite:false,emissive:0x5f8fa8,emissiveIntensity:.35}));
+  cw.matrixAutoUpdate=false; group.add(cw);
+  const JET=[[123,20.5,13],[123,15.5,8],[123,25.5,8],[123,10.5,6],[123,30.5,6],[123,6,4.5],[123,35,4.5]];
+  const jets=new THREE.InstancedMesh(new THREE.CylinderGeometry(.06,.32,1,7,1,true).translate(0,.5,0),
+    new THREE.MeshBasicMaterial({color:0xeef9ff,transparent:true,opacity:.6,depthWrite:false,side:THREE.DoubleSide}),JET.length*2);
+  jets.frustumCulled=false; group.add(jets);
+  const jo=new THREE.Object3D(); let jt=0;
+  function jetsSet(){ JET.forEach(([x,z,h0],i)=>{ const h=h0*(.9+.08*Math.sin(jt*1.9+i*1.7)+.03*Math.sin(jt*7.3+i));
+    jo.position.set(x,T-.15,z); jo.scale.set(1,h,1); jo.updateMatrix(); jets.setMatrixAt(i*2,jo.matrix);
+    jo.position.set(x,T-.15+h*.6,z); jo.scale.set(4.2+i%2,h*.4,4.2+i%2); jo.updateMatrix(); jets.setMatrixAt(i*2+1,jo.matrix); }); jets.instanceMatrix.needsUpdate=true; }
+  jetsSet();
+  // v1.38 THE MEMORIAL TEXT DROPS IN HERE: who the L2 hall remembers (Flax is being asked). Until then the tablet stays blank.
+  const MEMO={title:'',lines:[]};
+  NB.push([board(2.4,1.6,240,160,(g,w,h)=>{ g.fillStyle='#3a3530'; g.fillRect(0,0,w,h); g.strokeStyle='#b89a5a'; g.lineWidth=6; g.strokeRect(8,8,w-16,h-16); g.lineWidth=2; g.strokeRect(17,17,w-34,h-34);
+    if(MEMO.title){ g.fillStyle='#e8d6a8'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 22px '+FONT; g.fillText(MEMO.title,w/2,48); g.font='15px '+FONT; MEMO.lines.forEach((t,i)=>g.fillText(t,w/2,82+i*20)); } },
+    14,T+2.4,68.03,0),.15,.55]);
 
+  // v1.38 a low hedge where the map ends (Angie 13:27), a rail fence across the tracks, the river left open
+  const edgeB=(x,z)=>{ if(!get(x,T,z)) set(x,T,z,get(x,T-1,z)===B.track?B.rail:B.hedge); };
+  for(let x=-128;x<=127;x++){ edgeB(x,-112); edgeB(x,143); }
+  for(let z=-111;z<=142;z++){ if(z>=RIV.n-1&&z<=RIV.s+1) continue; edgeB(-128,z); edgeB(127,z); }
   // ---- beyond the edge: the flat Rhine plain (no more Odenwald), the Neckar running on, a far skyline ----
   const S=[], SC='#7b7d72';
   const slab=(x0,x1,z0,z1,c)=>S.push([x1-x0,T-6,z1-z0,(x0+x1)/2,(T+6)/2-.02,(z0+z1)/2,c||SC]);
@@ -337,6 +386,12 @@ export function build(H){
   S.push([2400,1,RIV.s+1-RIV.n,0,5.4,(RIV.n+RIV.s+1)/2,'#6a6450']);
   for(let i=0;i<90;i++){ const a=R()*Math.PI*2, d=200+R()*230, x=Math.sin(a)*d, z=Math.cos(a)*d; if(z>RIV.n-30&&z<RIV.s+30) continue; const h=5+R()*R()*30;
     S.push([8+R()*22,h,8+R()*22,x,T+h/2,z,['#b9b1a2','#a39a8c','#c9bfa8','#8f8a80','#b28a6a'][Math.floor(R()*5)]]); }
+  // v1.38 the city carries on past the hedge (Angie 13:27: the edge looked blank): low house blocks and trees, same mesh
+  { let q=0; const cb=(x,z)=>{ q++; const a=hsh(q,3,7), b=hsh(q,5,1), c=hsh(q,9,4); if(z>RIV.n-14&&z<RIV.s+14) return; const tr=a<.3, h=tr?4+b*4:6+b*10, w=tr?3+c*3:7+c*7;
+      const d=w*(.7+a*.6), X=x+b*5, Z=z+c*5; if(!tr){ S.push([w+.7,1.1,d+.7,X,T+h+.55,Z,['#5a5f6a','#8a4a34','#6a5a50'][Math.floor(a*9)%3]]); for(const f of [.32,.62]) S.push([w+.08,.9,d+.08,X,T+h*f,Z,'#3a3d48']); }
+      S.push([w,h,d,X,T+h/2,Z,tr?['#4f6a3a','#5a7440','#465f34'][Math.floor(b*3)]:['#c9bfa8','#b9b1a2','#d2c4a4','#a39a8c','#b28a6a','#c8a890'][Math.floor(c*6)]]); };
+    for(let x=-220;x<=220;x+=13) for(const z of [-138,-156,-178,170,188,210]) cb(x,z);
+    for(let z=-200;z<=230;z+=13) for(const x of [-154,-172,-194,153,171,193]) cb(x,z); }
   for(const [x,z] of [[-330,-260],[-315,-262],[360,250]]){ S.push([5,64,5,x,T+32,z,'#c9c3b8'],[5.3,4,5.3,x,T+58,z,'#b8402c'],[5.3,4,5.3,x,T+48,z,'#e8e2d8']); }
   const sk=new THREE.Mesh(blockyGeo(S),new THREE.MeshLambertMaterial({vertexColors:true})); sk.matrixAutoUpdate=false; group.add(sk);
 
@@ -367,7 +422,8 @@ export function build(H){
     if(z<RIV.n) return 'Hafen';
     if(z<=RIV.s+1) return x>=BR.x0&&x<=BR.x1+1?'Kurpfalzbrücke':'Neckar';
     if(z<=-71) return x>-4&&x<30?'Anlegestelle':'Neckarufer';
-    if(x>=FP.x0&&z>=FP.z0&&z<=FP.z1) return Math.hypot(x-WT.x,z-WT.z)<12?'Wasserturm':'Friedrichsplatz';
+    if(x>=FP.x0&&z>=FP.z0&&z<=FP.z1) return x>=115.5&&z>=BAS.z0&&z<=BAS.z1+1?'Wasserspiele':Math.hypot(x-WT.x,z-WT.z)<12?'Wasserturm':'Friedrichsplatz';
+    if(x>=L2.x0&&x<L2.x1+1&&z>=L2.z0&&z<L2.z1+1&&y>T-1){ if(y>=LT+.5) return 'L2 · Dach'; if(x>=L2.x0+1&&x<L2.x1&&z>=L2.z0+1&&z<L2.z1) return 'Gedenkhalle'; }
     if(x>=66&&z>=HBF.vz0-8) return z>=HBF.z0-.5?'Hauptbahnhof':'Bahnhofsvorplatz';
     if(x>=SCH.x0&&x<=SCH.x1+1&&z>=SCH.wz0&&z<=SCH.z1+1) return (x>SCH.w1[1]+1&&x<SCH.w2[0]&&z<SCH.z0-2)?'Schloss · Ehrenhof':'Schloss';
     if(z>SCH.z1+1||x<-108) return 'Schlossgarten';
@@ -390,9 +446,10 @@ export function build(H){
     if(night!==nightWas){ nightWas=night; lamps.visible=pools.visible=night; headMat.emissive.set(night?0xffd27a:0x000000); headMat.emissiveIntensity=night?1.3:0;
       for(const [b,d,n] of NB) b.m.material.emissiveIntensity=night?n:d; }
     if(night&&(tvT-=dt)<0){ tvT=.1+Math.random()*.35; tvPaint(TL.winTv,.45+Math.random()*.55,Math.random()); if(Math.random()<.5) tvPaint(TL.winTv2,.4+Math.random()*.5,Math.random()); H.emTex.needsUpdate=true; }
+    jt+=dt; jetsSet();
     if((clk-=dt)<0){ clk=5; if(new Date().getMinutes()!==clockDraw.m) clockDraw(); } }
 
-  return { mhq:{baker:[BK.x+.4,BK.z-.75,Math.PI],kessler:[44.5,65.25,Math.PI],hannes:[13.5,-72.6,-2.4]}, group, place, riverD, tick, steps, QD, benz, flood,
+  return { mhq:{baker:[BK.x+.4,BK.z-.75,Math.PI],kessler:[44.5,65.25,Math.PI],hannes:[13.5,-72.6,-2.4]}, group, place, riverD, tick, steps, QD, benz, flood, ghost:L2G, l2:{x:14,z:71,roofY:LT+1},
     spawn:{x:4.5,z:-74.6,yaw:Math.PI}, jupp:{x:7.2,z:-77.4},
     arrive:[[124,-90],[96,-90.5],[66,-88.5],[40,-84.5],[22,-82.6],[12,-82.4]],
     trig:[[118,-90,'Willkommen in Mannheim! The city of squares. Streets have no names here, only letters and numbers.'],

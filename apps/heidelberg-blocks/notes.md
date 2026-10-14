@@ -605,6 +605,27 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   only the Mitteltor lintel, the gatehouse passage, the gate stairs and the weir walkway between piers (all meant).
   Budget below. 0 JS errors, phone trip probe passed.
 
+- 2026-10-14 13:50 UTC v1.38 (helper; Flax 13:06/13:08/13:23, Angie 13:27/13:29): (a) MANNHEIM L2 SECRET: the
+  ground-floor wall at x 10 z 70..71 (L2G box [10,10,T,T+2,70,71], MH.w.ghost, solidAt skips it) looks shut but you
+  walk through, no hint marker. Inside the Gedenkhalle: stone floor, candles, soft lights, an EMPTY plaque at
+  (14,T+2.4,68.03) - MEMO={title:'',lines:[]} in mannheim.js ("THE MEMORIAL TEXT DROPS IN HERE"), Flax gives the
+  words; 11 steps up the east/south walls (L2S) to a hatch at (17,LT,69..71), a parapet roof (B.parapet, no step-off)
+  with a chimney; MH.w.l2={x:14,z:71,roofY:LT+1} is there for the helicopter. Place names Gedenkhalle, L2 · Dach.
+  (b) FRIEDRICHSPLATZ WASSERSPIELE: a long basin x 120..126 z 3..38 (BAS) along the east side, a stepped trim
+  cascade x 116..119 z 18..22 with a water sheet (CASW), seven instanced jets (JET list, one InstancedMesh, animated
+  in tick), lawns + four trees at the corners. (c) HIRSCHHORN: the Burgweg sign stands on its own post at
+  (-34.9,T+2.2,-44.3) clear of rock + house; a level cobbled forecourt x -33..-28 z -79..-73 at CY before the
+  gatehouse (no more rounding steps/rock lumps), the passage walls one rubble stone, red sandstone jambs + lintel on
+  both portals. (d) EDGES: three hazy ridge layers (RING in index.html, 3 meshes, follow the camera, scaled to
+  camera.far, tinted to the horizon colour in applyTime) shaped per town: Heidelberg Odenwald N/E/S + flat Rhine plain
+  W, Mannheim Odenwald E + Haardt W + flat N/S, Hirschhorn hills all round; Mannheim gets a 1-high hedge on the map
+  edge (rail fence over the tracks, river open) and low house blocks + trees beyond it in the far-skyline mesh (no new
+  draw call). (e) TOUCH (Angie: looking made her walk): the stick only starts in the lower-left (x<50% AND
+  y>38%), everything else is look; dead zone 10 px (.18 of R 56); stick ring brighter + a dashed zone (#szone) shows
+  while you hold it. CDP touch probe (?touch, emulation + touches in one session): look drags on the right, upper
+  left and mid-left left P.x/z unchanged (yaw/pitch moved), a 6 px tap in the stick zone did not move, a stick drag
+  walked ~6 blocks in 1.4 s. Mouse was already look-only. 0 JS errors, phone trip probe passed.
+
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
 - fannar22 2026-10-11 23:50: rising into the sky at the east/west map edge in the river (fixed v1.1, probe hb_edge.js).
@@ -615,6 +636,8 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   split into closed pockets for days without anyone noticing (fixed v1.18).
 
 ## todos
+- Gedenkhalle plaque in Mannheim's L2 is EMPTY on purpose: ask Flax who/what it remembers, then fill MEMO in mannheim.js
+  (title + up to 4 lines); never invent a name or dedication.
 - Flax's queue, what's left, in this order (13:57):
   1. Stückgarten west of the Dicker Turm (castle)
   2. more room round the Großes Fass in the cellar
@@ -743,6 +766,9 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   123k (aerial), street 36/111k; desktop 1280x720 max 73/207k (castle terrace), aerial 66/171k. Voxel chunks 230k tris.
 - v1.35 desktop 1280x720: Mannheim crowd planken 60/97k, window 39/63k, parade 41/77k, breite 67/120k, landing 76/142k
   (mhStats 139k tris); Hirschhorn railing 58/188k, kids from behind 50/113k, along the bank 49/140k.
+- v1.38: phone 390x844 Gedenkhalle 43/67k, L2 roof 19/33k, Wasserspiele walk 20/32k, cascade 15/22k, Friedrichsplatz
+  aerial 24/36k, Hirschhorn gate 32/103k, Heidelberg N edge 11/78k; desktop 1280x720 hall 76/110k, gate 47/146k,
+  Wasserspiele 18/45k, Mannheim E edge 14/26k. Ridge ring = +3 calls, ~0.9k tris.
 - v1.37 Hirschhorn layout: desktop 1280x720 mitteltor 33/112k, wallR (from the water) 49/111k, kloster 18/71k,
   klosterW 61/162k, weir 31/114k, aerialS 75/176k; phone 390x844 day + night mitteltor 27/81k, kloster 17/57k,
   aerialS 61/115k.
