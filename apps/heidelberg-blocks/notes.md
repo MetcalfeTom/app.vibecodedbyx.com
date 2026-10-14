@@ -751,8 +751,9 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   Benz dais x 20..23 z -77..-72; Paradeplatz fountain (-.5,28.5); Grumbach (-.85,-62.75); Kessler (44.5,65.25); Hannes (13.5,-72.6).
 - Mannheim: the ride in passes between two tall quay walls (TOWN-WATER = 8); a grassy dike on one bank would
   open it up (cranes need the north quay)
-- Rundflug (v1.40): ask Flax if he still wants the three-town flight (L2 roof in Mannheim, MH.w.l2, over Heidelberg and
-  Hirschhorn and back), a rotor sound, a night flight with the castle lit
+- Rundflug: Birte's riverbank loop (v1.40) + Jule's three-town flight from the L2 roof (v1.45) both built. Ideas: a rotor
+  sound, a night flight with the castle lit, Jule landing when you arrive instead of waiting, a shorter "Heidelberg only"
+  choice from L2, the cloud card title in the night palette (#hfc.n, untested at night); ask Flax about flight length
 - Ruderboote (v1.39): ask Flax if the course is right (start east of the bridge, finish off the Neckarwiese); ideas:
   a 2-player ghost of your best run, a slalom variant, Ole's rematch line
 - Students: at night Mira/Aylin/Hannes are gone; they could sit on the fountain rim singing, or Hannes could turn
@@ -827,3 +828,19 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
 - v1.42 2026-10-14 15:09 cheat STORM (Sloppy's code, Angie yes): stormLook() grey sky/fog/hemi (re-applied at the end of applyTime), 1400 rain streaks round the camera (one LineSegments), a TubeGeometry bolt 70-150 m ahead every 5-14 s with a hemi/exposure flicker and lowpassed-noise thunder delayed by distance, rain hiss loop on SND.mix. Rain/bolts skip Mannheim. Typing STORM only works in the code box (S/R/M are game keys).
 - v1.43 2026-10-14 15:11 cheat POSTCARD (or SEPIA): CSS filter on #view (sepia .62, faded hand-tinted) + #pcard overlay (vignette, cream border, 'Gruß aus Heidelberg/Mannheim' in the Fraktur title font).
 - v1.44 2026-10-14 15:35 (Marci): THE WALDSCHENKE. Marci remembered Kaiserschmarrn at a Gasthaus with a Biergarten in the woods across the river on a team walk ('must have been Waldschenke Heidelberg'), NOT on the Marktplatz. waldWorld() cuts a gravel terrace into the hill at the northmost Philosophenweg cell at x -14 (WALD bounds), with a cream-walled inn (stone plinth, log corner posts, stepped red roof, chimney, Fraktur sign 'Waldschenke · Gasthaus · Biergarten · Kaiserschmarrn'), three beer-garden sets with four hikers (HIKERS hikerA-D), mugs and a shared Schmarrn. Seat 'wald' (gy = WALD.y; seatY() lets cafeNear/cafePin/cafeStand work off TOWN height): sit, served after 5 s, a Kaiserschmarrn plate (schmarrnParts: torn golden pieces, powdered sugar, raisins, plum compote dish) + coffee, castle view across the valley. Counter WALD.n in localStorage 'hb-wald', first one = achievement Gipfelglück. placeName 'Waldschenke'; café side panel has the rumour; Fanny at the Marktplatz points you up there. A homage from Marci's memory, not a survey of the real building: ask Marci if the view/tables/plate feel right. Tables are walk-through (no collision cells).
+- v1.45 2026-10-14 16:36 (Flax 15:53 "I ordered for mannheim roof where I can order it like the bergbahn"): RUNDFLUG
+  FROM L2. A blue-and-white helicopter (heliModel() shared with Birte's, scale .8, no marks) already sits on a pad on the
+  L2 roof (HF.D from MH.w.l2), with a windsock and a blackletter sign "Rundflug / Mannheim · Heidelberg · Hirschhorn /
+  with Pilotin Jule" (generic name). Walk up to it and the Bergbahn-style big button appears (rideUi key 'bheli', R or
+  tap). Flight HFL, 4 CatmullRom legs: Mannheim (Schloss, Quadrate, Wasserturm) -> clouds -> Heidelberg (Neckar leaves
+  the Odenwald, Alte Brücke 1780s sandstone + gate, castle 1690s French troops + 1764 lightning) -> clouds -> Hirschhorn
+  (old town in the Neckar bend, Burg on the ridge + Burgweg, Ersheim chapel) -> clouds -> Mannheim, Wasserturm, sets down on
+  L2. Towns are separate scenes: hfSwap re-parents sky/water/clouds/lights/ring/heli body into the viewed scene (HF.view
+  'mh'/'hd'/'hh'), drawScene renders MH.T.hh.scene for Hirschhorn; Hirschhorn is built once mid-flight under the cloud
+  card (hfHH, ~1.3 s headless desktop, 0.66 s phone probe) and Mannheim's vox/colTop restored after. #hfc cloud card
+  with the town name in Fraktur. Skip returns you to L2. Fog 110/520 + far 560 aloft, 45/420 + 480 restored on landing;
+  secFound blocked (HF.on), FLY cheat refused while aboard, place label = HF.place. heliBuild split into heliModel /
+  padTex / signTex, mhEnter's build block into awBuild (Birte's flight re-tested, unchanged). Clearance >= 10 m on every
+  leg (Hirschhorn north ridge was 3.5 m, rerouted). Budget (headless 1280x720): Mannheim legs 28-38 calls / 52-85k tris;
+  Heidelberg 64-135 / 194-327k (peak at the leg start seeing the whole town from the west); Hirschhorn 47-96 / 143-239k;
+  Mannheim return 112 / 176k at the start, 31 / 60k on final approach. Tested 1280x720 + 390x844 touch, 0 JS errors.
