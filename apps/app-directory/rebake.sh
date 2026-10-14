@@ -1,5 +1,5 @@
 #!/bin/sh
-# Re-bakes the App Directory's change logs (busy.json, changes.json, credits.json) after a commit on main, so a reload
+# Re-bakes the App Directory's change logs (busy.json, diffs/*.json for the Factory's crate code, changes.json, credits.json) after a commit on main, so a reload
 # or the change log's refresh button shows commits minutes old (hamburglar06 2026-10-13). .git/hooks/post-commit and
 # post-merge start it in the background; one bake at a time, and a commit that lands mid-bake gets one more pass.
 # The hooks aren't versioned (.git/hooks); if they're lost, write these lines to .git/hooks/post-commit and
@@ -17,5 +17,6 @@ while [ -e "$L.pending" ]; do
   rm -f "$L.pending"
   sleep 3
   nice -n 10 python3 "$D/build-busy.py" >/dev/null 2>&1
+  nice -n 10 python3 "$D/build-diffs.py" >/dev/null 2>&1
   nice -n 10 python3 "$D/build-changes.py" >/dev/null 2>&1
 done

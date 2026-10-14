@@ -34,6 +34,7 @@
 - 2026-09-27: search placeholder shows the real app count once the index loads (it said 1200+ while 1,641 were indexed).
 - 2026-01-13: Created app directory listing all sloppy.live apps
 
+- 2026-10-14 18:40 UTC: build-diffs.py (iamflax: 'show the code of this comits there to learn exactly what changed', for Sloppy's Factory's crate labels): diffs/<slug>.json for the 60 board apps, each board commit's changed lines of that app (-U1, max 80 lines per commit, 40 per file, 180 chars per line, .md skipped, config/.env files listed without lines, binary files listed, lines that look like keys/supabase addresses/tokens replaced with a hidden marker). Reuses baked commits, so only new ones cost time (first full bake 57 s, 1.8 MB, 596 commits). rebake.sh runs it after build-busy.py. Format: {asof, slug, c:{hash:[[file, added, removed, lines['+x','-x',' x','@123'], more 0/1, kind ''|'bin'|'hid']]}}.
 ## features
 - Lists all 280+ apps on sloppy.live
 - Search/filter functionality
