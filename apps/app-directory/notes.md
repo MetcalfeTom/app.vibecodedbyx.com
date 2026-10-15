@@ -51,6 +51,15 @@
 - The two catalogues are 275 KB (/_bar) + 342 KB (local) uncompressed; unknown whether nginx gzips JSON (they'd be ~110 + 95 KB). Worth checking with an external curl `-H 'Accept-Encoding: gzip' -I`.
 
 ## todos
+- DEPENDENCY PLAN (Hamburglar06 2026-10-15 04:00, "plan some changes without starting anything"; nothing built yet).
+  Who reads App Directory files: the catalogue index.json -> App Roulette, Sloppy Desktop, Sloppy ID, Spin Show;
+  the shipping log busy.json + busy-msgs.json + credits.json -> Sloppy's Factory (+ diffs/) and Sloppy Monitor.
+  The App Directory itself reads the official /_bar/apps-index.json. Renaming or breaking one of these files blanks up to 6 apps.
+  A. Contract (cheap): treat the files as a public feed, a version field + format written here, never rename, and a check
+     that opens all six readers after a rebake. B. Copies: the bake also writes each reader its own copy in its own folder,
+     so pages only read themselves (more git churn: catalogue 364 KB x4, diffs 1.8 MB). C. Fully separate: each reader gets
+     its own build script + hook entry (most isolated, three copies of the same logic to keep in step).
+  My pick: A now, B for the Factory + Monitor if a break ever happens. Waiting on Hamburglar's pick.
 - The first list card on a phone (at the bottom edge of the first screen) gets its picture only after the list slices finish (~4 s at 4x CPU): the IO callbacks wait behind the slice tasks.
 - Could auto-generate this list from a build script
 - Could add categories/tags
