@@ -1113,5 +1113,6 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   58 draw calls / 114k tris at the stand. NOT asked: coldpresss 08:52 wants L2 one storey taller to jump onto the Schloss roof:
   Flax 08:52: "Veto against the mannheim heidelberg changes. Its not a fun park. It is a City" -> L2 stays as it is, no jump route.
 - v1.55.1 2026-10-15 08:54 L2's door is plain again (Flax 08:54: "Döner is okay. Its real :) the other stuff undo if you changed
+- v1.56 2026-10-15 09:05 L2 sealed (Flax 08:57 "close the walk through possibility in L2. Keep L2 but close the way to enter"): mannheim.js returns ghost:null, so the west doorway is plain wall; hall + stair stay inside, unreachable. Jule's roof pad is now only reachable with the FLY code; after a Rundflug Jule sets you down on the street by L2's west wall (8.3, 70.9), never trapped on the roof. ASK FLAX: where should Jule pick people up now (a real spot, e.g. the City Airport in Neuostheim) or does the Mannheim Rundflug go? coldpresss asked 'how am i supposed to get the rundfahrt then'.
   sth"): the lamp, doormat and 'Eingang' sign from v1.55 are gone; the döner window stays. Rule: Flax's Mannheim and Heidelberg are
   a real city, not a fun park: no game-y signs, jump routes or theme-park extras; real places (a döner window) are fine.

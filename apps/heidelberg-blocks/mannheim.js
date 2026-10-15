@@ -114,6 +114,8 @@ export function build(H){
   // ---- v1.38 L2 (Flax): one house over the whole block, cream, flat roof. A bricked-up doorway on its west side
   // (x 10, z 70..71) is a ghost: index.html's solidAt lets you walk through it (w.ghost). Inside a quiet memorial hall
   // with a stone floor; a stone stair along the south + east walls climbs through a hatch onto the roof ----
+  // v1.56 (Flax 08:57 "close the walk through possibility in L2. Keep L2 but close the way to enter"): the doorway is plain
+  // brick again (ghost:null below), the hall and stair stay inside, sealed ----
   // v1.46 (Flax 18:25 "L2 please higher building"): six more storeys on top (HC = the old roof, now the hall ceiling, LT = the
   // new roof, 9 storeys in all, ~10 above the tallest neighbour). Built by hand, not with block(), so R() and the rest of
   // Mannheim stay exactly as they were. A second flight of floating steps runs once round the stairwell to the same roof hatch.
@@ -885,7 +887,7 @@ export function build(H){
     jt+=dt; jetsSet(); spit.rotation.y+=dt*.9; spit.updateMatrix();
     if((clk-=dt)<0){ clk=5; if(new Date().getMinutes()!==clockDraw.m) clockDraw(); } }
 
-  return { mhq:{doner:[DN.x,DN.z,Math.PI/2],baker:[BK.x+.4,BK.z-.75,Math.PI],kessler:[44.5,65.25,Math.PI],hannes:[13.5,-72.6,-2.4]}, group, place, riverD, tick, steps, QD, benz, flood, ghost:L2G, l2:{x:14,z:71,roofY:LT+1},
+  return { mhq:{doner:[DN.x,DN.z,Math.PI/2],baker:[BK.x+.4,BK.z-.75,Math.PI],kessler:[44.5,65.25,Math.PI],hannes:[13.5,-72.6,-2.4]}, group, place, riverD, tick, steps, QD, benz, flood, ghost:null, l2:{x:14,z:71,roofY:LT+1},
     spawn:{x:4.5,z:-74.6,yaw:Math.PI}, pop:{x:34,z:-103}, jupp:{x:7.2,z:-77.4}, seats:SEATS,
     facts:[[WT.x,WT.z,15,'Wasserturm: 60 m tall, built 1886-1889 to a design by Gustav Halmhuber. Up on the dome stands Amphitrite, the sea goddess, in copper.'],
       [119,20.5,7,'Bruno Schmitz laid out these gardens from 1899: water steps, basins, arcades, lanterns. The square was ready for Mannheim\'s 300th birthday in 1907.'],
