@@ -820,7 +820,23 @@ export function build(H){
   for(let r=0;r<3;r++) for(let i=0;i<5;i++) P(.08,.26,.02,44.17+i*.14,T+.68+r*.42,40.305,['#3a1a10','#f08a20','#3a9a4a','#9ad0f0','#f0d040'][(i+r)%5]);
   P(3.2,.05,.9,43.5,T+2.79,38.58,'#2a5a8a',Math.PI,.38); P(3.2,.2,.03,43.5,T+2.48,38.16,'#e8e4dc',Math.PI);
   P(.6,1,.25,41.3,T+.5,38.55,'#5a5e64'); P(.5,.32,.03,41.3,T+.8,38.41,'#ecebe4'); P(.5,.32,.03,41.3,T+.4,38.41,'#f2e6c8');
-  const PLKW={x0:-98,x1:77,zones:PKZ,cafe:[-20,26.05],kiosk:[43,40.3],busk:[[21.6,16.3],[51.6,25.7]],
+  // ---- v1.66 the bag's places (Flax). A tiny Hinterhof inside N4 behind a little green door on the block's east side
+  // (passage x 47..48 at z 43; index.html draws the door, locks it through w.solid and opens it with Herr Gerlach's key),
+  // with a bench and a cat. Liesel's Konditorei on the west Planken: her tray tipped on the step (index.html: the five pieces)
+  const YD={shut:1,door:[48.96,43.02],bench:[44.4,42.3],cat:[45.02,42.32]};
+  for(let x=43;x<=46;x++) for(let z=42;z<=45;z++){ for(let y=T;y<=T+22;y++) set(x,y,z,0); set(x,T-1,z,B.pave); }
+  for(let x=47;x<=48;x++){ set(x,T,43,0); set(x,T+1,43,0); set(x,T-1,43,B.pave); }
+  for(const [x,z] of [[42,43],[42,45],[44,41],[46,41],[45,46],[47,42],[47,45]]) for(const y of [T+5,T+8,T+11]) if(get(x,y,z)&&get(x,y+1,z)) set(x,y,z,B.windowLit);
+  P(1.6,.1,.42,44.4,T+.45,42.32,'#7a5232'); P(1.6,.4,.08,44.4,T+.78,42.1,'#7a5232'); for(const k of [-.68,.68]) P(.08,.42,.38,44.4+k,T+.21,42.32,'#2b2b2e');
+  SEATS.push({x:44.05,z:42.62,yaw:Math.PI,pitch:.12,stand:[44.05,43.6],k:'bench'});
+  for(const [x,z,c] of [[46.45,45.45,'#c8402a'],[43.5,45.45,'#e8d050']]){ P(.42,.36,.42,x,T+.18,z,'#a85a32'); P(.48,.3,.48,x,T+.5,z,'#4a7a3a'); P(.12,.08,.12,x-.1,T+.69,z,c); P(.12,.08,.12,x+.12,T+.67,z+.1,c); }
+  P(.05,1.9,.05,43.06,T+.95,44,'#4a7a3a'); P(.04,1.4,.6,43.04,T+1.4,43.8,'#3f6a3a');   // a climbing rose by the west wall, no flowers yet
+  P(2.9,.012,.012,44.9,T+2.3,44.6,'#d8d4cc',Math.PI/2.3); P(.3,.4,.02,44.6,T+2.08,44.3,'#e8dcc8',Math.PI/2.3); P(.26,.32,.02,45.3,T+2.12,44.9,'#8aa8c8',Math.PI/2.3);   // a washing line
+  P(.18,.04,.5,49.02,T+1.85,43.5,'#24382c');   // a little lintel over the door
+  const LZ={x:-35,z:17.55};
+  P(.52,.03,.36,-34.25,T+.1,18.1,'#c8c8cc',.4,.32); P(.4,.006,.28,-34.25,T+.12,18.08,'#f4f1ea',.4,.32);   // her tipped tray + doily on the step
+  PKZ.push([LZ.x-1.3,LZ.x+1.3,17,18.4]);
+  const PLKW={x0:-98,x1:77,zones:PKZ,yard:YD,kond:[LZ.x,LZ.z],cafe:[-20,26.05],kiosk:[43,40.3],busk:[[21.6,16.3],[51.6,25.7]],
     flocks:[[-23,20.3],[-52,20.8],[12,20.6],[33,21.2],[63,20.4]]};
   // ---- v1.64 e-scooter stands (Flax 12:23 + 13:14): by Murat's döner window, in the Schloss's Ehrenhof and on the
   // Bahnhofsvorplatz. A painted white parking box on the ground; index.html parks n plain scooters in each, heading h.
@@ -913,7 +929,9 @@ export function build(H){
       g.fillStyle='#f2c84a'; g.font='700 28px '+FONT; g.fillText('6,50',w/2,232);
       g.fillStyle='#f4f1ea'; g.font='400 19px '+FONT; g.fillText('Kugel 1,80',w/2,282); g.fillText('erfunden in Mannheim,',w/2,330,w-40); g.fillText('1969',w/2,356); },-23.45,T+1.55,24.96,Math.PI),.3,.9]);
     NB.push([board(2.6,.62,416,100,(g,w,h)=>{ g.fillStyle='#1f4a7a'; g.fillRect(0,0,w,h); g.strokeStyle='#f4f1ea'; g.lineWidth=5; g.strokeRect(6,6,w-12,h-12);
-      g.fillStyle='#f4f1ea'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 56px '+FONT; g.fillText('Kiosk',w/2,h/2+3); },43.5,T+3.5,38.97,Math.PI),.3,.95]); }
+      g.fillStyle='#f4f1ea'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 56px '+FONT; g.fillText('Kiosk',w/2,h/2+3); },43.5,T+3.5,38.97,Math.PI),.3,.95]); PLKW.kb=NB[NB.length-1][0].m;
+    NB.push([board(2.9,.62,464,100,(g,w,h)=>{ g.fillStyle='#f3e8d4'; g.fillRect(0,0,w,h); g.strokeStyle='#6a3a22'; g.lineWidth=5; g.strokeRect(6,6,w-12,h-12);
+      g.fillStyle='#6a3a22'; g.textAlign='center'; g.textBaseline='middle'; g.font='italic 700 58px Georgia, "Times New Roman", serif'; g.fillText('Konditorei',w/2,h/2+3); },LZ.x,T+3.5,17.03,0),.3,.95]); }
   const RHC=[board(2.1,2.1,128,128,()=>{},-19.5,T+14.4,-5.04,Math.PI,false,true),board(2.1,2.1,128,128,()=>{},-17.96,T+14.4,-3.5,Math.PI/2,false,true)];   // v1.48 the Rathausturm's clocks
   for(const c of RHC) NB.push([c,.3,1.25]);
   function clockDraw(){ const g=clock.c.getContext('2d'), d=new Date(), hh=d.getHours()%12, mm=d.getMinutes(); g.clearRect(0,0,128,128);
@@ -1191,6 +1209,7 @@ export function build(H){
     if(x>=-84.6&&x<-59.4&&z>=65.4&&z<75.6){ if(!(x>-83&&x<-61&&z>67&&z<74)) return 'Jesuitenkirche';   // v1.49
       return jkO(Math.floor(x),Math.floor(z))<=3.45?'Jesuitenkirche · unter der Kuppel':x<-80?'Jesuitenkirche · Chor':x>-64?'Jesuitenkirche · Vorhalle':'Jesuitenkirche · Langhaus'; }
     if(x>=-15&&x<-12.6&&z>=-61&&z<-55.4) return 'Breite Straße · Imbiss am Ring';   // v1.55
+    if(x>=43&&x<49&&z>=42&&z<46) return 'Hinterhof · N4';   // v1.66
     for(const p of TRM.plat) if(x>=p[4]&&x<p[5]&&z>=p[6]&&z<p[7]) return 'Haltestelle '+p[3];   // v1.62, v1.65
     const q=nearQ(x,z,2.2), on=q?' · '+q.code:'';
     if(q&&q.sq&&inR(x,z,q)) return q.sq+' · '+q.code;
@@ -1217,7 +1236,7 @@ export function build(H){
     if(PLD.vis){ PLD.lst+=dt*Math.PI*2/86164*60; PLD.eq.quaternion.setFromAxisAngle(PLD.pole,-PLD.lst); } }
 
   return { mhq:{doner:[DN.x,DN.z,Math.PI/2],baker:[BK.x+.4,BK.z-.75,Math.PI],kessler:[44.5,65.25,Math.PI],hannes:[13.5,-72.6,-2.4]}, group, place, riverD, tick, steps, QD, benz, flood, ghost:null, l2:{x:14,z:71,roofY:LT+1},
-    spawn:{x:4.5,z:-74.6,yaw:Math.PI}, pop:{x:34,z:-103}, tram:TRM, esk:ESKS, plk:PLKW, jupp:{x:7.2,z:-77.4}, seats:SEATS,
+    spawn:{x:4.5,z:-74.6,yaw:Math.PI}, pop:{x:34,z:-103}, tram:TRM, esk:ESKS, plk:PLKW, solid:(x,y,z)=>YD.shut&&Math.floor(x)===48&&Math.floor(z)===43&&y>=T&&y<T+2, jupp:{x:7.2,z:-77.4}, seats:SEATS,
     dark:[PL.cx,PL.cz,PL.rin+.75,PL.rout+.3,T+4.05], pl:{staff:PLD.staff,doze:PLD.doze,mat:PLD.mat},   // v1.57 the Planetarium's dark hall + its two people
     facts:[[WT.x,WT.z,15,'Wasserturm: 60 m tall, built 1886-1889 to a design by Gustav Halmhuber. Up on the dome stands Amphitrite, the sea goddess, in copper.'],
       [112,20.5,6,'The Wasserspiele: the big fountain first played on 9 September 1893. Bruno Schmitz added the water steps, the basin and the pergolas from 1899. Today 178 nozzles, the tallest jet up to 28 m, from spring to mid-October.'],   // v1.58

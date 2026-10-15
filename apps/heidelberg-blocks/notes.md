@@ -668,23 +668,9 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   split into closed pockets for days without anyone noticing (fixed v1.18).
 
 ## todos
-- v1.66 NOT STARTED: the bag, saved with the continue-where-you-left-off save. DESIGN (coordinator, said on stream ~14:39):
-  phones get NO new permanent bag button; picking something up shows a small icon toast at the top for 2-3 s that tucks
-  away; the bag shows its items when the world asks for one (a door that takes a key, a quest giver who wants the Dreck):
-  the matching item glows as a tap target. Desktop: a key opens the full bag to rummage (B and I are both free as of
-  v1.65, grep again), and the quest log can list what's inside. A bag button only inside an existing menu, never the main
-  HUD row. Items: food (bakery or döner;
-  eat on a bench, feed ducks/pigeons), a hammer (fix one broken thing that stays fixed), a key (opens one locked door/gate
-  with something small and nice behind it), flags to plant (shown on map/compass, can be picked up again), Spaghettieis
-  buyable from Signora Bruna. Test: one walk-through with key + hammer. Caption "a bag with food, a hammer, a key and flags".
-  FIRST QUEST in the bag (Flax 14:07): MANNHEIMER DRECK ("Mannemer Dreck"), a traditional Mannheim pastry, NOT a brand: a
-  small macaroon/Lebkuchen-like bite on a wafer (marzipan, honey, hazelnuts, candied peel, cinnamon), chocolate-coated
-  today, brown little lumps. Name story: in the 1800s the city fined people for dumping household dirt on the street and a
-  clever baker baked "Dreck" for his shop window (say only "in the 1800s"; sources disagree 1822 vs 1838). An invented
-  confectioner behind a plain "Konditorei" sign (no real shop names, Herrdegen etc. are real; grep FOLK for her name):
-  her tray tipped, 5 pieces are scattered round the squares and the Planken pigeons (PKC.pg flocks) are after them.
-  Collect them into the bag before the pigeons do, bring them back; she tells the name story in 1-2 lines and gives you
-  one to eat (a food item).
+- v1.66 bag leftovers (DONE in v1.66, see log): feed ducks/pigeons from the bag, flags shown on the map/compass, more than
+  one flag spot (only the Königstuhl wants it), Spaghettieis caps at 3, a döner/bakery snack to carry, talk prompts reach
+  through walls (Herr Gerlach answers from the yard bench; harmless, he's next door).
 - v1.67 NOT STARTED: Schillerplatz on B3, a Schiller monument (standing bronze on a tall stone base) in a small green
   square near the old National Theatre site.
 - Thingstätte on the Heiligenberg (Flax: "lost place, only build if you find info"; NOT built). Facts checked: egg-shaped
@@ -1287,3 +1273,25 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   grumpy-warm bark when you walk up (resets past 16 m). Tested headless: 0 strollers under a tram over 300 s, tram ride
   Paradeplatz -> Schloss, Bruna's lemon nod, coin toast, night, phone 412x900 + Bruna's choice on touch; 0 JS errors.
   Left out: Spaghettieis to carry (needs the bag), shops you can enter.
+- v1.66 (2026-10-15 15:04) THE BAG + Liesel's Mannheimer Dreck (Flax 14:07, coordinator's design). Saved as 'hb-bag' in
+  localStorage next to 'hb-quest' (BG={it,dr,dg,fix,open,flag}). No bag button on the HUD: picking up shows a small icon
+  toast (#bagT, ~2.6 s, tucks up; sits under a story toast, never on it); when the world wants an item a glowing chip
+  (#bagAsk) appears above the action prompts and is the tap target; B opens the full bag on desktop (#bagp, Esc closes);
+  the quest log has a 🎒 line (#qbag) listing it, which opens the bag on phones too. EACH ITEM HAS ONE PLACE:
+  * Dreck: Liesel (invented confectioner, apron + grey bun) under a plain cream "Konditorei" sign at the west Planken
+    north houses (x -35, z 17). Her tray tipped: 5 pieces lie along the Planken (DRK_AT), the pigeons creep in while you're
+    >7 m away and after ~10 s of pecking fly 6-12 m off WITH the piece (follow them). All five back -> the name story
+    ("in the 1800s" only) + ingredients, she gives you one Dreck. Eat it sitting down (any Mannheim seat or Bruna's café).
+  * Spaghettieis: Bruna's menu choice is now to take away (max 3 in the bag, eat it sitting down). The first one comes
+    with a little paper flag on top.
+  * Hammer: Herr Gerlach's brother-in-law left a red toolbox at the Hafen tram stop by the quay wall (BOX_AT -16.4,-110.5).
+    The Kiosk sign (PLKW.kb) hangs crooked and sways until you fix it from the counter side -> it eases straight, Gerlach
+    grumbles and hands you his sister's key.
+  * Key: a little green door on N4's east side (x 48, z 43; blocked through MH.w.solid until open) -> a 2-block passage
+    into a tiny Hinterhof carved in N4 (x 43..46, z 42..45, place "Hinterhof · N4"): bench (a SEATS entry), a ginger cat
+    that turns to you and purrs when you sit by it, two flower pots, a climbing rose, a washing line.
+  * Flag: plant it on the Königstuhl plaza (Heidelberg, standing on the floor); walk up to it to take it back.
+  Tested headless: desktop walkthrough Liesel -> 90 s of pigeons -> 5 pieces -> Dreck, toolbox -> sign -> key -> door,
+  yard bench + cat + eating, Bruna's take-away, Königstuhl plant; phone 412x900 ?touch toolbox chip tap, pickup toast
+  under the story toast, quest log -> bag panel; 0 JS errors. Mannheim arrival view 154 calls (Dreck pieces = one
+  InstancedMesh; toolbox, hammer, door, cat a handful of small meshes).
