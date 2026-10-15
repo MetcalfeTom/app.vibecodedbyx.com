@@ -10037,8 +10037,7 @@
 5ither
 4ise
 2ziani
-1o
-2rist
+1orist
 6ic
 8ally
 6s
@@ -216022,8 +216021,7 @@
 5ing
 8ly
 8s
-1j
-2ambok
+1jambok
 7ed
 7ing
 7ked
@@ -248976,8 +248974,7 @@
 6t
 7h
 2uris
-0ua
-2kari
+0uakari
 6s
 1berous
 4sexual
@@ -249079,8 +249076,7 @@
 9s
 1jamaa
 6s
-1k
-2ase
+1kase
 5s
 2e
 3lele
