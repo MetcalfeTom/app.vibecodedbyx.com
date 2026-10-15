@@ -19,4 +19,5 @@ while [ -e "$L.pending" ]; do
   nice -n 10 python3 "$D/build-busy.py" >/dev/null 2>&1
   nice -n 10 python3 "$D/build-diffs.py" >/dev/null 2>&1
   nice -n 10 python3 "$D/build-changes.py" >/dev/null 2>&1
+  python3 "$D/backdate.py" >/dev/null 2>&1   # data dated before the code, so the catalog doesn't call it an update
 done
