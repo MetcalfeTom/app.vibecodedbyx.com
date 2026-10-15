@@ -20,3 +20,7 @@ for p in data:
         os.utime(p, (t, t))
     except FileNotFoundError:
         pass   # swapped out mid-walk; the next bake dates it
+# the catalog counts folder dates too: each swap-in (write to .tmp, rename) stamps the folder itself
+for p in (os.path.join(D, 'diffs'), D):
+    if os.path.isdir(p):
+        os.utime(p, (t, t))
