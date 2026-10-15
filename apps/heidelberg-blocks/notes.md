@@ -823,6 +823,8 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   aerialS 61/115k.
 - v1.33 Mannheim night (views_n: planken/wt/landing/schloss/hbf/aerial): phone 390x844 max 46 calls / 98k (landing),
   planken 26/53k, wt 15/26k; desktop 1280x720 max 67/140k (landing), aerial 55/113k, planken 41/74k. Day +2 calls/+5k.
+- v1.57 Planetarium (day): desktop 1280x800 Kuppelsaal 31 calls / 65.5k tris / 426 star points; phone 390x844 hall
+  27/50k, foyer 31/54k, Kaiserring street west of it 28/61k. Hall meshes hidden outside 16.5 of its centre.
 
 ## testing
 - scratch: $SP/hb (index.html + mk.sh injects window.__G/__E into gaunt/sw/hm43/hb). The live file only has a
@@ -1113,6 +1115,23 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   58 draw calls / 114k tris at the stand. NOT asked: coldpresss 08:52 wants L2 one storey taller to jump onto the Schloss roof:
   Flax 08:52: "Veto against the mannheim heidelberg changes. Its not a fun park. It is a City" -> L2 stays as it is, no jump route.
 - v1.55.1 2026-10-15 08:54 L2's door is plain again (Flax 08:54: "Döner is okay. Its real :) the other stuff undo if you changed
-- v1.56 2026-10-15 09:05 L2 sealed (Flax 08:57 "close the walk through possibility in L2. Keep L2 but close the way to enter"): mannheim.js returns ghost:null, so the west doorway is plain wall; hall + stair stay inside, unreachable. Jule's roof pad is now only reachable with the FLY code; after a Rundflug Jule sets you down on the street by L2's west wall (8.3, 70.9), never trapped on the roof. ASK FLAX: where should Jule pick people up now (a real spot, e.g. the City Airport in Neuostheim) or does the Mannheim Rundflug go? coldpresss asked 'how am i supposed to get the rundfahrt then'.
   sth"): the lamp, doormat and 'Eingang' sign from v1.55 are gone; the döner window stays. Rule: Flax's Mannheim and Heidelberg are
   a real city, not a fun park: no game-y signs, jump routes or theme-park extras; real places (a döner window) are fine.
+- v1.56 2026-10-15 09:05 L2 sealed (Flax 08:57 "close the walk through possibility in L2. Keep L2 but close the way to enter"): mannheim.js returns ghost:null, so the west doorway is plain wall; hall + stair stay inside, unreachable. Jule's roof pad is now only reachable with the FLY code; after a Rundflug Jule sets you down on the street by L2's west wall (8.3, 70.9), never trapped on the roof. ASK FLAX: where should Jule pick people up now (a real spot, e.g. the City Airport in Neuostheim) or does the Mannheim Rundflug go? coldpresss asked 'how am i supposed to get the rundfahrt then'.
+- v1.57 2026-10-15 09:51 the Planetarium (Flax 09:00 queue): mannheim.js PL={cx:110,cz:80}, on the lawns where the two southern
+  Oststadt blocks stood (x 88..126, z 63..95), main doors west toward the Kaiserring. Real look: a blue glass pyramid with stepped
+  rust-brown ribs on its hips (Wilfried Beck-Erlang, opened 2 Dec 1984), a white band over a dark glass ribbon, a flat top with a
+  mast and a dish, the name in blue on the band (west + south). Foyer ring round the hall: the old dumbbell projector (1984-2002)
+  on show with a plaque, a ticket desk, plants. Kuppelsaal (placeName 'Planetarium · Kuppelsaal'): seats in four rings (r 3.4-7.0)
+  with four aisles and amber aisle lights, a ball projector on a pedestal, the dome (BackSide gradient sphere r 8.9 from T+4) and a
+  smooth dark band (r 8.05) hiding the stepped wall tops. Stars = real RA/Dec for 49.49 N (Orion, Plough, Cassiopeia, Polaris,
+  Cygnus/Vega/Altair, Aldebaran + Pleiades, Sirius, Procyon, Capella, Arcturus, Castor/Pollux, Leo + 460 fixed faint ones),
+  turned by tonight's real sidereal time at 60x; points under the horizon are discarded in the shader (they peeped through
+  the door). The hall's blocks are kept dark by mhMat (MH.w.dark = cx,cz,floorR,wallR,top -> gl_FragColor = diffuse*(.045,.05,.08));
+  hall props use a canvas matcap so day and night look the same; the hall meshes only show within 16.5 of the centre.
+  Three free seats (SEATS k:'seatp', '🪑 Take a seat', hint 'Lean back and watch the stars', pitch .78). NPCs: Frau Brandt
+  (staff, hall door, 98.6/82.4) + a visitor fast asleep in the back row (dozing() tips the head back; barks 'zzz...',
+  '...five more minutes, Orion.'). Facts: the building, the old projector, the seats. Also fixed: the v1.56 hfLeave comment had
+  swallowed the rest of its line (pitch, velocity, onGround, rideUi after a Rundflug). NOT the real thing: the real one is on
+  the Europaplatz ~1.3 km ESE of the Wasserturm and bigger (our base 28x28, dome 17.8 across vs 20 m); real projector since
+  2002 is a Zeiss Universarium, ours is a plain ball; real seat count 220-280, ours ~130. Budget below.

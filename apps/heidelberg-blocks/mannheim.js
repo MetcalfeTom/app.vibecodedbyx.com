@@ -437,6 +437,25 @@ export function build(H){
         set(x,y,z,b); }
       set(x,T+H,z,ex||ez?B.white:B.stone); } }
 
+  // ---- v1.57 (Flax 09:00) the Planetarium (Wilfried Beck-Erlang, opened 1984): a blue glass pyramid with stepped rust-brown ribs on
+  // its hips over a low base storey (a dark glass ribbon under a white band), the dome inside. The real one stands on the Europaplatz
+  // about 1.3 km east-south-east of the Wasserturm; ours stands on lawns where the two southern Oststadt blocks were, smaller (base
+  // 28 x 28, dome 17.8 across, the real dome is 20 m). The hall floor is level with the street: the base storey is a ring of foyer round
+  // it, the main doors face the Kaiserring. Built after the houses and with no R(). Glass, ribs, seats and the sky are meshes (see below).
+  const PL={cx:110,cz:80,rin:8.6,rout:10.1};
+  for(let x=88;x<=126;x++) for(let z=63;z<=95;z++){ for(let y=T;y<=T+22;y++) set(x,y,z,0);
+    const ux=x+.5-PL.cx, uz=z+.5-PL.cz, m=Math.max(Math.abs(ux),Math.abs(uz));
+    set(x,T-1,z,m<14.6||(x<96&&uz>-4&&uz<4)?B.pave:B.grass); }   // lawns, a paved apron and a path in from the Kaiserring
+  for(let x=96;x<=123;x++) for(let z=66;z<=93;z++){ const ux=x+.5-PL.cx, uz=z+.5-PL.cz, ax=Math.abs(ux), az=Math.abs(uz), m=Math.max(ax,az), d=Math.hypot(ux,uz);
+    if(d<PL.rin){ set(x,T-1,z,B.slate); continue; }   // the hall: open up to the dome
+    if(m>13){ const cor=ax>12&&az>12, door=ux<0&&ax>13&&az<2;   // the outer wall: corners in rust-brown, four glass doors on the west
+      for(let y=T;y<=T+2;y++) set(x,y,z,cor?B.trim:y===T+2?B.white:door?0:(y===T+1&&(x+z)%2?B.shopLit:B.shop));
+      if(cor) set(x,T+3,z,B.trim); continue; }
+    if(d<PL.rout){ for(let y=T;y<=T+3;y++) set(x,y,z,ux<0&&az<1&&y<T+3?0:B.white); continue; }   // the hall's round wall, its door on the west
+    set(x,T+3,z,B.white); }   // the foyer's ceiling, the white band under the glass
+  for(const [x,z] of [[95,65],[124,65],[95,94],[124,94]]) for(let y=T;y<=T+1;y++) set(x,y,z,B.trim);   // the ribs come down as stepped buttresses
+  for(let x=109;x<=110;x++) for(let z=79;z<=80;z++) set(x,T,z,B.slate);   // the projector's plinth
+
   // ---- Carl Benz's Patent-Motorwagen: a low stone dais on the quay east of the landing ----
   const BZ={x:22,z:-74,x0:20,x1:23,z0:-77,z1:-72};
   for(let x=BZ.x0;x<=BZ.x1;x++) for(let z=BZ.z0;z<=BZ.z1;z++) set(x,T-1,z,x===BZ.x0||x===BZ.x1||z===BZ.z0||z===BZ.z1?B.trim:B.stone);
@@ -738,6 +757,96 @@ export function build(H){
       g.restore(); g.lineWidth=8; g.strokeStyle='#d8a636'; g.beginPath(); g.ellipse(w/2,h*.58,w*.34,h*.38,0,0,7); g.stroke();
       g.fillStyle='#d8a636'; g.fillRect(w*.36,h*.1,w*.28,h*.08); for(const k of [0,1,2]) g.fillRect(w*.36+k*w*.11,h*.02,w*.06,h*.1); },
     x,y,z,Math.PI,false,true);
+  // v1.57 the Planetarium: the glass pyramid (four planes, blue panels in a grid), rust-brown ribs stepping up its hips, a mast with a
+  // dish on the flat top, its name in blue on the white band; inside the dome hall: seats in rings round the star projector, a dark dome
+  // with real stars (Orion, the Plough, Cassiopeia, the Summer Triangle...), turning slowly round the pole as over Mannheim tonight.
+  // The hall's blocks are dimmed in the block shader (w.dark, see mhMat), its props are unlit (matcap) so day and night look the same.
+  const PLD={};
+  { const cx=PL.cx, cz=PL.cz, yb=T+4, hb=13, yt=T+13, ht=4, PLP=[], Q=(w,h,d,x,y,z,c,ry,rx)=>PLP.push([w,h,d,x,y,z,c,ry||0,0,rx||0]);
+    const gc=document.createElement('canvas'); gc.width=gc.height=64;
+    { const g=gc.getContext('2d'); g.fillStyle='#3a679c'; g.fillRect(0,0,64,64);
+      for(const [x,y,c] of [[0,0,'#4776ad'],[32,32,'#34608f'],[32,0,'#3d6ca2']]){ g.fillStyle=c; g.fillRect(x,y,32,32); }
+      g.fillStyle='#b8c4cf'; g.fillRect(0,0,64,2); g.fillRect(0,0,2,64); g.fillRect(31,0,2,64); g.fillRect(0,31,64,2); }
+    const gt=new THREE.CanvasTexture(gc); gt.colorSpace=THREE.SRGBColorSpace; gt.wrapS=gt.wrapT=THREE.RepeatWrapping; gt.anisotropy=4;
+    const pos=[], uv=[], sl=Math.SQRT2*(yt-yb);
+    for(let f=0;f<4;f++){ const a=f*Math.PI/2, ca=Math.cos(a), sa=Math.sin(a);
+      const C=[[-hb,yb,hb],[hb,yb,hb],[ht,yt,ht],[-ht,yt,ht]].map(([x,y,z])=>[cx+x*ca+z*sa,y,cz-x*sa+z*ca]), U=[[-hb,0],[hb,0],[ht,sl],[-ht,sl]];
+      for(const i of [0,1,2,0,2,3]){ pos.push(...C[i]); uv.push(U[i][0]/3,U[i][1]/3); } }
+    const gg=new THREE.BufferGeometry(); gg.setAttribute('position',new THREE.Float32BufferAttribute(pos,3)); gg.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2)); gg.computeVertexNormals();
+    PLD.glass=new THREE.Mesh(gg,new THREE.MeshLambertMaterial({map:gt,emissive:0x3a5f9a,emissiveIntensity:0})); PLD.glass.matrixAutoUpdate=false; group.add(PLD.glass);
+    const RB='#8e4636';
+    for(const [sx,sz] of [[-1,-1],[1,-1],[1,1],[-1,1]]){ for(let k=0;k<9;k++){ const h=hb-k-.5; Q(1.02,1.02,1.02,cx+sx*h,yb+k+.5,cz+sz*h,RB); }
+      Q(.6,.6,.6,cx+sx*(ht+.3),yt+.3,cz+sz*(ht+.3),RB); }
+    Q(ht*2,.24,ht*2,cx,yt+.12,cz,'#e4e2dc');
+    for(let i=0;i<3;i++){ const a=i*2*Math.PI/3, bx=Math.cos(a)*1.3, bz=Math.sin(a)*1.3, an=Math.atan2(-bx,-bz);   // a three-legged mast, the dish on top
+      Q(.12,3.9,.12,cx+bx/2,yt+2.1,cz+bz/2,'#d8d8d4',an,Math.atan2(1.3,3.7)); }
+    Q(.18,1.4,.18,cx,yt+4.5,cz,'#d8d8d4'); Q(1.7,.14,1.7,cx,yt+4.1,cz+.05,'#f2f2ee',0,-.45); Q(1.7,.14,1.7,cx,yt+4.1,cz+.05,'#f2f2ee',Math.PI/4,-.45);
+    Q(4.6,.16,5,cx-15.2,T+2.03,cz,'#e8e6e0'); for(const z of [cz-2.2,cz+2.2]) Q(.14,1.96,.14,cx-16.6,T+.98,z,'#9aa0a8');   // the canopy over the doors
+    // the old star projector in the foyer (two blue star balls on one axis, each lit half the sky), the ticket desk across the foyer
+    { const ox=99.2, oz=69.2, an=Math.PI/4; Q(.9,.5,.9,ox,T+.25,oz,'#3a3c44',an); Q(.3,1.1,.3,ox,T+1.05,oz,'#4a4c54');
+      for(const k of [-1,1]){ const dx=Math.cos(an)*k*.95, dz=-Math.sin(an)*k*.95, dy=k*.32;
+        Q(.7,.7,.7,ox+dx,T+1.75+dy,oz+dz,'#2f5f9a'); Q(.7,.7,.7,ox+dx,T+1.75+dy,oz+dz,'#3a6aa6',Math.PI/4); }
+      Q(.14,.14,2.1,ox,T+1.75,oz,'#5a5c64',Math.atan2(Math.cos(an),-Math.sin(an)),-.325); Q(.5,.5,.5,ox,T+1.75,oz,'#6a6c74',an); }
+    Q(.6,1.1,2.6,98.8,T+.55,90.4,'#ece8e0'); Q(.75,.08,2.75,98.8,T+1.14,90.4,'#3a3c44');
+    for(const [x,z] of [[97.2,72.5],[97.2,87.5],[122.4,72.5],[122.4,87.5]]) Q(.5,.5,.5,x,T+.25,z,'#3f6a3a');   // plants by the glass
+    NB.push([board(1.2,.6,416,208,plq('Sternprojektor','showed the sky here','1984 to 2002'),100.4,T+1.05,70.4,Math.PI/4),.25,.6]); Q(.08,.75,.08,100.4,T+.37,70.4,'#3a3c44');
+    group.add(Object.assign(new THREE.Mesh(blockyGeo(PLP),propMat),{matrixAutoUpdate:false}));
+    for(const [x,z,ry] of [[95.97,cz,-Math.PI/2],[cx,94.03,0]]) board(9,.9,720,72,(g,w,h)=>{ g.clearRect(0,0,w,h); g.fillStyle='#2a5aa8'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 62px '+FONT; g.fillText('Planetarium',w/2,h/2+3); },x,T+2.55,z,ry,false,true);
+    // the hall
+    const mc=document.createElement('canvas'); mc.width=mc.height=64;
+    { const g=mc.getContext('2d'), gr=g.createRadialGradient(30,22,3,32,32,33); gr.addColorStop(0,'#ffffff'); gr.addColorStop(.7,'#9a9aa4'); gr.addColorStop(1,'#4a4a52'); g.fillStyle=gr; g.fillRect(0,0,64,64); }
+    const mct=new THREE.CanvasTexture(mc); mct.colorSpace=THREE.SRGBColorSpace;
+    PLD.mat=new THREE.MeshMatcapMaterial({matcap:mct,vertexColors:true,color:0x9aa0b8,toneMapped:false,fog:false});
+    const HL=[], S=(w,h,d,x,y,z,c,ry,rx)=>HL.push([w,h,d,x,y,z,c,ry||0,0,rx||0]), GL=[], PS=[], SC='#3a4876';
+    const AIS=[0,Math.PI/2,Math.PI,-Math.PI/2];   // four aisles, the west one from the door
+    [3.4,4.6,5.8,7.0].forEach((r,ri)=>{ const n=Math.floor(2*Math.PI*r/.78);
+      for(let i=0;i<n;i++){ const a=(i+.5)/n*2*Math.PI; if(AIS.some(b=>Math.abs(Math.atan2(Math.sin(a-b),Math.cos(a-b)))*r<.85)) continue;
+        const ox=Math.cos(a), oz=Math.sin(a), x=cx+ox*r, z=cz+oz*r, an=Math.atan2(ox,oz);
+        S(.16,.34,.16,x,T+.17,z,'#1a1d26',an); S(.58,.12,.52,x,T+.41,z,SC,an); S(.58,.84,.1,x+ox*.31,T+.82,z+oz*.31,SC,an,.5);
+        PS.push({x,z,ox,oz,ri,a}); } });
+    for(const b of AIS) for(const r of [2.8,4.0,5.2,6.4,7.6]) GL.push([.1,.03,.1,cx+Math.cos(b)*r,T+.03,cz+Math.sin(b)*r,'#a8641e']);   // aisle lights
+    GL.push([.02,.26,.7,102.0,T+3.25,cz,'#1e8a4a']); S(.04,.3,.74,101.97,T+3.25,cz,'#14161c');   // the exit light over the door, dark on its back
+    S(1.0,.04,2.1,100.5,T+.02,cz,'#20242e'); S(.56,1.3,.56,cx,T+1.65,cz,'#2a2d38'); S(.9,.18,.9,cx,T+1.08,cz,'#2a2d38'); S(.34,.3,.34,cx,T+2.38,cz,'#2a2d38');
+    PLD.hall=new THREE.Mesh(blockyGeo(HL),PLD.mat); PLD.hall.matrixAutoUpdate=false;
+    PLD.ball=new THREE.Mesh(new THREE.IcosahedronGeometry(.62,1),new THREE.MeshMatcapMaterial({matcap:mct,color:0x565c70,flatShading:true,toneMapped:false,fog:false})); PLD.ball.position.set(cx,T+2.95,cz);
+    PLD.glow=new THREE.Mesh(blockyGeo(GL),new THREE.MeshBasicMaterial({vertexColors:true,toneMapped:false,fog:false})); PLD.glow.matrixAutoUpdate=false;
+    // the dome (a dark gradient, deep blue at the horizon) and a smooth dark band round its foot, in front of the stepped wall tops
+    const dg=new THREE.SphereGeometry(8.9,40,12,0,Math.PI*2,0,Math.PI/2), cH=new THREE.Color(0x16264a), cZ=new THREE.Color(0x020308), col=[], tc=new THREE.Color();
+    { const p=dg.attributes.position; for(let i=0;i<p.count;i++){ tc.lerpColors(cH,cZ,Math.min(1,p.getY(i)/8.9*1.8)); col.push(tc.r,tc.g,tc.b); } dg.setAttribute('color',new THREE.Float32BufferAttribute(col,3)); }
+    PLD.dome=new THREE.Mesh(dg,new THREE.MeshBasicMaterial({vertexColors:true,side:THREE.BackSide,fog:false,toneMapped:false})); PLD.dome.position.set(cx,yb,cz);
+    const bg=new THREE.CylinderGeometry(8.05,8.05,1.15,40,1,true), bc=[], cB=new THREE.Color(0x07090f), cT=new THREE.Color(0x1c2c50);
+    { const p=bg.attributes.position; for(let i=0;i<p.count;i++){ const c=p.getY(i)>0?cT:cB; bc.push(c.r,c.g,c.b); } bg.setAttribute('color',new THREE.Float32BufferAttribute(bc,3)); }
+    PLD.band=new THREE.Mesh(bg,new THREE.MeshBasicMaterial({vertexColors:true,side:THREE.BackSide,fog:false,toneMapped:false})); PLD.band.position.set(cx,T+3.525,cz);
+    // the stars: right ascension (h), declination (deg), magnitude, tint; placed for Mannheim's latitude (49.5 N)
+    const lat=49.49*Math.PI/180, SR=8.84;
+    PLD.pole=new THREE.Vector3(0,Math.sin(lat),-Math.cos(lat));
+    const sv=(ra,de)=>{ const a=ra*Math.PI/12, d=de*Math.PI/180, c=Math.cos(d);
+      return [c*Math.sin(a)*SR,(c*Math.cos(lat)*Math.cos(a)+Math.sin(d)*Math.sin(lat))*SR,(c*Math.sin(lat)*Math.cos(a)-Math.sin(d)*Math.cos(lat))*SR]; };
+    const ST=[[5.919,7.41,.5,'#ffc890'],[5.242,-8.2,.1,'#cfe0ff'],[5.419,6.35,1.6,'#dfe8ff'],[5.533,-.3,2.2,'#dfe8ff'],[5.604,-1.2,1.7,'#dfe8ff'],[5.679,-1.94,1.8,'#dfe8ff'],[5.796,-9.67,2.1,'#dfe8ff'],[5.585,9.93,3.4,'#e8eeff'],   // Orion
+      [11.062,61.75,1.8,'#ffe2b0'],[11.031,56.38,2.4,'#fff'],[11.897,53.69,2.4,'#fff'],[12.257,57.03,3.3,'#fff'],[12.9,55.96,1.8,'#fff'],[13.399,54.93,2.2,'#fff'],[13.792,49.31,1.9,'#e8eeff'],   // the Plough
+      [.153,59.15,2.3,'#fff8e8'],[.675,56.54,2.2,'#ffe2b0'],[.945,60.72,2.2,'#e8eeff'],[1.43,60.24,2.7,'#fff'],[1.907,63.67,3.4,'#e8eeff'],[2.53,89.26,2.0,'#fff6e0'],   // Cassiopeia, Polaris
+      [20.69,45.28,1.25,'#fff'],[20.37,40.26,2.2,'#fff4e0'],[20.77,33.97,2.5,'#ffe8c0'],[19.75,45.13,2.9,'#e8eeff'],[19.512,27.96,3.1,'#ffd8a0'],[18.616,38.78,0,'#dfe8ff'],[19.846,8.87,.8,'#fff'],   // Cygnus, Vega, Altair
+      [4.599,16.51,.85,'#ffc080'],[3.79,24.1,2.9,'#dfe8ff'],[3.82,24.05,3.6,'#dfe8ff'],[3.748,24.11,3.7,'#dfe8ff'],[3.763,24.37,3.9,'#dfe8ff'],[3.772,23.95,4.1,'#dfe8ff'],[3.753,24.47,4.3,'#dfe8ff'],   // Aldebaran, the Pleiades
+      [6.752,-16.72,-1.46,'#e8f0ff'],[7.655,5.22,.34,'#fff8e8'],[5.278,46.0,.08,'#fff0c8'],[14.261,19.18,-.05,'#ffd8a0'],[7.577,31.89,1.6,'#fff'],[7.755,28.03,1.15,'#ffe2b0'],   // Sirius, Procyon, Capella, Arcturus, Castor + Pollux
+      [10.14,11.97,1.4,'#e8eeff'],[11.818,14.57,2.1,'#fff'],[10.333,19.84,2.0,'#ffe2b0'],[11.235,20.52,2.6,'#fff']];   // Leo
+    const cls=[[],[],[],[]], tint=new THREE.Color(), hz=sh=>{   // stars under the horizon (they peep through the door) are not drawn
+      sh.vertexShader='varying float vH;\n'+sh.vertexShader.replace('#include <project_vertex>','#include <project_vertex>\nvH=(modelMatrix*vec4(transformed,1.)).y;');
+      sh.fragmentShader='varying float vH;\n'+sh.fragmentShader.replace('#include <clipping_planes_fragment>','#include <clipping_planes_fragment>\nif(vH<'+(yb+.15).toFixed(2)+') discard;'); };
+    for(const [ra,de,mg,c] of ST){ const k=mg<1?0:mg<2.3?1:2; cls[k].push(sv(ra,de),tint.set(c).toArray()); }
+    for(let i=0;i<460;i++){ const de=Math.asin(2*hsh(i,7,1607)-1)*180/Math.PI, ra=24*hsh(i,11,1607), b=.25+.55*hsh(i,13,1607);   // fainter ones, the same every visit
+      if(de>-40) cls[3].push(sv(ra,de),[b*.92,b*.95,b]); }
+    PLD.sky=new THREE.Group(); PLD.sky.position.set(cx,yb,cz); PLD.eq=new THREE.Group(); PLD.sky.add(PLD.eq);
+    [5.2,3.6,2.6,1.7].forEach((sz,k)=>{ const cl=cls[k], pg=new THREE.BufferGeometry(), P3=[], C3=[]; for(let i=0;i<cl.length;i+=2){ P3.push(...cl[i]); C3.push(...cl[i+1]); }
+      pg.setAttribute('position',new THREE.Float32BufferAttribute(P3,3)); pg.setAttribute('color',new THREE.Float32BufferAttribute(C3,3));
+      PLD.eq.add(new THREE.Points(pg,new THREE.PointsMaterial({size:sz,sizeAttenuation:false,map:H.roundDot(),vertexColors:true,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,fog:false,toneMapped:false,onBeforeCompile:hz}))); });
+    PLD.lst=((18.697374558+24.06570982441908*(Date.now()/864e5-10957.5))%24)*Math.PI/12+8.47*Math.PI/180;   // tonight's sidereal time in Mannheim
+    PLD.in=[PLD.hall,PLD.ball,PLD.glow,PLD.dome,PLD.band,PLD.sky]; for(const o of PLD.in){ o.visible=false; group.add(o); } PLD.vis=false;
+    for(const o of [PLD.hall,PLD.glow]) o.updateMatrix();
+    // the visitor who dozed off in the back row (north-east), three free seats for you, Frau Brandt at the hall door
+    const pick=(ri,a)=>PS.filter(s=>s.ri===ri).sort((p,q)=>Math.abs(Math.atan2(Math.sin(p.a-a),Math.cos(p.a-a)))-Math.abs(Math.atan2(Math.sin(q.a-a),Math.cos(q.a-a))))[0];
+    const dz=pick(3,-.62); PLD.doze=[dz.x+dz.ox*.06,dz.z+dz.oz*.06,Math.atan2(-dz.ox,-dz.oz)];
+    for(const [ri,a] of [[1,2.4],[1,.75],[2,-2.3]]){ const s=pick(ri,a); SEATS.push({x:s.x,z:s.z,yaw:Math.atan2(s.ox,s.oz),pitch:.78,stand:[s.x-s.ox*.7,s.z-s.oz*.7],k:'seatp',hint:'Lean back and watch the stars'}); }
+    PLD.staff=[98.6,82.4,-Math.PI/2]; }
   // v1.51 the Schloss plaques (entrance hall, Rittersaal) and the Rittersaal's ceiling: an original painted sky in a gilded frame
   NB.push([board(2.0,1.0,416,208,plq('Barockschloss','begun 1720 · Carl Philipp','finished about 1760'),-17.97,T+1.65,93.6,Math.PI/2),.3,.8]);
   NB.push([board(2.0,1.0,416,208,plq('Rittersaal','ceiling: C. D. Asam 1728-30','painted again in the 1960s'),-3.04,T+6.6,100,-Math.PI/2),.3,.8]);
@@ -853,6 +962,7 @@ export function build(H){
     if(x>=124.6&&z>=AK.z0-.5&&z<AK.z1+1) return 'Friedrichsplatz · Arkaden';   // v1.50
     if(x>=95.5&&x<117.5&&z>=-21&&z<-5.8) return 'Rosengarten';
     if(x>=91.5&&x<121&&z>=46.6&&z<63) return 'Kunsthalle';
+    if(x>=88&&z>=63&&z<96) return Math.hypot(x-PL.cx,z-PL.cz)<PL.rout&&y<T+6?'Planetarium · Kuppelsaal':'Planetarium';   // v1.57
     if(x>=FP.x0&&z>=FP.z0&&z<=FP.z1) return x>=115.5&&z>=BAS.z0&&z<=BAS.z1+1?'Wasserspiele':Math.hypot(x-WT.x,z-WT.z)<12?'Wasserturm':'Friedrichsplatz';
     if(x>=L2.x0&&x<L2.x1+1&&z>=L2.z0&&z<L2.z1+1&&y>T-1){ if(y>=LT+.5) return 'L2 · Dach'; if(x>=L2.x0+1&&x<L2.x1&&z>=L2.z0+1&&z<L2.z1) return y>=HC+.5?'L2 · Treppenhaus':'Gedenkhalle'; }
     if(x>=66&&z>=HBF.vz0-8) return z>=HBF.z0-.5?'Hauptbahnhof':'Bahnhofsvorplatz';
@@ -879,21 +989,27 @@ export function build(H){
   let clk=0, tvT=0, nightWas=null;
   // v1.33 floodlights (drawn in the block shader at night, see mhMat): a=[cx,cz,radius,0] round, or [x0,z0,x1,z1] a box lit from the side b.zw faces; b=[y0,y1,dx,dz]
   const flood=[{a:[WT.x,WT.z,10.6,0],b:[T,T+40,0,0]},{a:[SCH.x0-1,SCH.wz0-.5,SCH.x1+1,SCH.z1+1],b:[T,T+31,0,-1]},{a:[HBF.x0-1,HBF.z0-1,HBF.x1+1,HBF.z1+1],b:[T,T+22,0,-1]},{a:[-25.5,-6,-13.5,3.5],b:[T,T+21,0,-1]},{a:[-64,65.5,-59.5,75.5],b:[T,T+33,1,0]},{a:[JK.cx,JK.cz,5.4,0],b:[T+14,T+41,0,0]}];   // v1.48 + the Rathaus front, v1.49 + the Jesuitenkirche front and dome
-  function tick(dt,night){
+  function tick(dt,night,cam){
     if(night!==nightWas){ nightWas=night; lamps.visible=pools.visible=night; headMat.emissive.set(night?0xffd27a:0x000000); headMat.emissiveIntensity=night?1.3:0;
       for(const [b,d,n] of NB) b.m.material.emissiveIntensity=night?n:d;
-      bw.material.emissive.setHex(night?0x2c6c92:0); cw.material.emissiveIntensity=night?.9:.35; rsm.material=night?rsNight:rsDay; spit.material=night?rsNight:propMat; }   // v1.50 the fountains are lit at night
+      bw.material.emissive.setHex(night?0x2c6c92:0); cw.material.emissiveIntensity=night?.9:.35; rsm.material=night?rsNight:rsDay; spit.material=night?rsNight:propMat; PLD.glass.material.emissiveIntensity=night?.35:0; }   // v1.50 the fountains are lit at night
     if(night&&(tvT-=dt)<0){ tvT=.1+Math.random()*.35; tvPaint(TL.winTv,.45+Math.random()*.55,Math.random()); if(Math.random()<.5) tvPaint(TL.winTv2,.4+Math.random()*.5,Math.random()); H.emTex.needsUpdate=true; }
     jt+=dt; jetsSet(); spit.rotation.y+=dt*.9; spit.updateMatrix();
-    if((clk-=dt)<0){ clk=5; if(new Date().getMinutes()!==clockDraw.m) clockDraw(); } }
+    if((clk-=dt)<0){ clk=5; if(new Date().getMinutes()!==clockDraw.m) clockDraw(); }
+    if(cam){ const v=Math.abs(cam.x-PL.cx)<16.5&&Math.abs(cam.z-PL.cz)<16.5&&cam.y<T+9; if(v!==PLD.vis){ PLD.vis=v; for(const o of PLD.in) o.visible=v; } }   // v1.57 the Planetarium's hall only draws from close by
+    if(PLD.vis){ PLD.lst+=dt*Math.PI*2/86164*60; PLD.eq.quaternion.setFromAxisAngle(PLD.pole,-PLD.lst); } }
 
   return { mhq:{doner:[DN.x,DN.z,Math.PI/2],baker:[BK.x+.4,BK.z-.75,Math.PI],kessler:[44.5,65.25,Math.PI],hannes:[13.5,-72.6,-2.4]}, group, place, riverD, tick, steps, QD, benz, flood, ghost:null, l2:{x:14,z:71,roofY:LT+1},
     spawn:{x:4.5,z:-74.6,yaw:Math.PI}, pop:{x:34,z:-103}, jupp:{x:7.2,z:-77.4}, seats:SEATS,
+    dark:[PL.cx,PL.cz,PL.rin+.75,PL.rout+.3,T+4.05], pl:{staff:PLD.staff,doze:PLD.doze,mat:PLD.mat},   // v1.57 the Planetarium's dark hall + its two people
     facts:[[WT.x,WT.z,15,'Wasserturm: 60 m tall, built 1886-1889 to a design by Gustav Halmhuber. Up on the dome stands Amphitrite, the sea goddess, in copper.'],
       [119,20.5,7,'Bruno Schmitz laid out these gardens from 1899: water steps, basins, arcades, lanterns. The square was ready for Mannheim\'s 300th birthday in 1907.'],
       [-10,87.5,9,'Mannheim Palace: Elector Carl Philipp quarrelled with Heidelberg\'s Protestants over the Heiliggeistkirche and moved his court down the Neckar. First stone 1720, done about 1760, almost 450 m long. Today: the University.'],   // v1.51
       [34,-102,10,'Popakademie Baden-W\u00fcrttemberg: the state\'s college for pop music and the music business, founded in 2003. It moved into its new building in the Jungbusch, by the harbour, in 2004.'],   // v1.52
-      [-10,98.5,6,'Rittersaal: Cosmas Damian Asam painted its ceiling in 1728-30. The bombs of 1943-44 destroyed it; Carolus Vocke painted it again in the 1960s from old photographs. Concerts play here today.',T+5]],
+      [-10,98.5,6,'Rittersaal: Cosmas Damian Asam painted its ceiling in 1728-30. The bombs of 1943-44 destroyed it; Carolus Vocke painted it again in the 1960s from old photographs. Concerts play here today.',T+5],
+      [94,PL.cz,6,'Planetarium Mannheim: opened in 1984 to a design by Wilfried Beck-Erlang, a glass pyramid round a projection dome 20 m across. Mannheim\'s first planetarium (1927) stood in the Luisenpark.'],   // v1.57
+      [99.5,69.5,2.6,'The old star projector: it showed the sky in the dome from 1984 to 2002. Each of its two big balls lights one half of the sky.'],
+      [PL.cx,PL.cz,6,'The seats tilt back, and the projector in the middle shows the sky as it stands over Mannheim tonight, turning a little faster. Take a free seat and look up.']],
     arrive:[[124,-90],[96,-90.5],[66,-88.5],[40,-84.5],[22,-82.6],[12,-82.4]],
     trig:[[118,-90,'Willkommen in Mannheim! The city of squares. Streets have no names here, only letters and numbers.'],
       [70,-88.5,'Left: the Quadrate. Right: the harbour cranes. Behind it all, flat as a Pfannkuchen.'],
