@@ -723,6 +723,31 @@ export function build(H){
   for(const [y,z,f] of [[HC+8.4,68.06,1],[HC+15.4,73.94,-1]]){ P(.3,.3,.1,14,y,z,'#3a3530'); LH.push([.22,.22,.1,14,y+.22,z+f*.05,'#ffe2a8']); LAMPS.push([14,y+.22,z+f*.15]); }   // v1.46 stairwell lamps
   P(2,.1,.46,14,LT+1.48,72.6,'#6a4a30'); P(2,.5,.08,14,LT+1.78,72.85,'#6a4a30'); for(const s of [-.8,.8]) P(.1,.44,.4,14+s,LT+1.22,72.6,'#4a3422');
   for(const [x,z] of [[11.6,68.4],[16.4,73.4]]){ P(.6,.5,.6,x,LT+1.25,z,'#a0582f'); P(.7,.6,.7,x,LT+1.8,z,'#3f7f3a'); }
+  // ---- v1.62 trams on the Planken (Cold's idea, Flax approved): a double track from the Paradeplatz to the Wasserturm end of the
+  // Planken, a crossover in front of each end stop, grooved rails in the asphalt, a contact wire over each track hung from span
+  // wires (the Planken lamp posts carry them, two end masts more), and a glass shelter at each stop. index.html runs the trams
+  // from TRM (returned as w.tram). Eastbound trams use the south track, westbound the north one; the ends take one tram at a time.
+  const TRM={xw:1,xe:67,zN:19.85,zS:22.15,w0:9,e0:50,cw:8,x0:-6,x1:79.6,stops:['Paradeplatz','Wasserturm']};
+  { const RG='#2a2b2f', RS='#a4a6aa', WI='#25272b', MA='#2b2b2e', sm=u=>(1-Math.cos(Math.PI*u))/2;
+    const rail=(xa,za,xb,zb)=>{ const dx=xb-xa, dz=zb-za, l=Math.hypot(dx,dz), ry=Math.atan2(-dz,dx), cx=(xa+xb)/2, cz=(za+zb)/2;
+      P(l,.025,.11,cx,T+.012,cz,RG,ry); P(l,.03,.045,cx,T+.016,cz,RS,ry); };
+    const wire=(xa,za,xb,zb)=>{ const dx=xb-xa, dz=zb-za; P(Math.hypot(dx,dz),.035,.035,(xa+xb)/2,T+4.75,(za+zb)/2,WI,Math.atan2(-dz,dx)); };
+    for(const zc of [TRM.zN,TRM.zS]){ for(const o of [-.5,.5]) rail(TRM.x0,zc+o,TRM.x1,zc+o); wire(-4.5,zc,78.5,zc); }
+    for(const a of [TRM.w0,TRM.e0]) for(let k=0;k<8;k++){ const xa=a+k*TRM.cw/8, xb=xa+TRM.cw/8, za=TRM.zS+(TRM.zN-TRM.zS)*sm(k/8), zb=TRM.zS+(TRM.zN-TRM.zS)*sm((k+1)/8);
+      for(const o of [-.5,.5]) rail(xa,za+o,xb,zb+o); wire(xa,za,xb,zb); }
+    // span wires: the lamp posts at x 0..72 grow a mast to T+5.3, two plain masts close the ends
+    for(let x=0;x<=72;x+=12) for(const z of [PLK.z0+.6,PLK.z1+.4]){ P(.12,1.1,.12,x,T+4.75,z,MA); P(.18,.08,.18,x,T+5.33,z,MA); }
+    for(const x of [-4.5,78.5]) for(const z of [PLK.z0+.6,PLK.z1+.4]){ P(.16,5.35,.16,x,T+2.67,z,MA); P(.28,.12,.28,x,T+.06,z,MA); }
+    for(const x of [-4.5,0,12,24,36,48,60,72,78.5]){ P(.035,.035,4.8,x,T+5.2,(PLK.z0+PLK.z1+1)/2,WI); for(const zc of [TRM.zN,TRM.zS]) P(.03,.45,.03,x,T+4.97,zc,WI); }
+    // the shelters: glass back and one glass side, a flat roof, a bench, a white timetable panel; s = which way the open front faces
+    const shelter=(xc,zb,s)=>{ const GLs='#a9c3cb', FR='#4a4e54';
+      for(const dx of [-.92,.92]) for(const dz of [0,.8]) P(.07,2.35,.07,xc+dx,T+1.17,zb+s*dz,FR);
+      P(1.84,1.75,.04,xc,T+1.2,zb,GLs); P(.04,1.75,.76,xc-.92,T+1.2,zb+s*.4,GLs);
+      P(2.06,.09,1.12,xc,T+2.39,zb+s*.42,FR); P(2.06,.13,.05,xc,T+2.36,zb+s*.98,'#5c6168');
+      P(1.3,.07,.34,xc+.2,T+.5,zb+s*.26,'#8a9098'); for(const dx of [-.35,.75]) P(.06,.46,.3,xc+dx,T+.23,zb+s*.26,FR);
+      P(.62,.82,.03,xc-.45,T+1.5,zb+s*.035,'#f4f1ea'); P(.5,.06,.031,xc-.45,T+1.78,zb+s*.04,'#2a6a4a'); };
+    shelter(-2.9,24.95,-1); shelter(66.6,16.05,1);
+    for(const [x,z] of [[-1.75,24.2],[68.5,16.95]]) P(.07,2.62,.07,x,T+1.31,z,'#5a5e64'); }
   const propMat=new THREE.MeshLambertMaterial({vertexColors:true});
   const pm=new THREE.Mesh(blockyGeo(L),propMat); pm.matrixAutoUpdate=false; group.add(pm);
   const spit=new THREE.Mesh(blockyGeo(SPL),propMat); spit.position.set(DN.sx,0,DN.sz); spit.matrixAutoUpdate=false; spit.updateMatrix(); group.add(spit);   // v1.55
@@ -752,6 +777,11 @@ export function build(H){
   board(9,1.6,576,102,(g,w,h)=>{ g.fillStyle='#1f3f7a'; g.fillRect(0,0,w,h); g.strokeStyle='#f4f1ea'; g.lineWidth=6; g.strokeRect(6,6,w-12,h-12); g.fillStyle='#f4f1ea'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 50px '+FONT; g.fillText('MANNHEIM',w/2,h*.4); g.font='400 22px '+FONT; g.fillText('Anlegestelle · Quadratestadt',w/2,h*.78); },
     8,T+3.4,-78.97,Math.PI);
   const NB=[];   // v1.33 boards that light up at night: [board, day, night]
+  // v1.62 the tram stop signs: a yellow disc with a green H over a white name plate (one canvas, cut out, both sides)
+  const stopSign=(name,x,z)=>NB.push([board(.62,.84,256,348,(g,w,h)=>{ g.clearRect(0,0,w,h); g.fillStyle='#1f7a3a'; g.beginPath(); g.arc(w/2,118,116,0,Math.PI*2); g.fill();
+    g.fillStyle='#f2c81e'; g.beginPath(); g.arc(w/2,118,100,0,Math.PI*2); g.fill(); g.fillStyle='#1f7a3a'; g.fillRect(78,52,26,132); g.fillRect(152,52,26,132); g.fillRect(78,105,100,26);
+    g.fillStyle='#f4f4f0'; g.fillRect(6,250,w-12,92); g.strokeStyle='#1f2a2a'; g.lineWidth=4; g.strokeRect(8,252,w-16,88);
+    g.fillStyle='#1a1d22'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 38px '+FONT; g.fillText(name,w/2,297,w-30); },x,T+2.95,z,Math.PI/2,true,true),.3,.8]);
   NB.push([board(3.4,.62,544,100,(g,w,h)=>{ g.fillStyle='#c8322a'; g.fillRect(0,0,w,h); g.strokeStyle='#f2c53a'; g.lineWidth=6; g.strokeRect(6,6,w-12,h-12);
     g.fillStyle='#fff4d8'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 52px '+FONT; g.fillText('DÖNER · DÜRÜM',w/2,h*.54); },-14.95,T+3.62,-58.1,Math.PI/2),.35,.9]);   // v1.55
   NB.push([board(2.8,.5,560,100,(g,w,h)=>{ g.fillStyle='#24452e'; g.fillRect(0,0,w,h); g.fillStyle='#f4ecd0'; g.textBaseline='middle'; g.font='700 30px '+FONT;
@@ -759,6 +789,7 @@ export function build(H){
   NB.push([board(15,1.5,640,64,(g,w,h)=>{ g.fillStyle='#14233f'; g.fillRect(0,0,w,h); g.fillStyle='#f4f1ea'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 40px '+FONT; g.fillText('MANNHEIM HAUPTBAHNHOF',w/2,h/2+2); },
     (HBF.hx0+HBF.hx1+1)/2,T+12.6,HBF.z0-.03,Math.PI),.3,.9]);
   const clock=board(2.6,2.6,128,128,()=>{},(HBF.hx0+HBF.hx1+1)/2,T+14.65,HBF.z0-.04,Math.PI); NB.push([clock,.3,1.25]);
+  stopSign('Paradeplatz',-1.75,24.2); stopSign('Wasserturm',68.5,16.95);   // v1.62
   const RHC=[board(2.1,2.1,128,128,()=>{},-19.5,T+14.4,-5.04,Math.PI,false,true),board(2.1,2.1,128,128,()=>{},-17.96,T+14.4,-3.5,Math.PI/2,false,true)];   // v1.48 the Rathausturm's clocks
   for(const c of RHC) NB.push([c,.3,1.25]);
   function clockDraw(){ const g=clock.c.getContext('2d'), d=new Date(), hh=d.getHours()%12, mm=d.getMinutes(); g.clearRect(0,0,128,128);
@@ -1036,6 +1067,8 @@ export function build(H){
     if(x>=-84.6&&x<-59.4&&z>=65.4&&z<75.6){ if(!(x>-83&&x<-61&&z>67&&z<74)) return 'Jesuitenkirche';   // v1.49
       return jkO(Math.floor(x),Math.floor(z))<=3.45?'Jesuitenkirche · unter der Kuppel':x<-80?'Jesuitenkirche · Chor':x>-64?'Jesuitenkirche · Vorhalle':'Jesuitenkirche · Langhaus'; }
     if(x>=-15&&x<-12.6&&z>=-61&&z<-55.4) return 'Breite Straße · Imbiss am Ring';   // v1.55
+    if(x>=-4.2&&x<-1.3&&z>=23.9&&z<25.4) return 'Haltestelle Paradeplatz';   // v1.62
+    if(x>=65.2&&x<69&&z>=15.6&&z<17.4) return 'Haltestelle Wasserturm';
     const q=nearQ(x,z,2.2), on=q?' · '+q.code:'';
     if(q&&q.sq&&inR(x,z,q)) return q.sq+' · '+q.code;
     if(z<=-62.5) return (x<AX.c?'Luisenring':'Friedrichsring')+on;
@@ -1061,7 +1094,7 @@ export function build(H){
     if(PLD.vis){ PLD.lst+=dt*Math.PI*2/86164*60; PLD.eq.quaternion.setFromAxisAngle(PLD.pole,-PLD.lst); } }
 
   return { mhq:{doner:[DN.x,DN.z,Math.PI/2],baker:[BK.x+.4,BK.z-.75,Math.PI],kessler:[44.5,65.25,Math.PI],hannes:[13.5,-72.6,-2.4]}, group, place, riverD, tick, steps, QD, benz, flood, ghost:null, l2:{x:14,z:71,roofY:LT+1},
-    spawn:{x:4.5,z:-74.6,yaw:Math.PI}, pop:{x:34,z:-103}, jupp:{x:7.2,z:-77.4}, seats:SEATS,
+    spawn:{x:4.5,z:-74.6,yaw:Math.PI}, pop:{x:34,z:-103}, tram:TRM, jupp:{x:7.2,z:-77.4}, seats:SEATS,
     dark:[PL.cx,PL.cz,PL.rin+.75,PL.rout+.3,T+4.05], pl:{staff:PLD.staff,doze:PLD.doze,mat:PLD.mat},   // v1.57 the Planetarium's dark hall + its two people
     facts:[[WT.x,WT.z,15,'Wasserturm: 60 m tall, built 1886-1889 to a design by Gustav Halmhuber. Up on the dome stands Amphitrite, the sea goddess, in copper.'],
       [112,20.5,6,'The Wasserspiele: the big fountain first played on 9 September 1893. Bruno Schmitz added the water steps, the basin and the pergolas from 1899. Today 178 nozzles, the tallest jet up to 28 m, from spring to mid-October.'],   // v1.58

@@ -831,6 +831,9 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   desktop 1280x800 at his plate 104/194k).
 - v1.60 right ring: DOM only, no render cost (phone 390x844 on the bridge 47 calls, same as v1.59).
 - v1.61 three Mannheim folk: one draw call each when in view (phone 390x844 Paradeplatz 40 -> 41, Marktplatz 29 -> 30).
+- v1.62 trams: +6 calls (3 sections x 2 trams, one shared folkMat) + ~1.5k-2k tris per section in view; rails/wires/shelters
+  are boxes in the merged props mesh (0 calls). Desktop 1280x720 Paradeplatz stop 83-85 calls / 148k tris; phone 390x844 on the
+  platform 39 calls / 86k tris.
 
 ## testing
 - scratch: $SP/hb (index.html + mk.sh injects window.__G/__E into gaunt/sw/hm43/hb). The live file only has a
@@ -1183,3 +1186,27 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   mother, the court orchestra, Aloysia Weber and her aria, Leopold's letters to go to Paris, later married her sister Constanze.
   FIX: the Quadrate had a J row and no I (ROWW 'KJHGFEDCBA'); now 'KIHGFEDCBA' like the real city, the corner signs follow.
   No sound for Anton (silent bow, barks only); a soft fiddle loop could come later if Flax wants it.
+- v1.62 2026-10-15 12:53 trams on the Planken (Cold's idea, Flax approved). One line, Paradeplatz <-> Wasserturm end of the
+  Planken, double track (south track eastbound zS 22.15, north westbound zN 19.85, metre gauge, x -6..79.6), a crossover in
+  front of each end stop (west N->S over x 9..17, east S->N over x 50..58), contact wire over each track at T+4.75 on span
+  wires (Planken lamp posts x 0..72 grew masts, two end masts at -4.5 / 78.5), glass shelters + yellow-green H stop signs
+  ('Paradeplatz' on the square at x -3.9..-1.9 z 24-25, 'Wasserturm' in the cross-street mouth x 65.6..67.5 z 16-17), place
+  names 'Haltestelle ...'. mannheim.js returns TRM as w.tram (AWF v=162). index.html: TRAM + tramGeo/tramBuild/tramPose/
+  tramSec/tramHit/tramBell/tramNear/tramOn/tramOff/tramTick (before the Popakademie block). Two 3-section trams (cream, red
+  stripe, open window band with seated + standing blocky passengers, double-ended: headlights + small red lights both ends,
+  pantograph on the middle section). Loop number s: 0..66 east on the south track, 66..132 west on the north track; the end
+  zones (E s 41..89.8, W s>=108 or <=22.8) take one tram at a time; both trams dwell 11-16 s at opposite ends, ring twice
+  (soft inharmonic sine bell, sfxBus, fades within ~40 m) and leave together, passing mid-Planken. They brake for and ring
+  at anyone on the rails ahead (you, Planken walkers, the Motorwagen; lateral < 1.05+r+.15, up to 26 m ahead), and a move
+  that would overlap you or the car is undone, so they never run you over; hit() and vehFree() treat the sections as solid
+  (Mannheim only), a push-out frees you if you ever end up inside. One-time hint '🔔 The tram waits for you'.
+  Ride: at a dwelling tram (> 1.5 s left) R / the ride button 'Tram to the Wasserturm/Paradeplatz'; you sit by a south window
+  in the middle section (seat local -.55, +1.3), view turns with the tram, physics off (frame MH branch !TRAM.ride), no Talk
+  button while riding; 'Get off' only while the doors are open, R while moving toasts 'The doors open at the next stop';
+  at the other end you step out onto the platform automatically (west z 23.77, east z 18.23); moving the stick at a stop
+  gets you off too; leaving Mannheim ends a ride. Planken walkers rerouted off the rails: north pavement z 17.6/18.05,
+  south pavement z 23.95/24.3/24.6 east of x 5, crossing the Planken at x -8 (west of the track end).
+  Tested headless: tram stops 1.1 m before a player on the rails, waits, rings, hint, resumes; 400 s fast-forward, the two
+  trams never closer than the 2.3 m track spacing, both keep cycling; board/ride/auto alight at both ends; phone 390x844
+  ?touch board via the button, jump hidden while riding; 0 JS errors. Left out: the Breite Straße leg, tracks past the
+  Kaiserring, motor hum, front/rear light switching, door animation.
