@@ -505,6 +505,19 @@ export function build(H){
   for(const [x,z] of [[-5,24],[3,24],[-5,33],[3,33]]) tree(x,z);   // Paradeplatz
   for(const [x,z] of [[107,1],[107,39],[93,2],[93,39]]) tree(x,z);     // v1.38 lawns round the Wasserspiele (v1.58 new spots)
 
+  // ---- v1.67 the Schillerplatz on B3 (Flax, Monitor q56): B3's houses make way for a small green square round the Schiller
+  // monument, a standing bronze on a tall stone base (props below). Cleared after the houses were made and with no R(), so every
+  // other house, tree and container in Mannheim stays where it was. Gravel paths cross to the monument, lawn and limes in three
+  // corners. The old Nationaltheater (1779-1943, Die Räuber premiered there on 13 January 1782) stood by the square ----
+  const SLP={x0:-54,x1:-46,z0:53,z1:60,cx:-50,cz:58};   // the monument a little south of the middle: a forecourt with benches in front of him
+  for(let x=SLP.x0;x<=SLP.x1;x++) for(let z=SLP.z0;z<=SLP.z1;z++){ for(let y=T;y<T+30;y++) set(x,y,z,0);
+    const dx=x+.5-SLP.cx, dz=z+.5-SLP.cz; set(x,T-1,z,Math.abs(dx)<1||Math.abs(dz)<1||Math.hypot(dx,dz)<3.3||(z>=54&&z<=55&&x>=-53&&x<=-47)?B.gravel:B.grass); }
+  for(let x=SLP.cx-1;x<=SLP.cx;x++) for(let z=SLP.cz-1;z<=SLP.cz;z++) for(let y=T;y<T+3;y++) set(x,y,z,B.sandstone);   // the base's core, 2 x 2 x 3
+  for(const [x,z] of [[SLP.x0,SLP.z0],[SLP.x0,SLP.z1],[SLP.x1,SLP.z1]]){ const cy=T+5, r=2.2;   // three limes, by hand (no R()); the north-east corner stays open so you see him coming up from the Breite Straße
+    for(let dx=-3;dx<=3;dx++) for(let dz=-3;dz<=3;dz++) for(let dy=-2;dy<=2;dy++){ const dd=(dx*dx+dz*dz)/(r*r)+(dy*dy)/((r*.85)*(r*.85));
+      if(dd<=1&&!get(x+dx,cy+dy,z+dz)) set(x+dx,cy+dy,z+dz,hsh(x+dx,cy+dy,z+dz)<.85?B.leaves:B.leavesY); }
+    for(let y=T;y<=cy;y++) set(x,y,z,B.log); }
+
   // ---- props: one vertex-coloured mesh (cranes, containers, bollards, benches), boards, corner signs ----
   const group=new THREE.Group(), L=[];
   const P=(w,h,d,x,y,z,c,ry,rx)=>L.push([w,h,d,x,y,z,c,ry||0,0,rx||0]);
@@ -828,11 +841,23 @@ export function build(H){
   for(let x=47;x<=48;x++){ set(x,T,43,0); set(x,T+1,43,0); set(x,T-1,43,B.pave); }
   for(const [x,z] of [[42,43],[42,45],[44,41],[46,41],[45,46],[47,42],[47,45]]) for(const y of [T+5,T+8,T+11]) if(get(x,y,z)&&get(x,y+1,z)) set(x,y,z,B.windowLit);
   P(1.6,.1,.42,44.4,T+.45,42.32,'#7a5232'); P(1.6,.4,.08,44.4,T+.78,42.1,'#7a5232'); for(const k of [-.68,.68]) P(.08,.42,.38,44.4+k,T+.21,42.32,'#2b2b2e');
-  SEATS.push({x:44.05,z:42.62,yaw:Math.PI,pitch:.12,stand:[44.05,43.6],k:'bench'});
+  SEATS.push({x:44.05,z:42.62,yaw:Math.PI,pitch:.12,stand:[44.05,43.6],k:'bench',hint:'Sit a while in the quiet yard'});   // v1.67 its own hint (was the fountains one)
   for(const [x,z,c] of [[46.45,45.45,'#c8402a'],[43.5,45.45,'#e8d050']]){ P(.42,.36,.42,x,T+.18,z,'#a85a32'); P(.48,.3,.48,x,T+.5,z,'#4a7a3a'); P(.12,.08,.12,x-.1,T+.69,z,c); P(.12,.08,.12,x+.12,T+.67,z+.1,c); }
   P(.05,1.9,.05,43.06,T+.95,44,'#4a7a3a'); P(.04,1.4,.6,43.04,T+1.4,43.8,'#3f6a3a');   // a climbing rose by the west wall, no flowers yet
   P(2.9,.012,.012,44.9,T+2.3,44.6,'#d8d4cc',Math.PI/2.3); P(.3,.4,.02,44.6,T+2.08,44.3,'#e8dcc8',Math.PI/2.3); P(.26,.32,.02,45.3,T+2.12,44.9,'#8aa8c8',Math.PI/2.3);   // a washing line
   P(.18,.04,.5,49.02,T+1.85,43.5,'#24382c');   // a little lintel over the door
+  // v1.67 the Schiller monument: two steps, the stone base dressed a little wider than its voxel core, a cornice, a plinth, and
+  // Schiller in green-brown bronze looking north up the square in a long coat, a scroll in his right hand. Two benches on the forecourt
+  // look up at him, two lamps by the paths, a stone tablet by the east path for the Nationaltheater
+  { const X=SLP.cx, Z=SLP.cz, SS='#c9b59d', SD='#b29c83', BZ='#6f8d79';
+    P(3.4,.18,3.4,X,T+.09,Z,'#bdb6aa'); P(2.8,.36,2.8,X,T+.18,Z,'#c9c2b6');
+    P(2.24,2.62,2.24,X,T+1.67,Z,SS); P(2.5,.3,2.5,X,T+3.1,Z,SD); P(2.16,.22,2.16,X,T+3.36,Z,SS); P(1.7,.3,1.7,X,T+3.6,Z,SD);
+    statue(X,T+3.75,Z,Math.PI,1.3,{extra:[[.13,.44,.13, .42,.92,.13,'#7f9d88'],[.66,.56,.42, 0,.78,-.02,BZ]]},BZ);
+    for(const x of [X-2.3,X+2.3]){ const z=SLP.z0+1.6, an=Math.PI;   // two benches on the forecourt, facing him
+      P(1.8,.12,.5,x,T+.45,z,'#7a5232',an); P(1.8,.45,.1,x,T+.78,z-.25,'#7a5232',an); for(const k of [-.75,.75]) P(.08,.4,.42,x+k,T+.2,z,'#2b2b2e',an);
+      SEATS.push({x,z:z+.05,yaw:Math.atan2(x-X,z-SLP.cz),pitch:.72,stand:[x,z-1.1],k:'bench',hint:'Sit and look up at Schiller'}); }   // the seat turns you to him
+    lamp(X+1.4,SLP.z0-.5); lamp(X-1.4,SLP.z1+1.5);
+    P(.18,1.0,1.0,SLP.x1-.2,T+.62,55.6,'#9c9488'); P(.34,.16,1.2,SLP.x1-.2,T+.08,55.6,'#8a8276'); }
   const LZ={x:-35,z:17.55};
   P(.52,.03,.36,-34.25,T+.1,18.1,'#c8c8cc',.4,.32); P(.4,.006,.28,-34.25,T+.12,18.08,'#f4f1ea',.4,.32);   // her tipped tray + doily on the step
   PKZ.push([LZ.x-1.3,LZ.x+1.3,17,18.4]);
@@ -1087,6 +1112,11 @@ export function build(H){
   // v1.52 the Popakademie's name over the glass (plain letters, no logo)
   NB.push([board(9,1.3,720,104,(g,w,h)=>{ g.fillStyle='#1c1c22'; g.fillRect(0,0,w,h); g.fillStyle='#e0307a'; g.fillRect(24,h-20,96,8);
     g.fillStyle='#f4f1ea'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 62px '+FONT; g.fillText('Popakademie',w/2,h/2); },34,T+8,-103.97,0),.35,1.1]);
+  // v1.67 SCHILLER on the base (bronze letters, north face) and the Nationaltheater tablet by the east path
+  NB.push([board(1.7,.36,340,72,(g,w,h)=>{ g.clearRect(0,0,w,h); g.fillStyle='#3e5547'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 54px Georgia, "Times New Roman", serif'; g.fillText('SCHILLER',w/2,h/2+3); },SLP.cx,T+2.3,SLP.cz-1.13,Math.PI,false,true),.15,.35]);
+  NB.push([board(.86,.86,240,240,(g,w,h)=>{ g.fillStyle='#8f877b'; g.fillRect(0,0,w,h); g.strokeStyle='#5c564d'; g.lineWidth=4; g.strokeRect(8,8,w-16,h-16);
+    g.fillStyle='#2e2a25'; g.textAlign='center'; g.textBaseline='middle'; const F=(z,t,y)=>{ g.font=z+'px Georgia, "Times New Roman", serif'; g.fillText(t,w/2,y); };
+    F('700 21',"Am Schillerplatz stand",40); F('700 21','das Nationaltheater',66); F('700 25','1779 – 1943',100); F('italic 19','Dort wurden Schillers',140); F('italic 19','»Räuber« uraufgeführt,',164); F('italic 19','13. Januar 1782',188); },SLP.x1-.1,T+.66,55.6,Math.PI/2),.2,.5]);
   // corner signs: every block shows its code at all four corners, on both street faces (one draw call)
   const codes=QD.filter(q=>!q.sq), CW=64, CHh=40, per=16, cv=document.createElement('canvas'); cv.width=CW*per; cv.height=CHh*Math.ceil(codes.length/per);
   { const g=cv.getContext('2d'); codes.forEach((q,i)=>{ const x=(i%per)*CW, y=Math.floor(i/per)*CHh; g.fillStyle='#f4f1ea'; g.fillRect(x,y,CW,CHh); g.fillStyle='#1d3a6e'; g.fillRect(x+3,y+3,CW-6,CHh-6);
@@ -1097,7 +1127,8 @@ export function build(H){
     const X=cx+nx*.03, Z=cz+nz*.03;
     sp.push(X-tx*w,y-h,Z-tz*w, X+tx*w,y-h,Z+tz*w, X+tx*w,y+h,Z+tz*w, X-tx*w,y+h,Z-tz*w); for(let k=0;k<4;k++) sn.push(nx,0,nz);
     su.push(u0,v0,u1,v0,u1,v1,u0,v1); si.push(vc,vc+1,vc+2,vc,vc+2,vc+3); vc+=4; }
-  for(const q of codes){ if(q.code==='A4'||q.code==='A5'){ const X=q.code==='A4'?-60:-84, s=q.code==='A4'?1:-1;   // v1.49 the Jesuitenkirche fills both: signs on its outer corners
+  for(const q of codes){ if(q.code==='B3') continue;   // v1.67 the Schillerplatz has no houses to carry them
+    if(q.code==='A4'||q.code==='A5'){ const X=q.code==='A4'?-60:-84, s=q.code==='A4'?1:-1;   // v1.49 the Jesuitenkirche fills both: signs on its outer corners
       plate(q,X-s*.5,66,0,-1); plate(q,X-s*.5,75,0,1); plate(q,X,66.5,s,0); plate(q,X,74.5,s,0); continue; }
     const f1=q.code==='F1', X0=f1?q.x0:q.x0+1, X1=f1?q.x1+1:q.x1, Z0=q.z0+1, Z1=q.z1, o=f1?.5:.8;   // building faces (the sidewalk ring is outside;
     plate(q,X0+o,Z0,0,-1); plate(q,X1-o,Z0,0,-1); plate(q,X0+o,Z1,0,1); plate(q,X1-o,Z1,0,1);                              // v1.48 F1's Rathaus fills its block, signs on its quoins)
@@ -1209,6 +1240,7 @@ export function build(H){
     if(x>=-84.6&&x<-59.4&&z>=65.4&&z<75.6){ if(!(x>-83&&x<-61&&z>67&&z<74)) return 'Jesuitenkirche';   // v1.49
       return jkO(Math.floor(x),Math.floor(z))<=3.45?'Jesuitenkirche · unter der Kuppel':x<-80?'Jesuitenkirche · Chor':x>-64?'Jesuitenkirche · Vorhalle':'Jesuitenkirche · Langhaus'; }
     if(x>=-15&&x<-12.6&&z>=-61&&z<-55.4) return 'Breite Straße · Imbiss am Ring';   // v1.55
+    if(x>=-55&&x<-44&&z>=52&&z<62) return 'Schillerplatz · B3';   // v1.67
     if(x>=43&&x<49&&z>=42&&z<46) return 'Hinterhof · N4';   // v1.66
     for(const p of TRM.plat) if(x>=p[4]&&x<p[5]&&z>=p[6]&&z<p[7]) return 'Haltestelle '+p[3];   // v1.62, v1.65
     const q=nearQ(x,z,2.2), on=q?' · '+q.code:'';
@@ -1236,9 +1268,9 @@ export function build(H){
     if(PLD.vis){ PLD.lst+=dt*Math.PI*2/86164*60; PLD.eq.quaternion.setFromAxisAngle(PLD.pole,-PLD.lst); } }
 
   return { mhq:{doner:[DN.x,DN.z,Math.PI/2],baker:[BK.x+.4,BK.z-.75,Math.PI],kessler:[44.5,65.25,Math.PI],hannes:[13.5,-72.6,-2.4]}, group, place, riverD, tick, steps, QD, benz, flood, ghost:null, l2:{x:14,z:71,roofY:LT+1},
-    spawn:{x:4.5,z:-74.6,yaw:Math.PI}, pop:{x:34,z:-103}, tram:TRM, esk:ESKS, plk:PLKW, solid:(x,y,z)=>YD.shut&&Math.floor(x)===48&&Math.floor(z)===43&&y>=T&&y<T+2, jupp:{x:7.2,z:-77.4}, seats:SEATS,
+    spawn:{x:4.5,z:-74.6,yaw:Math.PI}, pop:{x:34,z:-103}, tram:TRM, esk:ESKS, plk:PLKW, slp:SLP, solid:(x,y,z)=>YD.shut&&Math.floor(x)===48&&Math.floor(z)===43&&y>=T&&y<T+2, jupp:{x:7.2,z:-77.4}, seats:SEATS,
     dark:[PL.cx,PL.cz,PL.rin+.75,PL.rout+.3,T+4.05], pl:{staff:PLD.staff,doze:PLD.doze,mat:PLD.mat},   // v1.57 the Planetarium's dark hall + its two people
-    facts:[[WT.x,WT.z,15,'Wasserturm: 60 m tall, built 1886-1889 to a design by Gustav Halmhuber. Up on the dome stands Amphitrite, the sea goddess, in copper.'],
+    facts:[[SLP.cx,SLP.cz,5.5,'Schillerplatz: Friedrich Schiller (1759-1805) in bronze. His first play, Die Räuber, had its premiere on 13 January 1782 at the Nationaltheater, which stood by this square until 1943.'],[WT.x,WT.z,15,'Wasserturm: 60 m tall, built 1886-1889 to a design by Gustav Halmhuber. Up on the dome stands Amphitrite, the sea goddess, in copper.'],
       [112,20.5,6,'The Wasserspiele: the big fountain first played on 9 September 1893. Bruno Schmitz added the water steps, the basin and the pergolas from 1899. Today 178 nozzles, the tallest jet up to 28 m, from spring to mid-October.'],   // v1.58
       [107,6.8,4,'Bruno Schmitz laid out the square from 1899: the arcade houses, the Rosengarten, the water steps, the pergolas and the lanterns. It was ready for Mannheim\'s 300th birthday in 1907.'],
       [-10,87.5,9,'Mannheim Palace: Elector Carl Philipp quarrelled with Heidelberg\'s Protestants over the Heiliggeistkirche and moved his court down the Neckar. First stone 1720, done about 1760, almost 450 m long. Today: the University.'],   // v1.51

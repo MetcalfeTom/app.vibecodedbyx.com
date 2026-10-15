@@ -671,8 +671,8 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
 - v1.66 bag leftovers (DONE in v1.66, see log): feed ducks/pigeons from the bag, flags shown on the map/compass, more than
   one flag spot (only the Königstuhl wants it), Spaghettieis caps at 3, a döner/bakery snack to carry, talk prompts reach
   through walls (Herr Gerlach answers from the yard bench; harmless, he's next door).
-- v1.67 NOT STARTED: Schillerplatz on B3, a Schiller monument (standing bronze on a tall stone base) in a small green
-  square near the old National Theatre site.
+- v1.67 Schillerplatz DONE (see log). Open: the real square also has smaller monuments (Iffland, Dalberg; check before
+  building, ask Flax); his real pose/facing unchecked (ours faces north, scroll in the right hand).
 - Thingstätte on the Heiligenberg (Flax: "lost place, only build if you find info"; NOT built). Facts checked: egg-shaped
   open-air amphitheatre modelled on Greek theatres, about 8,000 seats, in the forest just below the ruins of St. Michael's
   monastery (Michaelskloster); Celtic ring-wall/hilltop settlement history on the mountain. Built 1934-35 by the Reich
@@ -1295,3 +1295,14 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   yard bench + cat + eating, Bruna's take-away, Königstuhl plant; phone 412x900 ?touch toolbox chip tap, pickup toast
   under the story toast, quest log -> bag panel; 0 JS errors. Mannheim arrival view 154 calls (Dreck pieces = one
   InstancedMesh; toolbox, hammer, door, cat a handful of small meshes).
+- v1.67 (2026-10-15 17:01) THE SCHILLERPLATZ on B3 (Flax, Monitor q56). B3's houses are cleared after they were built and
+  with no R() (like F1), so the rest of Mannheim is unchanged. SLP={x0:-54,x1:-46,z0:53,z1:60,cx:-50,cz:58}: gravel paths
+  crossing to the monument plus a gravel forecourt (z 54-55) on its north side, lawn, limes in three corners (NE left open
+  so you see him from the Breite Straße side; hand-built, hsh not R()). Monument: 2x2x3 sandstone voxel core (solid),
+  dressed in props: two steps, base, cornice, plinth, Schiller in green-brown bronze (statue(), sc 1.3, long coat, scroll),
+  facing north; "SCHILLER" in bronze letters on the north face (cut-out board). Two benches on the forecourt (seats turn
+  you to him, hint "Sit and look up at Schiller"), two lamps, a stone tablet by the east path: "Am Schillerplatz stand das
+  Nationaltheater 1779 – 1943 / Dort wurden Schillers »Räuber« uraufgeführt, 13. Januar 1782". A w.facts entry (5.5 m)
+  tells it in English once a visit. Place label "Schillerplatz · B3"; B3 has no corner plates (no houses). Also fixed:
+  the v1.66 yard bench showed the "watch the fountains" hint; it has its own now. Tested headless desktop 1280x720 +
+  phone 412x900 ?touch: place, fact, seat, solid base, 0 JS errors; corner view 46-47 calls (+2 boards).
