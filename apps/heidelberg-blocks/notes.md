@@ -827,6 +827,8 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   27/50k, foyer 31/54k, Kaiserring street west of it 28/61k. Hall meshes hidden outside 16.5 of its centre.
 - v1.58 Friedrichsplatz (day): desktop 1280x800 aerial over the square 85 calls / 145.8k tris (v1.57 same spot 87 / 137.9k);
   phone 390x844 on the lawn 25/73k, aerial SE 53/103k. Jets: 1 + 12 middle row + 24 side rows + 10 terrace + 2 round = 49 instances.
+- v1.59 bridge statues: one merged mesh, +1 call / +2.4k tris (phone 390x844 at Carl Theodor 47/131k, v1.58 same spot 46/128k;
+  desktop 1280x800 at his plate 104/194k).
 
 ## testing
 - scratch: $SP/hb (index.html + mk.sh injects window.__G/__E into gaunt/sw/hm43/hb). The live file only has a
@@ -1150,3 +1152,11 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   oval because the map ends at x 127 (only 4 bands deep at the apex); our basin runs long north-south, not matched to
   the real one's exact shape; the
   Kunsthalle has no back wing; the pergolas are props you can walk through. Budget below.
+- v1.59 2026-10-15 11:14 the two statues on the Alte Brücke (Flax 10:09: "Statues on old bridge also nice"). index.html only:
+  buildBridge carries the 2nd and 7th piers up to a little terrace on the west (downstream) side, x -6..-4; bridgeStatues()
+  (one merged mesh, statue helper copied from mannheim.js) puts Franz Conrad Linck's Kurfürst Carl Theodor (1788, armour,
+  ermine, full-bottomed wig, four river gods for Rhine, Moselle, Danube and Isar) at (-4.5,25.5), old-town side, and his
+  Minerva (1790, helmet, lance, shield, owl; Justice, Piety, Agriculture, Trade round her) at (-4.5,-24.5), Neuenheim
+  side. A bronze plate on the parapet by each (SPOTS s_karlth / s_minerva at x -1.4): who, when, which pier, and that
+  both are copies with the originals in the Kurpfälzisches Museum. NOT the real thing: sources name the piers but not the
+  side of the bridge, so the west side is a guess; the figures are blocky stand-ins (light stone, no real likeness).
