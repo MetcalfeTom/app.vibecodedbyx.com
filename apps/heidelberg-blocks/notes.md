@@ -682,8 +682,8 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   one or two landmarks per release (Flax: "so many famous places and churches"): Marktplatz with the Altes Rathaus +
   St. Sebastian + Marktplatzbrunnen DONE v1.48; the Jesuitenkirche DONE v1.49 (A4+A5, walk-in); Wasserturm
   gardens + Rosengarten + Kunsthalle DONE v1.50 (Flax: "Both"); the Barockschloss + Rittersaal DONE v1.51; the
-  Popakademie DONE v1.52; NEXT Jule's stunt show (Flax 07:39: Birte stays calm in Heidelberg),
-  then a record-a-clip button (Flax 07:36), then Planken shops. Ideas for the Marktplatz: walk into St. Sebastian, the
+  Popakademie DONE v1.52; Jule's stunt show DONE v1.53 (Flax 07:39: Birte stays calm in Heidelberg);
+  NEXT a record-a-clip button (Flax 07:36), then Planken shops. Ideas for the Marktplatz: walk into St. Sebastian, the
   weekly market stalls on the square (check the real days first).
   Note in the log any landmark placed where it isn't really. The castle queue above (Stückgarten first) comes after.
 - Jesuitenkirche ideas (v1.49): the organ gallery over the porch + its stair (asked on the board), Brinckmann's four
@@ -1051,3 +1051,26 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   QUESTION for Flax: what does the real Popakademie look like to you (colours, glass, the shape)? We'll match it.
   Probes: 0 JS errors desktop 960x600 + phone 412x860 touch; with the audio context running in the probe, standing at
   the front ran popTick without errors (the loop itself is UNHEARD: headless has no speakers). Front view 19 calls / 43k.
+- v1.53 2026-10-15 08:12 Jule's stunt show (Flax 07:39: "keep both" pilots; Birte stays as she is in Heidelberg, Jule
+  in Mannheim flies "like an air race pilot, close to the ground, fast, loopings, barrel rolls"). Only Jule's code
+  changed (HF/HFL in index.html); Birte's HELI code untouched (diff checked; her start, spin and skip re-tested, no
+  errors). The legs: Mannheim out (vm 20): off L2 south over the Schloss, ONE LOOP behind it (x -62, z 132, R 12, u held
+  still, fast at the bottom, slow over the top), north up the west side, down to the Neckar at y 23 (water 11, banks 19):
+  a slalom round the harbour crane hooks (N of -86, S of -58, N of 21, S of 72, 4-6 to the side, under the jibs; the
+  -112 crane is skipped, the turn is too tight there), a hop over the Kurpfalzbrücke (y 31), a BARREL ROLL at x 104, a
+  climb and a full hard-banked circle round the Wasserturm (R 20, y 46, bank up to 60 degrees, the look follows the
+  tower), then flat out east. Heidelberg (vm 21): in low (y 21) along Birte's stretch of the Neckar, right over her
+  pad ("Hallo Birte!"), up over the Alte Brücke, the castle as before, a roll at (111, 22). Hirschhorn: the old line
+  plus a roll at (-60, 100). Mannheim back: a low pass west along the Neckar (N of crane 72, past the Popakademie),
+  then up to L2. Short bold lines for Jule ("Hold on!", "That was the easy one.", "Even I can do gentle.").
+  Code: leg stunt:[[x,z,'loop'|'roll']] (u = nearest curve point), say keys 's<i>' (just before stunt i), 'e<i>'
+  (after it), [x,z] (20 blocks before that spot); poi [x,y,z,r] = the whole stretch within r. Attitude H.sp/H.sr in
+  camera convention (body Euler YXZ = tilt-sp, th+pi, -sr); hfSeat uses the body matrix; hfCam (main loop, after
+  camera.rotation.set) turns the camera with the cabin, look-around on top; the auto-look aims in the banked frame
+  (its pitch may now go up to .4 for Jule only). Reduced motion: no loop or rolls, bank x0.3.
+  Clearance: every leg + loop + rolls sampled every 0.5 against each town's voxels with a 4.8 x 2.7 box: 0 hits
+  (5437 samples). Cranes, bridge lamps and barges are props: checked by hand (crane hooks bottom y 26.6, barges top 16).
+  Probes: 0 errors desktop + phone; phone shot upside down at the top of the loop, desktop shot banked round the
+  Wasserturm. Long: 32-38 calls. NOT tested: how it feels on a real phone (motion), the full flight at real speed end
+  to end in headless (frames too slow; legs checked one by one). The Rhine is not in our map, so the low passes are
+  over the Neckar only (todo: a strip of the Rhine west of the Schloss?).
