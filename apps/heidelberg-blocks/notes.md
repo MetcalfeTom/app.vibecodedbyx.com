@@ -1210,3 +1210,18 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   trams never closer than the 2.3 m track spacing, both keep cycling; board/ride/auto alight at both ends; phone 390x844
   ?touch board via the button, jump hidden while riding; 0 JS errors. Left out: the Breite Straße leg, tracks past the
   Kaiserring, motor hum, front/rear light switching, door animation.
+- v1.63 2026-10-15 13:07 continue where you left off (Flax + Cold 12:28, Flax 12:29 "Could remembering go first?").
+  localStorage 'hb-spot' {v:1,k:'hd'|'mh'|'hh',x,y,z,yaw,pitch,p:place label,t} every 3 s (CWL.t in frame) and on
+  pagehide / visibilitychange hidden, only when cwlFree(): on your feet (onGround, not in water), no fade, not aboard
+  BOAT/tram/car/heli/Bergbahn/rowing/scope, not seated (CAFE.sit/MH.sit), no MH.card, no FLY (CWL.fly stays set after
+  flying until you touch street level |y-TOWN|<.6, so no rooftop spots). Start card: "Welcome back. Last time you were
+  in <town>, <place>." + "Continue where you left off" (#go) / "Start from scratch" (#fresh, removes hb-spot; quests,
+  coins, Karzer mark, rowing best untouched). cwlStand(): feet on a block within 3 below, room for the body (hit, so
+  trams count), dry (fy+.7>=WATER), not in L2's footprint (x 9.4..19.6, z 66.4..75.6, any height), in bounds; else a
+  spiral r 1..10 (8r points) at the saved height then at TOWN; else the normal start (Old Bridge / Mannheim landing).
+  Mannheim/Hirschhorn resume: #fade on, awUse(k), mhMod, mhEnter, mhLand (like a skipped boat ride: Liselotte + Jupp at
+  the quay, MH.n++), cwlPlace, hint "Back in Mannheim. Kapitän Jupp waits at the landing…". Load failure -> toast,
+  Old Bridge. Saved copy: boot hides #resume/#fresh and resets #go's text before cwlCard() fills them.
+  Tested headless: HD + MH round trips through a reload land on the exact spot; L2 save -> (15.6,75.8) street south of
+  L2; out-of-bounds -> Old Bridge + toast; river save -> Neckarwiese bank; garbage/unknown-town saves -> plain card;
+  no save while on the tram; Start from scratch -> Old Bridge, hb-spot cleared; phone 390x844 card fits; 0 JS errors.
