@@ -58,6 +58,8 @@ def main(a):
         it = {'id': 'q%d' % q['n'], 'who': who, 'app': app, 'what': what, 'st': st, 't': now()}
         if st == 'now':
             it['s'] = now()
+        if st == 'done':
+            it['d'] = now()
         q['items'].append(it)
         print('added', it['id'])
     elif cmd in ('now', 'next', 'park', 'ask'):
