@@ -265,6 +265,51 @@ export function build(H){
   for(let x=-24;x<=-15;x++) for(let z=-20;z<=-11;z++){ const d=Math.hypot(x+.5-MB.x,z+.5-MB.z); if(d>3.4) continue; if(d>2.45) set(x,T,z,B.parapet); else set(x,T-1,z,B.blue); }
   for(let x=-21;x<=-19;x++) for(let z=-17;z<=-15;z++) for(let y=T-1;y<=T+1;y++) set(x,y,z,y===T+1&&(x!==-20||z!==-16)?B.quay:B.stone);
 
+  // ---- v1.49 (Flax's Mannheim makeover, step two) the Jesuitenkirche: Alessandro Galli da Bibiena's design, foundation stone 1733,
+  // consecrated 1760, modelled on Il Gesù in Rome; burned out in the air raids, rebuilt and consecrated again in 1960. A two-tower front
+  // of red sandstone facing east, plain light long sides, an octagonal dome over the crossing. Really it fills part of A4 (about 74 x 29 m,
+  // the Jesuit college had the rest); ours takes A4 and A5 and the lane between them, so the dome has room and the plan keeps its 5:2.
+  // Built over the houses after they were made and with no R(), like the Rathaus. In through the middle portal: pews, the high altar,
+  // and up into the dome, white inside (Asam's frescoes were not painted again after the war).
+  const JK={x0:-84,x1:-61,z0:66,z1:74,cx:-75.5,cz:70.5};
+  const jkO=(x,z)=>{ const a=Math.abs(x+.5-JK.cx), b=Math.abs(z+.5-JK.cz); return Math.max(a,b,(a+b)*.7071); };   // octagon radius of a cell round the crossing
+  for(let x=JK.x0;x<=JK.x1;x++) for(let z=JK.z0;z<=JK.z1;z++){ set(x,T-1,z,B.stone); for(let y=T;y<T+45;y++) set(x,y,z,0); }
+  for(let x=-74;x<=-71;x++) set(x,T-1,75,B.pave);   // where the lane met the Bismarckstraße: pavement now
+  rhBox(JK.x0,-64,JK.z0,JK.z1,T,T+13,B.cream);   // nave, crossing and choir in one long box (light plaster)
+  rhBox(-63,-61,69,71,T,T+19,B.sandstone); rhBox(-63,-61,66,68,T,T+24,B.sandstone); rhBox(-63,-61,72,74,T,T+24,B.sandstone);   // the front: middle + two towers
+  // the long sides: plain plaster between sandstone pilasters, a small window and a tall one in every bay, the main cornice
+  const jkSide=(i,f)=>f===13?B.trim:f===0||i%4===0?B.sandstone:i%4===2&&(f===1||f===2||(f>=5&&f<=10))?B.window:null;
+  rhFace(rhRun(JK.x0,JK.z0,-64,JK.z0),0,13,jkSide); rhFace(rhRun(JK.x0,JK.z1,-64,JK.z1),0,13,jkSide);
+  rhFace(rhRun(JK.x0,JK.z0,JK.x0,JK.z1),0,13,(i,f,n)=>f===13?B.trim:f===0||qn(i,n)?B.sandstone:(i===2||i===6)&&f>=4&&f<=10?B.window:null);   // the choir end (the high altar stands against it inside)
+  // the towers: belts at the porch, the main cornice and the belfry, windows on the outer faces, an open belfry, the cap
+  const jkTw=win=>(i,f)=>f===0?B.sandstone:f===6||f===13||f===19||f===24?B.trim:i===1&&f>=20&&f<=22?0:win&&i===1&&((f>=8&&f<=10)||(f>=15&&f<=17))?B.window:null;
+  for(const [za,zb] of [[66,68],[72,74]]){
+    rhFace(rhRun(-61,za,-61,zb),0,24,jkTw(1)); rhFace(rhRun(-63,za,-63,zb),13,24,jkTw(0));
+    rhFace(rhRun(-63,za,-61,za),0,24,jkTw(za===66)); rhFace(rhRun(-63,zb,-61,zb),0,24,jkTw(zb===74));
+    for(let f=20;f<=22;f++) set(-62,T+f,za+1,0);
+    rhBox(-63,-61,za,zb,T+24,T+24,B.trim); }
+  // the middle: three round-arched portals (the arches are props), a tall window, the upper storey, a small pediment
+  rhFace(rhRun(-61,69,-61,71),0,21,(i,f)=>f<=2?(i===1?0:B.door):f===6||f===13||f===19||f===20?B.trim:f===21?(i===1?B.trim:null):i===1&&f>=8&&f<=11?B.window:null);
+  rhBox(-63,-62,69,71,T+20,T+20,B.trim); set(-62,T+21,70,B.trim); set(-63,T+21,70,B.trim);
+  // the roof: a long slate gable, the choir end closed in plaster
+  for(let x=JK.x0;x<=-64;x++) for(let k=0;k<=4;k++){ const y=T+14+k, za=JK.z0+k, zb=JK.z1-k;
+    for(let z=za;z<=zb;z++){ if(z===za||z===zb) set(x,y,z,B.slate); else if(x===JK.x0) set(x,y,z,B.cream); } }
+  // inside: one hall under a white ceiling, a porch behind the portals, the choir a step up
+  rhBox(-83,-64,67,73,T,T+12,0); rhBox(-63,-62,69,71,T,T+5,0);
+  for(let x=-83;x<=-64;x++) for(let z=67;z<=73;z++) set(x,T+13,z,B.white);
+  rhBox(-83,-81,67,73,T,T,B.quay);
+  // the crossing: an octagonal drum on the walls (windows all round), the cornice level with the towers' (raised to match them in the
+  // rebuild), the dome in two skins (copper outside, white inside), a lantern
+  for(let x=-81;x<=-71;x++) for(let z=65;z<=75;z++){ const o=jkO(x,z), a=Math.abs(x+76), b=Math.abs(z-70);
+    if(o<=3.45) set(x,T+13,z,0);
+    for(let f=14;f<=23;f++){ if(o<=3.45) set(x,T+f,z,0); else if(o<=4.45){ const ax=Math.max(a,b)===4&&Math.min(a,b)===0, dg=a===3&&b===3;
+      set(x,T+f,z,f===14||f===23?B.trim:(ax||dg)&&f>=16&&f<=20?B.window:Math.max(a,b)===4&&Math.min(a,b)===2?B.sandstone:B.cream); } }
+    if(o<=5) set(x,T+24,z,o<=3.45?0:B.trim); }
+  [4.45,4.4,4.2,3.9,3.45,2.9,2.2,1.45].forEach((r,j)=>{ for(let x=-81;x<=-71;x++) for(let z=65;z<=75;z++){ const o=jkO(x,z); if(o<=r) set(x,T+25+j,z,o>r-1?B.copper:o>r-2?B.white:0); } });
+  for(let x=-77;x<=-75;x++) for(let z=69;z<=71;z++){ const mid=Math.abs(x+76)+Math.abs(z-70)===1;
+    for(let f=33;f<=35;f++) set(x,T+f,z,f===35?B.trim:mid?B.window:B.cream); set(x,T+36,z,B.copper); }
+  set(-76,T+37,70,B.copper);
+
   // ---- Carl Benz's Patent-Motorwagen: a low stone dais on the quay east of the landing ----
   const BZ={x:22,z:-74,x0:20,x1:23,z0:-77,z1:-72};
   for(let x=BZ.x0;x<=BZ.x1;x++) for(let z=BZ.z0;z<=BZ.z1;z++) set(x,T-1,z,x===BZ.x0||x===BZ.x1||z===BZ.z0||z===BZ.z1?B.trim:B.stone);
@@ -365,6 +410,41 @@ export function build(H){
     // two benches on the west side, facing the fountain
     for(const z of [Z-2.2,Z+2.2]){ P(.5,.12,1.9,-24.1,T+.45,z,'#7a5232'); P(.1,.45,1.9,-24.32,T+.75,z,'#7a5232'); for(const s of [-.8,.8]) P(.4,.45,.12,-24.1,T+.22,z+s,'#2b2b2e'); } }
   lamp(-24.4,-19.4,1); lamp(-24.4,-10.6,1);
+  // v1.49 the Jesuitenkirche: onion caps with patriarchal crosses on the towers, the same cross on the lantern, bells, the portal arches,
+  // the four cardinal virtues on the front (two over the side portals, two on the upper storey), pews and the high altar inside
+  { const CU='#5a9682', CD='#4b8774', GD='#d8a636', oct=(w,h,x,y,z,c)=>{ P(w,h,w*.6,x,y,z,c); P(w*.6,h,w,x,y,z,c); };   // a plus: reads round at this size
+    const pcross=(x,y,z)=>{ P(.1,1.7,.1,x,y+.85,z,GD); P(.08,.08,.8,x,y+1.05,z,GD); P(.08,.08,.5,x,y+1.42,z,GD); };   // arms across, seen from the front
+    for(const Z of [67.5,73.5]){ const X=-61.5;
+      oct(2.7,.6,X,T+25.3,Z,CD); oct(2.3,.7,X,T+25.95,Z,CU); oct(2.8,1,X,T+26.8,Z,CU); oct(2.2,.5,X,T+27.55,Z,CU); oct(1.4,.4,X,T+28,Z,CU); oct(.6,.5,X,T+28.45,Z,CD);
+      oct(.95,.8,X,T+29.1,Z,CU); P(.6,.6,.98,X,T+29.1,Z,'#2a2e34'); P(.98,.6,.6,X,T+29.1,Z,'#2a2e34'); oct(.7,.35,X,T+29.67,Z,CU); oct(.34,.3,X,T+29.99,Z,CD);
+      P(.3,.3,.3,X,T+30.3,Z,GD); pcross(X,T+30.4,Z);
+      P(1,.14,.14,X,T+22.82,Z,'#5a3a22'); P(.5,.45,.5,X,T+22.5,Z,'#9a7a3a'); P(.72,.3,.72,X,T+22.15,Z,'#8a6a2a'); P(.82,.08,.82,X,T+21.97,Z,'#9a7a3a'); }
+    oct(.9,.5,-75.5,T+38.25,70.5,CU); P(.36,.36,.36,-75.5,T+38.68,70.5,GD); pcross(-75.5,T+38.8,70.5);
+    // the portal arches: a round head over each door, slim piers between them
+    for(const z of [69.5,70.5,71.5]) for(let i=0;i<4;i++){ const yo=.0625+i*.125; P(.04,.125,2*Math.sqrt(.2025-yo*yo),-59.97,T+3+yo,z,z===70.5?'#2a2018':'#5a3a24'); }
+    for(const z of [70,71]) P(.14,3.6,.24,-59.92,T+1.8,z,'#b8644e');
+    // the virtues: Justice (sword, scales) and Fortitude (her column) over the side portals, Prudence (a mirror) and Temperance (two jugs) up top
+    const E=Math.PI/2;
+    for(const [z,y] of [[69.5,T+4],[71.5,T+4],[69.5,T+14],[71.5,T+14]]) P(.5,.12,.8,-59.75,y+.06,z,'#b8644e');
+    statue(-59.72,T+4.12,69.5,E,.55,{armUp:'R',extra:[[.05,.8,.05, .34,2.5,.02,STD],[.2,.05,.05, .34,2.17,.02,STD],[.04,.32,.04, -.42,.9,.16,STD],[.52,.04,.04, -.42,1.06,.16,STD],[.17,.03,.17, -.66,.82,.16,STD],[.17,.03,.17, -.18,.82,.16,STD]]});
+    statue(-59.72,T+4.12,71.5,E,.55,{extra:[[.24,1.5,.24, .52,.75,0,STD],[.34,.1,.34, .52,1.55,0,STD]]});
+    statue(-59.72,T+14.12,69.5,E,.62,{extra:[[.04,.3,.24, -.36,1.36,.18,STN]]});
+    statue(-59.72,T+14.12,71.5,E,.62,{extra:[[.16,.24,.16, .36,1.0,.18,STD],[.16,.24,.16, -.36,1.22,.18,STD]]});
+    // pews in the nave facing the altar (west), an aisle up the middle; the crossing under the dome stays open
+    const WD='#8a5a34', DW='#6a4428';
+    for(let r=0;r<6;r++) for(const [a,b] of [[67.15,69.9],[71.1,73.85]]){ const x=-70.4+r*1.2, c=(a+b)/2, n=b-a;
+      P(.42,.06,n,x,T+.45,c,WD); P(.06,.5,n,x+.2,T+.72,c,DW); P(.46,.45,.06,x,T+.225,a+.03,DW); P(.46,.45,.06,x,T+.225,b-.03,DW); }
+    // the high altar (Paul Egell's design, rebuilt, consecrated again in 1997): marble columns, a gilded crown, the altar table, candles
+    const MR='#8a4a42', GL='#c9a24a', AX0=-82.8;
+    for(const z of [68.3,69.2,71.8,72.7]) P(.36,5.2,.36,AX0+.15,T+3.6,z,MR);
+    P(.05,3.4,2.1,AX0-.15,T+3.9,70.5,GL); P(.05,3.1,1.8,AX0-.12,T+3.9,70.5,'#4a3426');
+    P(.6,.4,5,AX0+.1,T+6.4,70.5,GL); P(.4,1.2,2.2,AX0,T+7.2,70.5,GL); P(.3,.7,.7,AX0,T+8.1,70.5,GL);
+    for(let i=0;i<7;i++){ const a=(i-3)*.42; P(.06,1.2,.07,AX0+.05,T+8.1+Math.cos(a)*.6,70.5+Math.sin(a)*.6,GL,0,a); }
+    P(.9,1,2.4,-81.9,T+1.5,70.5,'#d8cfbd'); P(.95,.05,2.5,-81.9,T+2.02,70.5,'#f4efe2'); P(.02,.4,2.3,-81.43,T+1.8,70.5,'#f4efe2');
+    for(const z of [69.6,70.05,70.95,71.4]){ P(.06,.3,.06,-82.1,T+2.2,z,'#f4efe2'); LH.push([.04,.08,.04,-82.1,T+2.39,z,'#ffcf6a']); LAMPS.push([-82.1,T+2.42,z]); }
+    P(.05,.6,.05,-82.1,T+2.35,70.5,GL); P(.05,.05,.32,-82.1,T+2.5,70.5,GL);
+    // a plaque on posts by the choir step, facing the nave
+    for(const z of [67.75,68.85]) P(.1,1.5,.1,-79.6,T+.75,z,'#3a2a1c'); }
   // the Benz dais: a low slab (the car sits on it until you drive off), the plaque on a post facing the landing
   P(3.6,.3,5.6,BZ.x,T+.15,BZ.z,'#8f8a80'); P(3.75,.06,5.75,BZ.x,T+.32,BZ.z,'#b8b2a4');
   P(.14,1.05,.14,BZ.x0-.45,T+.52,BZ.z,'#3a2a1c');
@@ -441,6 +521,17 @@ export function build(H){
   NB.push([board(2.7,1.3,432,208,plq('Altes Rathaus','and St. Sebastian','one tower · begun 1700'),-19.5,T+5.2,-5.03,Math.PI),.3,.8]);
   NB.push([board(2.5,1.2,416,200,plq('Marktplatzbrunnen','made 1719 for Heidelberg','Mannheim\'s since 1767'),-14.98,T+1.35,MB.z,Math.PI/2),.3,.8]);
   board(2.5,1.2,8,8,(g,w,h)=>{ g.fillStyle='#2e2418'; g.fillRect(0,0,w,h); },-15.0,T+1.35,MB.z,-Math.PI/2);
+  // v1.49 plaques: on the south tower by the portals, and inside by the choir step. The IHS relief over the window (Paul Egell's, with angels)
+  NB.push([board(2.0,1.0,416,208,plq('Jesuitenkirche','Bibiena · built 1733-1760','rebuilt after the war · 1960'),-59.97,T+1.65,73.4,Math.PI/2),.3,.8]);
+  NB.push([board(1.6,.8,416,208,plq('Hochaltar','to Paul Egell\'s design','consecrated again 1997'),-79.54,T+1.35,68.3,Math.PI/2),.25,.6]);
+  board(1.6,.8,8,8,(g,w,h)=>{ g.fillStyle='#2e2418'; g.fillRect(0,0,w,h); },-79.66,T+1.35,68.3,-Math.PI/2);
+  board(1.0,1.6,128,208,(g,w,h)=>{ g.clearRect(0,0,w,h); const cx=w/2, cy=h*.52;
+    g.fillStyle='#d8c8a8'; g.beginPath(); g.ellipse(cx,cy,44,62,0,0,7); g.fill();
+    g.strokeStyle='#c9a24a'; g.lineWidth=3; for(let i=0;i<16;i++){ const a=i*Math.PI/8; g.beginPath(); g.moveTo(cx+Math.cos(a)*26,cy+Math.sin(a)*34); g.lineTo(cx+Math.cos(a)*40,cy+Math.sin(a)*56); g.stroke(); }
+    g.fillStyle='#c9a24a'; g.font='700 30px '+FONT; g.textAlign='center'; g.textBaseline='middle'; g.fillText('IHS',cx,cy+2); g.fillRect(cx-2,cy-36,4,20); g.fillRect(cx-8,cy-30,16,4);
+    for(const s of [-1,1]){ const ax=cx+s*44, ay=h*.16; g.fillStyle='#efe6d2'; g.beginPath(); g.arc(ax,ay,7,0,7); g.fill(); g.beginPath(); g.moveTo(ax-8,ay+7); g.lineTo(ax+8,ay+7); g.lineTo(ax,ay+30); g.fill();
+      g.beginPath(); g.ellipse(ax+s*10,ay+12,10,5,s*.6,0,7); g.fill(); }
+  },-59.96,T+16.5,70.5,Math.PI/2,false,true);
   for(const [x,y,z] of SCHP) board(3.4,3.4,136,136,(g,w,h)=>{ g.clearRect(0,0,w,h);
       g.save(); g.beginPath(); g.ellipse(w/2,h*.58,w*.34,h*.38,0,0,7); g.clip();
       for(let i=-6;i<7;i++) for(let j=-6;j<7;j++){ const cx=w/2+(i-j)*11, cy=h*.58+(i+j)*11; g.fillStyle=(i+j)&1?'#f4f1ea':'#2f6fb8'; g.beginPath(); g.moveTo(cx,cy-11); g.lineTo(cx+11,cy); g.lineTo(cx,cy+11); g.lineTo(cx-11,cy); g.fill(); }
@@ -457,7 +548,9 @@ export function build(H){
     const X=cx+nx*.03, Z=cz+nz*.03;
     sp.push(X-tx*w,y-h,Z-tz*w, X+tx*w,y-h,Z+tz*w, X+tx*w,y+h,Z+tz*w, X-tx*w,y+h,Z-tz*w); for(let k=0;k<4;k++) sn.push(nx,0,nz);
     su.push(u0,v0,u1,v0,u1,v1,u0,v1); si.push(vc,vc+1,vc+2,vc,vc+2,vc+3); vc+=4; }
-  for(const q of codes){ const f1=q.code==='F1', X0=f1?q.x0:q.x0+1, X1=f1?q.x1+1:q.x1, Z0=q.z0+1, Z1=q.z1, o=f1?.5:.8;   // building faces (the sidewalk ring is outside;
+  for(const q of codes){ if(q.code==='A4'||q.code==='A5'){ const X=q.code==='A4'?-60:-84, s=q.code==='A4'?1:-1;   // v1.49 the Jesuitenkirche fills both: signs on its outer corners
+      plate(q,X-s*.5,66,0,-1); plate(q,X-s*.5,75,0,1); plate(q,X,66.5,s,0); plate(q,X,74.5,s,0); continue; }
+    const f1=q.code==='F1', X0=f1?q.x0:q.x0+1, X1=f1?q.x1+1:q.x1, Z0=q.z0+1, Z1=q.z1, o=f1?.5:.8;   // building faces (the sidewalk ring is outside;
     plate(q,X0+o,Z0,0,-1); plate(q,X1-o,Z0,0,-1); plate(q,X0+o,Z1,0,1); plate(q,X1-o,Z1,0,1);                              // v1.48 F1's Rathaus fills its block, signs on its quoins)
     plate(q,X0,Z0+o,-1,0); plate(q,X0,Z1-o,-1,0); plate(q,X1,Z0+o,1,0); plate(q,X1,Z1-o,1,0); }
   const sg=new THREE.BufferGeometry(); sg.setAttribute('position',new THREE.Float32BufferAttribute(sp,3)); sg.setAttribute('normal',new THREE.Float32BufferAttribute(sn,3)); sg.setAttribute('uv',new THREE.Float32BufferAttribute(su,2)); sg.setIndex(si);
@@ -542,6 +635,8 @@ export function build(H){
     if(x>=88&&z>FP.z1) return 'Oststadt';
     if(Math.hypot(x-MB.x,z-MB.z)<4.2) return 'Marktplatzbrunnen';   // v1.48
     if(x>=-26.6&&x<-13.4&&z>=-6.8&&z<3.6) return z<-5&&x>=-21&&x<-18?'Rathausturm':x<-20?'St. Sebastian':'Altes Rathaus';
+    if(x>=-84.6&&x<-59.4&&z>=65.4&&z<75.6){ if(!(x>-83&&x<-61&&z>67&&z<74)) return 'Jesuitenkirche';   // v1.49
+      return jkO(Math.floor(x),Math.floor(z))<=3.45?'Jesuitenkirche · unter der Kuppel':x<-80?'Jesuitenkirche · Chor':x>-64?'Jesuitenkirche · Vorhalle':'Jesuitenkirche · Langhaus'; }
     const q=nearQ(x,z,2.2), on=q?' · '+q.code:'';
     if(q&&q.sq&&inR(x,z,q)) return q.sq+' · '+q.code;
     if(z<=-62.5) return (x<AX.c?'Luisenring':'Friedrichsring')+on;
@@ -555,7 +650,7 @@ export function build(H){
   function riverD(x,z){ return z>RIV.s+1?z-RIV.s-1:z<RIV.n?RIV.n-z:0; }
   let clk=0, tvT=0, nightWas=null;
   // v1.33 floodlights (drawn in the block shader at night, see mhMat): a=[cx,cz,radius,0] round, or [x0,z0,x1,z1] a box lit from the side b.zw faces; b=[y0,y1,dx,dz]
-  const flood=[{a:[WT.x,WT.z,10.6,0],b:[T,T+40,0,0]},{a:[SCH.x0-1,SCH.wz0-.5,SCH.x1+1,SCH.z1+1],b:[T,T+31,0,-1]},{a:[HBF.x0-1,HBF.z0-1,HBF.x1+1,HBF.z1+1],b:[T,T+22,0,-1]},{a:[-25.5,-6,-13.5,3.5],b:[T,T+21,0,-1]}];   // v1.48 + the Rathaus front
+  const flood=[{a:[WT.x,WT.z,10.6,0],b:[T,T+40,0,0]},{a:[SCH.x0-1,SCH.wz0-.5,SCH.x1+1,SCH.z1+1],b:[T,T+31,0,-1]},{a:[HBF.x0-1,HBF.z0-1,HBF.x1+1,HBF.z1+1],b:[T,T+22,0,-1]},{a:[-25.5,-6,-13.5,3.5],b:[T,T+21,0,-1]},{a:[-64,65.5,-59.5,75.5],b:[T,T+33,1,0]},{a:[JK.cx,JK.cz,5.4,0],b:[T+14,T+41,0,0]}];   // v1.48 + the Rathaus front, v1.49 + the Jesuitenkirche front and dome
   function tick(dt,night){
     if(night!==nightWas){ nightWas=night; lamps.visible=pools.visible=night; headMat.emissive.set(night?0xffd27a:0x000000); headMat.emissiveIntensity=night?1.3:0;
       for(const [b,d,n] of NB) b.m.material.emissiveIntensity=night?n:d; }

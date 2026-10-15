@@ -680,11 +680,12 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   (garden lanterns DONE v1.22; Neckarwiese + ducks DONE v1.21; busking DONE v1.20, Funkjoker v1.21; Karzer DONE v1.19)
 - NEXT for Flax (00:45 + 00:50 10-15): Heiliggeistkirche walk-in DONE v1.47; then the MANNHEIM MAKEOVER in steps of
   one or two landmarks per release (Flax: "so many famous places and churches"): Marktplatz with the Altes Rathaus +
-  St. Sebastian + Marktplatzbrunnen DONE v1.48; NEXT the Jesuitenkirche (A4, west of the Schloss: twin-tower baroque
-  front, a big dome; the A4 block is only 9x8 so it will need A4+A5 or a squeezed dome), then Wasserturm gardens +
-  fountains, Barockschloss facade, Kunsthalle, Planken shops. Ideas for the Marktplatz: walk into St. Sebastian, the
+  St. Sebastian + Marktplatzbrunnen DONE v1.48; the Jesuitenkirche DONE v1.49 (A4+A5, walk-in); NEXT Wasserturm
+  gardens + fountains or the Barockschloss facade (Flax picks, it's on the board), then Kunsthalle, Planken shops. Ideas for the Marktplatz: walk into St. Sebastian, the
   weekly market stalls on the square (check the real days first).
   Note in the log any landmark placed where it isn't really. The castle queue above (Stückgarten first) comes after.
+- Jesuitenkirche ideas (v1.49): the organ gallery over the porch + its stair (asked on the board), Brinckmann's four
+  continents in the dome's corners, side altars, the bells ringing for mass, the Jesuit college next door.
 - Heiliggeistkirche ideas: a stair up the pulpit, the tower stair to the belfry (the bell already strikes the hours),
   someone in the Krämerbuden selling things, the south side's booths (the lane there is only 3 wide).
 - Fernrohr ideas: more friends to spot later (Anselm on his night round, Hilde at a window), a postcard of the view
@@ -919,3 +920,33 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   Breite Straße, not a plan. Niche positions, the helm's shape, window counts and colours are ours. Probes: walks round
   the square, round the building, into the rim (stops) and the portal (stops), place names, day/night/golden + air
   shots. 0 JS errors.
+- v1.49 2026-10-15 02:18 (Flax's Mannheim makeover, step two): the JESUITENKIRCHE (mannheim.js, built after the houses,
+  no R(), so the rest of Mannheim is unchanged). A two-tower front of red sandstone facing east. Its three
+  round-arched portals have prop arch heads and slim piers, and the middle one stands open. Above it are a tall
+  window, the IHS relief with two angels (a board) and a small pediment. The four cardinal virtues are on the front
+  (props), two over the side portals and two on the upper storey: Justice with sword and scales, Fortitude with her
+  column, Prudence with a mirror, Temperance with two jugs. Onion caps in verdigris on the towers, open belfries with
+  bells, patriarchal crosses. Plain light plaster long sides with sandstone pilasters, a slate gable. Over the crossing
+  is an octagonal drum with eight windows, its cornice level with the towers' (raised to match them in the rebuild).
+  Above it the dome in two skins (copper outside, white inside) and a lantern with the same cross. INSIDE: a porch,
+  the nave with pews and an aisle, the crossing open up into the white dome (Asam's frescoes were not painted again
+  after the war), and the choir a step up. The high altar has marble columns, a gilded crown with rays, a painting,
+  candles that glow at night and a plaque ("to Paul Egell's design, consecrated again 1997"). Outside plaque on the
+  south tower: "Bibiena · built 1733-1760 · rebuilt after the war · 1960". Place names: Jesuitenkirche · Vorhalle /
+  Langhaus / unter der Kuppel / Chor. Corner signs: A4 on the front corners, A5 on the choir end. Two new floodlight
+  zones (front + dome; all 6 slots are now used).
+  COMPRESSION: the real church (about 74 x 29 m) fills part of A4, and the Jesuit college had the rest. Ours takes A4
+  AND A5 plus the lane between them (x -74..-71 is built over; its end at the Bismarckstraße is pavement now), so the
+  dome has room and the plan keeps the real 5:2. It is 24 x 9 blocks (x -84..-61, z 66..74). The front is at x -61
+  facing the A3 lane, the choir at the west end. Heights are ours: towers' cornice T+24, dome cross ~T+40, the tallest
+  thing in town (the real dome is 75 m). Ours too: the dome and onion colour (verdigris; the wiki doesn't say), the
+  window counts, the porch details, which virtue stands where, and where the IHS relief sits on the front.
+  Facts checked on de.wikipedia (Jesuitenkirche (Mannheim)): foundation stone 1733, built until 1760, Bibiena's design,
+  modelled on Il Gesù; a two-tower show front of red sandstone facing east, a porch with three round-arched portals;
+  onion caps with patriarchal crosses; an octagonal dome about 75 m with a lantern; plain light-plastered long sides;
+  the virtues over the side portals and on the upper storey; Egell's IHS relief with angels; heavy damage in the air
+  raids, especially the choir and dome; rebuilt under Ohnmacht and Rolli and consecrated again on 6 Nov 1960; Asam's
+  frescoes not restored; the high altar rebuilt and consecrated again in 1997.
+  Probes: 0 JS errors. Walked round the outside (no stuck points), in through the middle portal, under the dome, up
+  the choir step (maxY T+1) and back out; the side portals stop you (doors). Place names OK. Shots: desktop
+  day/night/golden/air, inside, phone 412x860 touch day + night + inside. Live probe: Jule's call reaches cs 2.
