@@ -6,22 +6,30 @@
 import subprocess, json, re, os, datetime
 ROOT = '/vibespace'
 N = 0   # lines kept per app, 0 = all of them (was 8 until 2026-10-15)
-raw = subprocess.run(['git', '-C', ROOT, 'log', '--format=%x01%ad%x02%s', '--date=format-local:%Y-%m-%dT%H:%MZ', '--name-only', '--', 'apps/'],
+raw = subprocess.run(['git', '-C', ROOT, 'log', '--no-renames', '--format=%x01%ad%x02%h%x02%s', '--date=format-local:%Y-%m-%dT%H:%MZ', '--numstat', '--', 'apps/'],
                      capture_output=True, text=True, check=True, env=dict(os.environ, TZ='UTC')).stdout
 apps = {d for d in os.listdir(ROOT + '/apps') if os.path.isdir(ROOT + '/apps/' + d)}
 skip = re.compile(r'eyJ[A-Za-z0-9._-]{8,}|supabase\.co|password|passw|secret|api[_ -]?key|token|demo login', re.I)
 out = {}
 for block in raw.split('\x01')[1:]:
     head, _, files = block.partition('\n')
-    date, _, subj = head.partition('\x02')
+    date, _, rest = head.partition('\x02')
+    sha, _, subj = rest.partition('\x02')
     per = {}
-    for f in files.split('\n'):
-        p = f.split('/')
+    for ln in files.split('\n'):
+        q = ln.split('\t')
+        if len(q) != 3:
+            continue
+        p = q[2].split('/')
         if len(p) > 2 and p[0] == 'apps' and p[1] in apps:
-            per.setdefault(p[1], []).append(p[-1])
+            e = per.setdefault(p[1], [[], 0, 0])
+            e[0].append(p[-1])
+            if not p[-1].endswith('.md'):   # notes don't count as lines, as on the activity board
+                e[1] += int(q[0]) if q[0].isdigit() else 0
+                e[2] += int(q[1]) if q[1].isdigit() else 0
     if not per or len(per) > 6 or skip.search(subj):
         continue
-    for slug, names in per.items():
+    for slug, (names, a, d) in per.items():
         if all(n.endswith('.md') for n in names):
             continue
         t = re.sub(r'^' + re.escape(slug) + r'\s*[:,-]?\s*', '', subj.strip())
@@ -29,7 +37,7 @@ for block in raw.split('\x01')[1:]:
             t = t[:217].rsplit(' ', 1)[0] + '…'
         L = out.setdefault(slug, [])
         if not N or len(L) < N:
-            L.append([date, t])
+            L.append([date, t, sha[:7], a, d])   # hash and lines for the activity window's older commits (hamburglar06 2026-10-15)
 # Credits for the creator search (Tatum 2026-10-01 23:33: "you can search by creator name, but only twitch usernames count"):
 # a name counts for an app when a commit on it names them in an attribution spot: "(Tatum)", "(fannar22 23:33 ...", "per X",
 # "from X's", "X's idea/request/...", "X asks/asked/...". The name must be someone who chatted on stream (Twitch or the
@@ -61,8 +69,8 @@ TECH = re.compile(r'(?:r|v|es|h|x|mp|utf|sha|md|ipv|base|html|css|webgl|oauth|p|
 per_app, strong = {}, Counter()
 for block in raw.split('\x01')[1:]:
     head, _, files = block.partition('\n')
-    subj = head.partition('\x02')[2]
-    slugs = {f.split('/')[1] for f in files.split('\n') if f.startswith('apps/') and len(f.split('/')) > 2 and f.split('/')[1] in apps}
+    subj = head.split('\x02')[-1]
+    slugs = {f.split('/')[1] for f in (x.split('\t')[-1] for x in files.split('\n')) if f.startswith('apps/') and len(f.split('/')) > 2 and f.split('/')[1] in apps}
     if not slugs or len(slugs) > 6:
         continue
     names = set()
