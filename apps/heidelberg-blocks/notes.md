@@ -829,6 +829,7 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   phone 390x844 on the lawn 25/73k, aerial SE 53/103k. Jets: 1 + 12 middle row + 24 side rows + 10 terrace + 2 round = 49 instances.
 - v1.59 bridge statues: one merged mesh, +1 call / +2.4k tris (phone 390x844 at Carl Theodor 47/131k, v1.58 same spot 46/128k;
   desktop 1280x800 at his plate 104/194k).
+- v1.60 right ring: DOM only, no render cost (phone 390x844 on the bridge 47 calls, same as v1.59).
 
 ## testing
 - scratch: $SP/hb (index.html + mk.sh injects window.__G/__E into gaunt/sw/hm43/hb). The live file only has a
@@ -1160,3 +1161,13 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   side. A bronze plate on the parapet by each (SPOTS s_karlth / s_minerva at x -1.4): who, when, which pier, and that
   both are copies with the originals in the Kurpfälzisches Museum. NOT the real thing: sources name the piers but not the
   side of the bridge, so the west side is a guess; the figures are blocky stand-ins (light stone, no real likeness).
+- v1.60 2026-10-15 11:24 a second ring on touch, bottom-right (Flax 10:13: "controll walking direction (right hand) also with a
+  steering cross like you did for left hand"). #stickR/#knobR, same look and size as the left ring, sits just left of the
+  ⤒ jump button (right: 1rem + 5.6rem). Push it sideways to turn, up/down to look up/down (RSTK, through look(), so
+  lookT holds the ride cameras too; max 2.6 rad/s turn, 1.5 pitch, dead zone .15, gentle near the middle). Drags
+  anywhere else still look; both rings work at once. It shows and hides with the left ring (a MutationObserver on
+  #stick[hidden]: rowing, flying), hides while talking and in the Fernrohr. To keep the rings clear: on touch portrait
+  the monkey's rub row, Talk and the ride button moved up over the rings (+8.2rem, stacking +11.4/+11.6/+14.8); in
+  landscape (max-height 500) Talk and ride sit left of the right ring (right: 1rem + 14rem). Under 370px wide both rings
+  are 6rem. Checked 390x844, 360x740, 844x390: no overlaps with jump, talk, ride, rub or the top-right buttons. Short
+  landscape (~300px tall) with rub + talk + ride all at once stacks the ride high under the HUD: rare, left as is.
