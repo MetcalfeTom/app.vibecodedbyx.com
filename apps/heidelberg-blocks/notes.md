@@ -681,8 +681,9 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
 - NEXT for Flax (00:45 + 00:50 10-15): Heiliggeistkirche walk-in DONE v1.47; then the MANNHEIM MAKEOVER in steps of
   one or two landmarks per release (Flax: "so many famous places and churches"): Marktplatz with the Altes Rathaus +
   St. Sebastian + Marktplatzbrunnen DONE v1.48; the Jesuitenkirche DONE v1.49 (A4+A5, walk-in); Wasserturm
-  gardens + Rosengarten + Kunsthalle DONE v1.50 (Flax: "Both"); NEXT the Barockschloss facade + Ehrenhof (v1.51),
-  then the Popakademie in a Jungbusch corner (Flax 06:44), then Planken shops. Ideas for the Marktplatz: walk into St. Sebastian, the
+  gardens + Rosengarten + Kunsthalle DONE v1.50 (Flax: "Both"); the Barockschloss + Rittersaal DONE v1.51; NEXT the
+  Popakademie in a Jungbusch corner (Flax 06:44), then Jule's stunt show (Flax 07:39: Birte stays calm in Heidelberg),
+  then a record-a-clip button (Flax 07:36), then Planken shops. Ideas for the Marktplatz: walk into St. Sebastian, the
   weekly market stalls on the square (check the real days first).
   Note in the log any landmark placed where it isn't really. The castle queue above (Stückgarten first) comes after.
 - Jesuitenkirche ideas (v1.49): the organ gallery over the porch + its stair (asked on the board), Brinckmann's four
@@ -1001,4 +1002,36 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   Probes: 0 JS errors. Walked in from the west portal down the middle to the choir; both stairs up to the galleries
   (y 25) and round the U; the side door out to the Marktplatz; a pillar stops you at its collider. Draw calls from the
   west door unchanged (96 / 225k at 960x600, Heidelberg's busiest view). Phone not re-probed (geometry only).
-
+- v1.51 2026-10-15 07:49 the Barockschloss (Flax: "Both", after the gardens). Look since the 2005-07 restoration:
+  two new tiles in free atlas slots (36 schYel yellow plaster, 37 schRed smooth red sandstone, 38 stucco for rooms;
+  painted by a hash, never R, so Mannheim's dice order is unchanged). One pass after the Schloss is built: cream ->
+  schYel, sandstone/trim -> schRed in x -85..64, z 84..105, y T..T+30; storey bands that only cross plaster go yellow
+  (pilasters, quoins, lintels and cornices stay red). The plain stretches of the long front (not the end pavilions,
+  the corps x -24..3 or the head pavilions) lose their giant pilasters: a window every two blocks, plaster between,
+  red only at the base and cornice; the Ehrenhof wings' court faces the same. The middle risalit's garden side was a
+  blank wall: it has the court side's windows now. A paved way on the axis from the gate to the portal, six lanterns
+  in the Ehrenhof. WALK-IN: the portal is open (x -12..-9, z 91); an Eingangshalle (x -18..-3, z 92..94, 4 high,
+  two columns, sconces, the plaque 'Barockschloss'); a red-carpet stair (x -13..-8, z 95..98, T..T+3) up through a
+  well in the hall floor; the Rittersaal upstairs (air x -17..-4, z 93..103, y T+5..T+12, plank floor at T+4),
+  stucco walls with deep niches behind the risalit's windows (two tiers, court + garden side), gold pilaster strips
+  and cornice, three chandeliers, a balustrade round the well, a grand piano and 24 chairs facing it (the
+  Schlosskonzerte), the plaque 'Rittersaal', and a painted ceiling (one board, facing down) that is an ORIGINAL sky
+  with a sun and a gilded frame, not Asam's or Vocke's fresco. The rooms' props are their own mesh (rsm): Lambert by
+  day, an unlit candle-warm MeshBasic at night (the Schloss floodlight zone lights the rooms' blocks, plain props went
+  black). Place names Schloss · Eingangshalle / Treppenhaus / Rittersaal. Two fact hints: the Ehrenhof (Carl Philipp
+  quarrelled with Heidelberg's Protestants over the Heiliggeistkirche and moved the court; first stone 1720, done
+  about 1760, almost 450 m, today the University) and the Rittersaal (Asam's ceiling 1728-30, destroyed 1943-44,
+  painted again by Carolus Vocke in the 1960s from photos, concerts). w.facts take an optional 5th field = the floor
+  height for upstairs facts (index.html: Math.abs(P.y-(f[4]??TOWN))<3).
+  Facts checked on de.wikipedia (Mannheimer Schloss): first stone 2 July 1720 by Karl Philipp, built in phases to
+  about 1760, almost 450 m long round the Ehrenhof, yellow walls + dark red sandstone since 2005-07, the Rittersaal in
+  the Mittelbau with Asam's ceiling, destroyed 1943-44, rebuilt 1957-64, Vocke's ceiling from photographs, today the
+  University (and the Amtsgericht in the west wing, a museum in the Mittelbau since 2007).
+  COMPRESSION / OURS: the front stays 150 blocks (real ~450 m); the Ehrenhof stays shallow (Bismarckstrasse + the A
+  row to the north, the Schlossgarten to the south); our Rittersaal sits inside the 18-wide risalit and is much
+  smaller than the real one, reached by one straight stair (the real Treppenhaus is grander); window rhythm, the
+  ceiling, chairs and piano are ours.
+  Probes: 0 JS errors desktop 960x600 + phone 412x860 touch. Walked from the Ehrenhof through the portal, up the
+  stair to the Rittersaal (y 24 = T+5), place names checked, both facts shown. Night: floodlit front, warm room.
+  Jule's call reaches cs 2. Budget: long view along the front 86 calls / 157k (was 83 / 153k), Ehrenhof 24 /
+  56k on the phone, the hall 42 / 94k on the phone, 62 / 128k desktop.
