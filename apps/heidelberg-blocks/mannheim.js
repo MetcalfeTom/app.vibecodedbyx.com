@@ -423,6 +423,18 @@ export function build(H){
     for(let x=HX0;x<=HX1;x++) for(let y=T+5;y<=T+12;y++){ if(isWin(get(x,y,RZ))) set0(x,y,RZ+1,0); if(isWin(get(x,y,SCH.z1))) set0(x,y,SCH.z1-1,0); }
   }
 
+  // ---- v1.52 (Flax 06:44) the Popakademie Baden-Wuerttemberg: the state's college for pop music and the music business, founded
+  // 2003, in its new building in the Jungbusch since the winter of 2004/05 (two floors added 2011/12). Real: on the city side by the
+  // harbour canal. Ours: across the Neckar from the landing on the north-bank harbour, where there was room (the crane that stood
+  // here moved to x 21). NOT a replica: a plain white block with one big glass front to the river; the real facade is unknown to us.
+  { const X0=27, X1=40, Z0=-112, Z1=-105, H=9;
+    for(let x=X0;x<=X1;x++) for(let z=Z0;z<=Z1;z++){ const ex=x===X0||x===X1, ez=z===Z0||z===Z1;
+      for(let y=T;y<T+H;y++){ let b=B.white;
+        if(z===Z1&&!ex&&y<T+7) b=y===T+3?B.white:hsh(x,y,z)<.5?B.shopLit:B.shop;            // the glass front, a slab line between the floors
+        else if((ex||ez)&&!(ex&&ez)&&y<T+7&&(y-T)%4!==0&&(y-T)%4!==3) b=B.shop;               // ribbon windows round the sides and back
+        set(x,y,z,b); }
+      set(x,T+H,z,ex||ez?B.white:B.stone); } }
+
   // ---- Carl Benz's Patent-Motorwagen: a low stone dais on the quay east of the landing ----
   const BZ={x:22,z:-74,x0:20,x1:23,z0:-77,z1:-72};
   for(let x=BZ.x0;x<=BZ.x1;x++) for(let z=BZ.z0;z<=BZ.z1;z++) set(x,T-1,z,x===BZ.x0||x===BZ.x1||z===BZ.z0||z===BZ.z1?B.trim:B.stone);
@@ -447,7 +459,7 @@ export function build(H){
     P(.4,4.2,.4,x,Y+14.6,z-.4,c); P(.6,.6,17,x,Y+14.3,z+7.6,c,0,-.32); P(2,1.6,2,x,Y+11.2,z-3,'#55575c');
     P(.07,7,.07,x,Y+11.5,z+15.4,'#222222'); P(.5,.4,.5,x,Y+7.8,z+15.4,'#333333');
   }
-  for(const [x,c] of [[-112,'#d9a520'],[-86,'#2f6f9f'],[-58,'#d9a520'],[34,'#2f6f9f'],[72,'#d9a520']]) crane(x,-102.6,c);
+  for(const [x,c] of [[-112,'#d9a520'],[-86,'#2f6f9f'],[-58,'#d9a520'],[21,'#2f6f9f'],[72,'#d9a520']]) crane(x,-102.6,c);   // v1.52 the blue one moved from x 34 for the Popakademie
   for(const [xa,xb] of [[-126,BR.x0-1],[BR.x1+1,126]]) for(const sz of [-1.6,1.6]) P(xb-xa,.2,.25,(xa+xb)/2,T+.1,-102.6+sz,'#5a5a5e');   // crane rails along the quay
   const CC=['#a83a2a','#2f5f8f','#3f7f4f','#c9782a','#8a8a86','#6a3a6a','#b8b2a4'];
   for(const [xa,xb] of [[-70,-46],[0,26],[64,86]]) for(let x=xa;x<xb;x+=6.4) for(let k=0;k<2+(R()*2|0);k++) P(6.1,2.55,2.4,x+3,T+1.28+k*2.6,-109.2+(R()<.5?0:2.6),CC[Math.floor(R()*CC.length)]);
@@ -719,6 +731,9 @@ export function build(H){
       g.fillStyle='#d4a53c'; for(const [x,y] of [[34,34],[w-34,34],[34,h-34],[w-34,h-34],[w/2,22],[w/2,h-22],[22,h/2],[w-22,h/2]]){ g.beginPath(); g.arc(x,y,11,0,7); g.fill(); } },
     -10,T+12.97,98.5,0);
     cb.m.rotation.x=Math.PI/2; cb.m.updateMatrix(); NB.push([cb,.6,.45]); }
+  // v1.52 the Popakademie's name over the glass (plain letters, no logo)
+  NB.push([board(9,1.3,720,104,(g,w,h)=>{ g.fillStyle='#1c1c22'; g.fillRect(0,0,w,h); g.fillStyle='#e0307a'; g.fillRect(24,h-20,96,8);
+    g.fillStyle='#f4f1ea'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 62px '+FONT; g.fillText('Popakademie',w/2,h/2); },34,T+8,-103.97,0),.35,1.1]);
   // corner signs: every block shows its code at all four corners, on both street faces (one draw call)
   const codes=QD.filter(q=>!q.sq), CW=64, CHh=40, per=16, cv=document.createElement('canvas'); cv.width=CW*per; cv.height=CHh*Math.ceil(codes.length/per);
   { const g=cv.getContext('2d'); codes.forEach((q,i)=>{ const x=(i%per)*CW, y=Math.floor(i/per)*CHh; g.fillStyle='#f4f1ea'; g.fillRect(x,y,CW,CHh); g.fillStyle='#1d3a6e'; g.fillRect(x+3,y+3,CW-6,CHh-6);
@@ -810,7 +825,7 @@ export function build(H){
   function nearQ(x,z,m){ let best=null, bd=m; for(const q of QD){ const dx=Math.max(q.x0-x,0,x-q.x1-1), dz=Math.max(q.z0-z,0,z-q.z1-1), d=Math.hypot(dx,dz); if(d<bd){ bd=d; best=q; } } return best; }
   function place(x,z,y,wet){
     if(wet) return 'Neckar';
-    if(z<RIV.n) return 'Hafen';
+    if(z<RIV.n) return x>=26.5&&x<41.5?(z<-104?'Popakademie':'Jungbusch · Popakademie'):'Hafen';   // v1.52
     if(z<=RIV.s+1) return x>=BR.x0&&x<=BR.x1+1?'Kurpfalzbrücke':'Neckar';
     if(z<=-71) return x>-4&&x<30?'Anlegestelle':'Neckarufer';
     if(x>=124.6&&z>=AK.z0-.5&&z<AK.z1+1) return 'Friedrichsplatz · Arkaden';   // v1.50
@@ -850,10 +865,11 @@ export function build(H){
     if((clk-=dt)<0){ clk=5; if(new Date().getMinutes()!==clockDraw.m) clockDraw(); } }
 
   return { mhq:{baker:[BK.x+.4,BK.z-.75,Math.PI],kessler:[44.5,65.25,Math.PI],hannes:[13.5,-72.6,-2.4]}, group, place, riverD, tick, steps, QD, benz, flood, ghost:L2G, l2:{x:14,z:71,roofY:LT+1},
-    spawn:{x:4.5,z:-74.6,yaw:Math.PI}, jupp:{x:7.2,z:-77.4}, seats:SEATS,
+    spawn:{x:4.5,z:-74.6,yaw:Math.PI}, pop:{x:34,z:-103}, jupp:{x:7.2,z:-77.4}, seats:SEATS,
     facts:[[WT.x,WT.z,15,'Wasserturm: 60 m tall, built 1886-1889 to a design by Gustav Halmhuber. Up on the dome stands Amphitrite, the sea goddess, in copper.'],
       [119,20.5,7,'Bruno Schmitz laid out these gardens from 1899: water steps, basins, arcades, lanterns. The square was ready for Mannheim\'s 300th birthday in 1907.'],
       [-10,87.5,9,'Mannheim Palace: Elector Carl Philipp quarrelled with Heidelberg\'s Protestants over the Heiliggeistkirche and moved his court down the Neckar. First stone 1720, done about 1760, almost 450 m long. Today: the University.'],   // v1.51
+      [34,-102,10,'Popakademie Baden-W\u00fcrttemberg: the state\'s college for pop music and the music business, founded in 2003. It moved into its new building in the Jungbusch, by the harbour, in 2004.'],   // v1.52
       [-10,98.5,6,'Rittersaal: Cosmas Damian Asam painted its ceiling in 1728-30. The bombs of 1943-44 destroyed it; Carolus Vocke painted it again in the 1960s from old photographs. Concerts play here today.',T+5]],
     arrive:[[124,-90],[96,-90.5],[66,-88.5],[40,-84.5],[22,-82.6],[12,-82.4]],
     trig:[[118,-90,'Willkommen in Mannheim! The city of squares. Streets have no names here, only letters and numbers.'],

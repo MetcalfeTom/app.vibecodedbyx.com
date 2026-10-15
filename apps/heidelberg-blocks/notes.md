@@ -681,8 +681,8 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
 - NEXT for Flax (00:45 + 00:50 10-15): Heiliggeistkirche walk-in DONE v1.47; then the MANNHEIM MAKEOVER in steps of
   one or two landmarks per release (Flax: "so many famous places and churches"): Marktplatz with the Altes Rathaus +
   St. Sebastian + Marktplatzbrunnen DONE v1.48; the Jesuitenkirche DONE v1.49 (A4+A5, walk-in); Wasserturm
-  gardens + Rosengarten + Kunsthalle DONE v1.50 (Flax: "Both"); the Barockschloss + Rittersaal DONE v1.51; NEXT the
-  Popakademie in a Jungbusch corner (Flax 06:44), then Jule's stunt show (Flax 07:39: Birte stays calm in Heidelberg),
+  gardens + Rosengarten + Kunsthalle DONE v1.50 (Flax: "Both"); the Barockschloss + Rittersaal DONE v1.51; the
+  Popakademie DONE v1.52; NEXT Jule's stunt show (Flax 07:39: Birte stays calm in Heidelberg),
   then a record-a-clip button (Flax 07:36), then Planken shops. Ideas for the Marktplatz: walk into St. Sebastian, the
   weekly market stalls on the square (check the real days first).
   Note in the log any landmark placed where it isn't really. The castle queue above (Stückgarten first) comes after.
@@ -1035,3 +1035,19 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   stair to the Rittersaal (y 24 = T+5), place names checked, both facts shown. Night: floodlit front, warm room.
   Jule's call reaches cs 2. Budget: long view along the front 86 calls / 157k (was 83 / 153k), Ehrenhof 24 /
   56k on the phone, the hall 42 / 94k on the phone, 62 / 128k desktop.
+- v1.52 2026-10-15 07:56 the Popakademie (Flax 06:44: "Mannheim also needs Popakademie"). A plain white block on the
+  north-bank harbour across the Neckar from the landing (x 27..40, z -112..-105, 9 high, flat roof): one big glass
+  front to the river (shop / shopLit tiles, lit at night, a slab line between the two floors), ribbon windows round
+  the sides and back, a dark name board 'Popakademie' over the glass (plain letters, a small pink bar, no logo). The
+  blue crane that stood there moved from x 34 to x 21. Music drifts out of the front: popTick in index.html (called
+  from mhTick when w.pop is set) plays our own four-bar loop at 112 bpm (square arpeggio over Am F C G, sine bass,
+  kick on the beat, offbeat hat), panned, fading out within 34 blocks, nothing scheduled while sound is off. No real
+  song or melody. Place names Popakademie / Jungbusch · Popakademie (the quay in front). One fact hint at the front.
+  Facts checked on de.wikipedia (Popakademie Baden-Wuerttemberg): founded 2003 by the state, a state college for
+  popular music and the music business, its new building in the Jungbusch used from the winter semester 2004/05,
+  two floors added 2011/12.
+  NOT A REPLICA / RELOCATED: the real building stands on the city side in the Jungbusch by the harbour canal; ours is
+  on our north-bank harbour because that's where there was room. Its shape, colours and glass front are ours.
+  QUESTION for Flax: what does the real Popakademie look like to you (colours, glass, the shape)? We'll match it.
+  Probes: 0 JS errors desktop 960x600 + phone 412x860 touch; with the audio context running in the probe, standing at
+  the front ran popTick without errors (the loop itself is UNHEARD: headless has no speakers). Front view 19 calls / 43k.
