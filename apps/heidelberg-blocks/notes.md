@@ -673,14 +673,15 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   through walls (Herr Gerlach answers from the yard bench; harmless, he's next door).
 - v1.67 Schillerplatz DONE (see log). Open: the real square also has smaller monuments (Iffland, Dalberg; check before
   building, ask Flax); his real pose/facing unchecked (ours faces north, scroll in the right hand).
-- Thingstätte on the Heiligenberg (Flax: "lost place, only build if you find info"; NOT built). Facts checked: egg-shaped
+- DONE v1.68 (see log): Thingstätte on the Heiligenberg (Flax: "lost place, only build if you find info"). Facts checked: egg-shaped
   open-air amphitheatre modelled on Greek theatres, about 8,000 seats, in the forest just below the ruins of St. Michael's
   monastery (Michaelskloster); Celtic ring-wall/hilltop settlement history on the mountain. Built 1934-35 by the Reich
   Labour Service and Heidelberg students, architect Hermann Alker; opened 22 June 1935 (summer solstice) with a speech by
   Propaganda Minister Goebbels; little used after 1937; renamed Heiligenberg-Anlage in 1945. Late 1980s to 2017/2018 an
   unofficial Walpurgisnacht gathering of 10-20,000 people on 30 April (ended for safety). Today a protected monument, open
   to walkers, no buildings, no fence, no lights. Build rule: an honest plain sign (who built it, when, for what), nothing
-  that celebrates it, quiet overgrown 'lost place' feel.
+  that celebrates it, quiet overgrown 'lost place' feel. UPDATE Flax 10-15 18:57: "They keep it clean" -> tidy stone, moss only
+  at edges/cracks (v1.68 follows this). Open: q1-q3 in the v1.68 log entry.
 - Gedenkhalle plaque in Mannheim's L2 is EMPTY on purpose: ask Flax who/what it remembers, then fill MEMO in mannheim.js
   (title + up to 4 lines); never invent a name or dedication.
 - Flax's queue, what's left, in this order (13:57):
@@ -1306,3 +1307,32 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   tells it in English once a visit. Place label "Schillerplatz · B3"; B3 has no corner plates (no houses). Also fixed:
   the v1.66 yard bench showed the "watch the fountains" hint; it has its own now. Tested headless desktop 1280x720 +
   phone 412x900 ?touch: place, fact, seat, solid base, 0 JS errors; corner view 46-47 calls (+2 boards).
+- v1.68 (2026-10-15 19:27) THE THINGSTÄTTE on the Heiligenberg (Flax: "What with thingstätte?"). Two notes from Flax while
+  it was built: 18:57 "They keep it clean" (the real one is maintained: stone tiers, steps and stage tidy; moss/grass only
+  a little at the edges and in cracks, forest close round it) and 19:18 "It's normally above the Philosophenweg in the
+  woods" (it is: north of / uphill from the walk, trail up from the walk + finger posts). Compressed homage, not a survey.
+  THG={cx:-102,cz:-92.5,ex:1.5,r0:3.25,nt:5,arm:1.5} in the NW, where the walk dips (x -124..-81, z -91..-112); frame
+  thgPol/thgKind (v = uphill). thingWorld() runs LAST in buildWorld (after waldWorld) so buildTrees' rng(99) stream is
+  unchanged. Layout: gravel arena at T.y (=46), stage one step up (rows z -91..-89, stone top, quay fill) with a parapet
+  on the valley side, five quay tiers each one block up and 2 deep (walk 47..51), four grey stone aisles (a=±.5, ±1.1)
+  with half-step props, gravel top walk (52), a 2:1 forest-topped cut bank behind, arms built up with quay retaining
+  walls. Trees with trunks in the zone are removed whole; 22 planted back round the bank (rngOf(1935), own stream).
+  St. Michael's: a small terrace NE at x -83..-71, z -110..-104 (y 54): low broken nave walls (stone + sandstone), apse,
+  two west tower stumps, three fallen stones; back hill cut in 2-block steps. Place labels 'Thingstätte' and
+  'Michaelskloster' (thgPlace, checked before 'Neckar'). Ways in (pathLine gravel, thgCells): a forest trail up from the
+  walk at x≈-64 (z -90) past the ruins to the top walk (x≈-82, z -98), and a stair from the walk's west end (x≈-119)
+  up to the stage's west end. A wooden finger post "Thingstätte →" at both feet (T.sp; text = strip of the board canvas).
+  ONE plain board on the stage's west end (canvas 1024x768: board top 640 px, finger strips below; all sign text is one
+  merged quad mesh) + SPOTS 's_thing' (Read, 3 lines). No symbols, flags, quotes, folk or jokes. Three tier seats =
+  SEATS b:1 (no waiter, no plate; cafeSit skips the café logic, ride label 'tier' "Sit on the stone tier").
+  Board text: THINGSTÄTTE / Heiligenberg · protected monument / An open-air theatre for about 8,000 people. Built in
+  1934–35 by the Reich Labour Service and students for the Nazi regime, as a venue for its propaganda events. Opened in
+  June 1935. Hardly used after 1937. Renamed Heiligenberg-Anlage after 1945. From the late 1980s until 2017/18,
+  thousands gathered here on Walpurgis Night (30 April), until it was stopped for safety reasons. Today a protected
+  monument. Props: one blockyGeo mesh (792 tris) + one sign mesh (10 tris), culled at LIFE.cull*.8 from the centre
+  (thgTick). Budget: top-walk view over the valley 115 calls / 288k tris (+2 calls, +0.8k tris from the props); phone
+  390x844 ?touch on the stage 13 calls / 78k. Tested headless desktop 1280x720 + phone ?touch: walked walk -> trail ->
+  top walk -> aisle -> arena -> stage, stage -> stair -> walk and back up; seat sit/stand, Read board, place labels,
+  0 JS errors. Open questions for Flax: q1 orientation: ours opens south, down to the walk and
+  the valley; which way does the real bowl face? q2 the stage: real one has a wall/terrace behind; ours a low parapet: enough? q3 the Michaelskloster ruins:
+  build them properly next (walk-in basilica walls, tower stumps), or keep these few low walls?
