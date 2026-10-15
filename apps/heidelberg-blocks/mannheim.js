@@ -84,8 +84,9 @@ export function build(H){
   // ---- houses ----
   const WALLS=[B.cream,B.ochre,B.pink,B.white,B.blue,B.cream,B.white,B.sandstone,B.ochre];
   const lit=()=>R()<.33?B.windowLit:B.window, shp=()=>R()<.4?B.shopLit:B.shop;
+  const PKH=[];   // v1.65 every house's footprint, for the Planken shop fronts
   function block(x0,z0,x1,z1,floors,wall,roof){   // one house, ground floor shops, flat roof or a slate mansard
-    const top=T+1+floors*3, man=roof!=null;
+    const top=T+1+floors*3, man=roof!=null; PKH.push([x0,z0,x1,z1]);
     for(let x=x0;x<=x1;x++) for(let z=z0;z<=z1;z++){
       const ex=x===x0||x===x1, ez=z===z0||z===z1;
       for(let y=T;y<top;y++){ let b=wall;
@@ -723,31 +724,104 @@ export function build(H){
   for(const [y,z,f] of [[HC+8.4,68.06,1],[HC+15.4,73.94,-1]]){ P(.3,.3,.1,14,y,z,'#3a3530'); LH.push([.22,.22,.1,14,y+.22,z+f*.05,'#ffe2a8']); LAMPS.push([14,y+.22,z+f*.15]); }   // v1.46 stairwell lamps
   P(2,.1,.46,14,LT+1.48,72.6,'#6a4a30'); P(2,.5,.08,14,LT+1.78,72.85,'#6a4a30'); for(const s of [-.8,.8]) P(.1,.44,.4,14+s,LT+1.22,72.6,'#4a3422');
   for(const [x,z] of [[11.6,68.4],[16.4,73.4]]){ P(.6,.5,.6,x,LT+1.25,z,'#a0582f'); P(.7,.6,.7,x,LT+1.8,z,'#3f7f3a'); }
-  // ---- v1.62 trams on the Planken (Cold's idea, Flax approved): a double track from the Paradeplatz to the Wasserturm end of the
-  // Planken, a crossover in front of each end stop, grooved rails in the asphalt, a contact wire over each track hung from span
-  // wires (the Planken lamp posts carry them, two end masts more), and a glass shelter at each stop. index.html runs the trams
-  // from TRM (returned as w.tram). Eastbound trams use the south track, westbound the north one; the ends take one tram at a time.
-  const TRM={xw:1,xe:67,zN:19.85,zS:22.15,w0:9,e0:50,cw:8,x0:-6,x1:79.6,stops:['Paradeplatz','Wasserturm']};
-  { const RG='#2a2b2f', RS='#a4a6aa', WI='#25272b', MA='#2b2b2e', sm=u=>(1-Math.cos(Math.PI*u))/2;
-    const rail=(xa,za,xb,zb)=>{ const dx=xb-xa, dz=zb-za, l=Math.hypot(dx,dz), ry=Math.atan2(-dz,dx), cx=(xa+xb)/2, cz=(za+zb)/2;
+  // ---- v1.62 trams, v1.65 a new line off the Planken (Flax 13:39 "Tram maybe not in Planken. Pretty less space. Tram maybe better:
+  // harbour / castle / main station / Paradeplatz"): a double track from the harbour on the north bank over the Kurpfalzbrücke, down
+  // the Breite Straße and the Kurpfalzstraße past the Paradeplatz, left along the Bismarckstraße in front of the Schloss and right
+  // down the Kaiserring to the Bahnhofsvorplatz. Stops Hafen, Paradeplatz, Schloss, Hauptbahnhof. One centre line (straights and two
+  // quarter circles, sampled every 25 cm), right-hand running, grooved rails in the street, a contact wire over each track on span
+  // wires (lamp posts carry them where they stand right, plain masts elsewhere), a crossover before each terminus brings a tram to
+  // the platform side and each terminus takes one tram at a time; a glass shelter and a stop sign on each platform. index.html
+  // runs the trams from TRM (returned as w.tram).
+  const TRM=(()=>{ const ds=.25, RC=7, PTS=[[-10,-111],[-10,80],[84,80],[84,106]], pcs=[], X=[], Z=[], TX=[], TZ=[], arcs=[]; let tot=0;
+    for(let i=0;i<PTS.length-1;i++){ const [ax,az]=PTS[i], [bx,bz]=PTS[i+1], l=Math.hypot(bx-ax,bz-az), dx=(bx-ax)/l, dz=(bz-az)/l, a0=i?RC:0, a1=i<PTS.length-2?RC:0;
+      pcs.push({l:l-a0-a1,f:s=>[ax+dx*(a0+s),az+dz*(a0+s),dx,dz]});
+      if(a1){ const [cx,cz]=PTS[i+2], l2=Math.hypot(cx-bx,cz-bz), ex=(cx-bx)/l2, ez=(cz-bz)/l2, ox=bx-dx*RC+ex*RC, oz=bz-dz*RC+ez*RC;
+        pcs.push({l:RC*Math.PI/2,arc:1,f:s=>{ const a=s/RC, c=Math.cos(a), n=Math.sin(a); return [ox+RC*(dx*n-ex*c),oz+RC*(dz*n-ez*c),dx*c+ex*n,dz*c+ez*n]; }}); } }
+    for(const p of pcs){ p.u0=tot; tot+=p.l; if(p.arc) arcs.push([p.u0,tot]); }
+    for(let k=0;k*ds<=tot+1e-6;k++){ const u=k*ds; let p=pcs[pcs.length-1]; for(const q of pcs) if(u<=q.u0+q.l){ p=q; break; } const r=p.f(Math.min(u-p.u0,p.l)); X.push(r[0]); Z.push(r[1]); TX.push(r[2]); TZ.push(r[3]); }
+    const n=X.length, o=1.15, cw=8, ce=9, uW=7, uE=tot-8, sm=k=>(1-Math.cos(Math.PI*Math.max(0,Math.min(1,k))))/2;
+    const W={L:tot,o,cw,ce,uW,uE,arcs,stops:[[uW,'Hafen'],[143,'Paradeplatz'],[201,'Schloss'],[uE,'Hauptbahnhof']],plat:[],
+      at(u,r){ const f=Math.max(0,Math.min(n-1.0001,u/ds)), i=f|0, k=f-i, tx=TX[i]+(TX[i+1]-TX[i])*k, tz=TZ[i]+(TZ[i+1]-TZ[i])*k, l=Math.hypot(tx,tz)||1;
+        r[0]=X[i]+(X[i+1]-X[i])*k; r[1]=Z[i]+(Z[i+1]-Z[i])*k; r[2]=tx/l; r[3]=tz/l; return r; },                     // the centre line at u: x, z, tangent
+      lat(u,d){ return o-2*o*sm(d>0?(u-(uE-ce-cw))/cw:(u-(uW+ce))/cw); },                                             // the track a tram going d uses (right of +u)
+      pt(u,l,r){ W.at(u,r); const tx=r[2], tz=r[3]; r[0]-=tz*l; r[1]+=tx*l; return r; },                                // l to the right of the centre line
+      off(x,z){ let b=1e9; for(let i=0;i<n;i+=4){ const d=(X[i]-x)**2+(Z[i]-z)**2; if(d<b) b=d; } return Math.sqrt(b); } };
+    return W; })();
+  { const RG='#2a2b2f', RS='#a4a6aa', WI='#25272b', MA='#2b2b2e', GLs='#a9c3cb', FR='#4a4e54', q=[0,0,0,0], q2=[0,0,0,0], u1=TRM.L;
+    // a line beside the centre line (lateral fn(u)) from ua to ub: straight runs merged into one box, bends in short pieces
+    const run=(ua,ub,fn,lay)=>{ const pts=[]; for(let u=ua;;u=Math.min(ub,u+1)){ TRM.pt(u,fn(u),q); pts.push([q[0],q[1]]); if(u>=ub) break; }
+      let i0=0; for(let i=2;i<=pts.length;i++){ let ok=i<pts.length;
+        if(ok){ const [ax,az]=pts[i0], [bx,bz]=pts[i], l=Math.hypot(bx-ax,bz-az); for(let j=i0+1;j<i&&ok;j++) if(Math.abs((pts[j][0]-ax)*(bz-az)-(pts[j][1]-az)*(bx-ax))/l>.03) ok=false; }
+        if(!ok){ lay(pts[i0][0],pts[i0][1],pts[i-1][0],pts[i-1][1]); i0=i-1; } } };
+    const rail=(xa,za,xb,zb)=>{ const dx=xb-xa, dz=zb-za, l=Math.hypot(dx,dz)+.04, ry=Math.atan2(-dz,dx), cx=(xa+xb)/2, cz=(za+zb)/2;
       P(l,.025,.11,cx,T+.012,cz,RG,ry); P(l,.03,.045,cx,T+.016,cz,RS,ry); };
-    const wire=(xa,za,xb,zb)=>{ const dx=xb-xa, dz=zb-za; P(Math.hypot(dx,dz),.035,.035,(xa+xb)/2,T+4.75,(za+zb)/2,WI,Math.atan2(-dz,dx)); };
-    for(const zc of [TRM.zN,TRM.zS]){ for(const o of [-.5,.5]) rail(TRM.x0,zc+o,TRM.x1,zc+o); wire(-4.5,zc,78.5,zc); }
-    for(const a of [TRM.w0,TRM.e0]) for(let k=0;k<8;k++){ const xa=a+k*TRM.cw/8, xb=xa+TRM.cw/8, za=TRM.zS+(TRM.zN-TRM.zS)*sm(k/8), zb=TRM.zS+(TRM.zN-TRM.zS)*sm((k+1)/8);
-      for(const o of [-.5,.5]) rail(xa,za+o,xb,zb+o); wire(xa,za,xb,zb); }
-    // span wires: the lamp posts at x 0..72 grow a mast to T+5.3, two plain masts close the ends
-    for(let x=0;x<=72;x+=12) for(const z of [PLK.z0+.6,PLK.z1+.4]){ P(.12,1.1,.12,x,T+4.75,z,MA); P(.18,.08,.18,x,T+5.33,z,MA); }
-    for(const x of [-4.5,78.5]) for(const z of [PLK.z0+.6,PLK.z1+.4]){ P(.16,5.35,.16,x,T+2.67,z,MA); P(.28,.12,.28,x,T+.06,z,MA); }
-    for(const x of [-4.5,0,12,24,36,48,60,72,78.5]){ P(.035,.035,4.8,x,T+5.2,(PLK.z0+PLK.z1+1)/2,WI); for(const zc of [TRM.zN,TRM.zS]) P(.03,.45,.03,x,T+4.97,zc,WI); }
-    // the shelters: glass back and one glass side, a flat roof, a bench, a white timetable panel; s = which way the open front faces
-    const shelter=(xc,zb,s)=>{ const GLs='#a9c3cb', FR='#4a4e54';
-      for(const dx of [-.92,.92]) for(const dz of [0,.8]) P(.07,2.35,.07,xc+dx,T+1.17,zb+s*dz,FR);
-      P(1.84,1.75,.04,xc,T+1.2,zb,GLs); P(.04,1.75,.76,xc-.92,T+1.2,zb+s*.4,GLs);
-      P(2.06,.09,1.12,xc,T+2.39,zb+s*.42,FR); P(2.06,.13,.05,xc,T+2.36,zb+s*.98,'#5c6168');
-      P(1.3,.07,.34,xc+.2,T+.5,zb+s*.26,'#8a9098'); for(const dx of [-.35,.75]) P(.06,.46,.3,xc+dx,T+.23,zb+s*.26,FR);
-      P(.62,.82,.03,xc-.45,T+1.5,zb+s*.035,'#f4f1ea'); P(.5,.06,.031,xc-.45,T+1.78,zb+s*.04,'#2a6a4a'); };
-    shelter(-2.9,24.95,-1); shelter(66.6,16.05,1);
-    for(const [x,z] of [[-1.75,24.2],[68.5,16.95]]) P(.07,2.62,.07,x,T+1.31,z,'#5a5e64'); }
+    const wire=(xa,za,xb,zb)=>{ const dx=xb-xa, dz=zb-za; P(Math.hypot(dx,dz)+.03,.035,.035,(xa+xb)/2,T+4.75,(za+zb)/2,WI,Math.atan2(-dz,dx)); };
+    const o=TRM.o, xE=[TRM.uE-TRM.ce-TRM.cw,TRM.uE-TRM.ce], xW=[TRM.uW+TRM.ce,TRM.uW+TRM.ce+TRM.cw];
+    for(const sg of [1,-1]){ for(const r of [-.5,.5]) run(0,u1,()=>sg*o+r,rail); run(1.5,u1-1.5,()=>sg*o,wire); }
+    for(const [d,[ua,ub]] of [[1,xE],[-1,xW]]){ for(const r of [-.5,.5]) run(ua,ub,u=>TRM.lat(u,d)+r,rail); run(ua,ub,u=>TRM.lat(u,d),wire); }
+    for(const [u,f] of [[0,1],[u1,-1]]) for(const sg of [1,-1]){ TRM.pt(u-f*.2,sg*o,q); P(1.5,.55,.3,q[0],T+.28,q[1],'#3a3c40',Math.atan2(-q[3],q[2])+Math.PI/2); P(1.3,.14,.32,q[0],T+.42,q[1],'#c8a22a',Math.atan2(-q[3],q[2])+Math.PI/2); }   // buffer stops
+    // masts every 24 m, a lamp post standing within 1.5 m of the spot grows the mast instead; a span wire across, a dropper to each wire
+    for(const u of [2,21,45,69,93,117,141,165,189,213,237,261,285,u1-2]){ const m=[];
+      for(const sg of [1,-1]){ TRM.pt(u,sg*3.4,q); let lp=null, bd=1.5; for(const l of LAMPS){ const dd=Math.hypot(l[0]-q[0],l[2]-q[1]); if(dd<bd&&l[1]>T+3.8){ bd=dd; lp=l; } }
+        if(lp){ P(.12,1.1,.12,lp[0],T+4.75,lp[2],MA); P(.18,.08,.18,lp[0],T+5.33,lp[2],MA); m.push([lp[0],lp[2]]); }
+        else { P(.16,5.35,.16,q[0],T+2.67,q[1],MA); P(.28,.12,.28,q[0],T+.06,q[1],MA); m.push([q[0],q[1]]); } }
+      const [[xa,za],[xb,zb]]=m, dx=xb-xa, dz=zb-za; P(Math.hypot(dx,dz),.035,.035,(xa+xb)/2,T+5.2,(za+zb)/2,WI,Math.atan2(-dz,dx));
+      for(const sg of [1,-1]){ TRM.pt(u,sg*o,q); P(.03,.45,.03,q[0],T+4.97,q[1],WI); } }
+    // the shelters: glass back and one glass side, a flat roof, a bench, a white timetable panel, the stop sign's pole beside it;
+    // [u, side (1 = right of +u), lateral of the glass back, stop]
+    for(const [u,sg,lb,nm] of [[3.5,1,4.4,'Hafen'],[145,1,4.95,'Paradeplatz'],[145,-1,4.95,'Paradeplatz'],[199.5,-1,4.85,'Schloss'],[202.5,1,4.3,'Schloss'],[TRM.uE+2,-1,3.8,'Hauptbahnhof']]){
+      TRM.pt(u,sg*lb,q); const fx=TRM.at(u,q2)[3]*sg, fz=-q2[2]*sg, cx=q[0], cz=q[1], ry=Math.atan2(fx,fz), Q=(w,h,d,dx,y,dz,c)=>P(w,h,d,cx+dx*fz+dz*fx,y,cz-dx*fx+dz*fz,c,ry);
+      for(const dx of [-.92,.92]) for(const dz of [0,.8]) Q(.07,2.35,.07,dx,T+1.17,dz,FR);
+      Q(1.84,1.75,.04,0,T+1.2,0,GLs); Q(.04,1.75,.76,-.92,T+1.2,.4,GLs);
+      Q(2.06,.09,1.12,0,T+2.39,.42,FR); Q(2.06,.13,.05,0,T+2.36,.98,'#5c6168');
+      Q(1.3,.07,.34,.2,T+.5,.26,'#8a9098'); for(const dx of [-.35,.75]) Q(.06,.46,.3,dx,T+.23,.26,FR);
+      Q(.62,.82,.03,-.45,T+1.5,.035,'#f4f1ea'); Q(.5,.06,.031,-.45,T+1.78,.04,'#2a6a4a');
+      const sx=cx+1.15*fz+.75*fx, sz=cz-1.15*fx+.75*fz; P(.07,2.62,.07,sx,T+1.31,sz,'#5a5e64'); TRM.plat.push([sx,sz,Math.atan2(fz,-fx),nm]);
+      const xs=[cx-2.3*fz,cx+2.3*fz,cx+(lb-2.2)*fx-2.3*fz,cx+(lb-2.2)*fx+2.3*fz], zs=[cz+2.3*fx,cz-2.3*fx,cz+(lb-2.2)*fz+2.3*fx,cz+(lb-2.2)*fz-2.3*fx];
+      TRM.plat[TRM.plat.length-1].push(Math.min(...xs),Math.max(...xs),Math.min(...zs),Math.max(...zs)); } }
+  // ---- v1.65 the Planken comes alive (Flax): the trams take the Breite Straße now, so the Planken is a paved shopping street.
+  // Display windows and plain shop signs (just what they sell: no names, no logos), awnings, an Eiscafé in D1 with tables out
+  // front, a corner kiosk at N4. index.html walks the shoppers, the pigeons and the buskers (w.plk) ----
+  for(let x=-100;x<=79;x++) if(x<AX.x0||x>AX.x1) for(let z=PLK.z0;z<=PLK.z1;z++) if(get(x,T-1,z)===B.asphalt) set(x,T-1,z,B.pave);
+  const PKW=[], PKG=[], PKZ=[], isShp=b=>b===B.shop||b===B.shopLit;   // display windows [x0,x1,zf,sd,type], signs [cx,w,zf,sd,type], keep-out zones
+  const AWC=['#34506e','#a8442e',0,'#2e2e30','#3f6a3a',0,'#c08a2a',0];   // awning colours by shop type (0 = none)
+  for(const h of PKH){ const [x0,z0,x1,z1]=h, sd=z1===PLK.z0-2?1:z0===PLK.z1+2?-1:0; if(!sd||x1<-100||x0>79) continue;
+    if(sd<0&&x0<=-16&&x1>=-24) continue;   // D1 is the Eiscafé
+    const zc=sd>0?z1:z0, zf=sd>0?z1+1:z0, ty=Math.floor(hsh(x0,7,z0)*8); let run=-1, any=0;
+    for(let x=x0+1;x<=x1;x++){ const w=x<x1&&(x-x0)%4!==0&&isShp(get(x,T+1,zc)); if(w&&run<0) run=x;
+      if(!w&&run>=0){ PKW.push([run,x,zf,sd,ty]); any=1; const n=x-run, cx=(run+x)/2, c=AWC[ty];
+        if(c){ const ry=sd>0?0:Math.PI; P(n+.1,.05,1,cx,T+2.765,zf+sd*.464,c,ry,.38); P(n+.1,.22,.03,cx,T+2.47,zf+sd*.93,'#efe6d2',ry);
+          for(let k=-n/2+.35;k<n/2-.2;k+=.7) P(.32,.056,1,cx+k,T+2.765,zf+sd*.464,'#efe6d2',ry,.38); }
+        run=-1; } }
+    if(any) PKG.push([(x0+x1+1)/2,Math.min(x1-x0-.6,5.2),zf,sd,ty]); }
+  // the Eiscafé: an open counter in D1's ground floor (x -22..-18), tubs under a steel hood, Signora Bruna behind it
+  for(let x=-22;x<=-18;x++){ for(let z=25;z<=26;z++) for(let y=T;y<T+3;y++) set(x,y,z,0); set(x,T,25,B.sandstone); }
+  P(5,.9,.04,-20,T+.5,24.97,'#f2efe6'); P(5,.06,.05,-20,T+.93,24.96,'#b8bcc0'); P(5,.14,.045,-20,T+.18,24.965,'#8fc9b4');
+  P(4.8,.04,.8,-20,T+1.02,25.45,'#c8ccd0');
+  ['#f4e8c8','#5a3a2a','#e86a8a','#f2e65a','#9ccf7a','#f4a04a','#c84a6a','#f4f0e8'].forEach((c,i)=>{ P(.5,.08,.3,-22.1+i*.6,T+1.07,25.25,c); P(.5,.08,.3,-22.1+i*.6,T+1.07,25.65,['#f2e65a','#f4e8c8','#9ccf7a','#5a3a2a','#e86a8a','#f4f0e8','#f4a04a','#c84a6a'][i]); });
+  P(4.9,.04,.04,-20,T+1.45,25.1,'#c8ccd0'); P(4.9,.04,.04,-20,T+1.45,25.8,'#c8ccd0'); for(const x of [-22.45,-17.55]) for(const z of [25.1,25.8]) P(.04,.42,.04,x,T+1.24,z,'#c8ccd0');
+  P(5,2,.04,-20,T+1.5,26.97,'#d8efe6'); P(4.8,.9,.5,-20,T+.45,26.72,'#f2efe6'); P(.6,.45,.4,-21.4,T+1.12,26.7,'#2a2a2e'); P(.2,.08,.2,-21.4,T+.94,26.5,'#b8bcc0');
+  P(4.6,.05,.25,-20,T+1.85,26.85,'#f4f0e8'); for(let i=0;i<7;i++) P(.1,.2,.1,-19.8+i*.36,T+1.97,26.85,i%2?'#f4f0e8':'#d8a860');
+  P(5.3,.05,1,-20,T+2.765,24.536,'#e88aa0',Math.PI,.38); P(5.3,.22,.03,-20,T+2.47,24.07,'#fff4f0',Math.PI); for(let k=-2.3;k<2.5;k+=.7) P(.32,.056,1,-20+k,T+2.765,24.536,'#fff4f0',Math.PI,.38);
+  for(const tx of [-23.6,-20,-16.4]){ const tz=22.6;   // tables out front with parasols; the free chairs are seats
+    P(.72,.05,.72,tx,T+.74,tz,'#e8e4dc'); P(.06,.7,.06,tx,T+.37,tz,'#5a5e64'); P(.4,.04,.4,tx,T+.02,tz,'#5a5e64');
+    P(.05,1.6,.05,tx,T+1.55,tz,'#e8e4dc'); P(1.9,.08,1.9,tx,T+2.3,tz,'#f4efe2'); P(1.1,.1,1.1,tx,T+2.38,tz,'#f4efe2'); P(1.92,.12,1.92,tx,T+2.22,tz,'#e88aa0');
+    for(const sg of [-1,1]){ const cx=tx+sg*.62; P(.4,.05,.4,cx,T+.45,tz,'#3a6a5a'); P(.04,.42,.4,cx+sg*.2,T+.68,tz,'#3a6a5a'); for(const dz of [-.17,.17]) P(.36,.42,.03,cx,T+.21,tz+dz,'#5a5e64');
+      if(!(tx===-23.6&&sg<0)) SEATS.push({x:cx,z:tz,yaw:sg<0?-Math.PI/2:Math.PI/2,pitch:.15,stand:[cx,tz-1.05]}); } }
+  P(.26,.02,.26,-23.5,T+.775,22.6,'#f4f4f0'); P(.18,.05,.18,-23.5,T+.81,22.6,'#f4eac8'); P(.1,.02,.1,-23.5,T+.845,22.6,'#c8202a'); P(.06,.012,.06,-23.47,T+.86,22.58,'#fffaf0');
+  PKZ.push([-24.5,-15.5,21.7,23.55]);
+  // the kiosk near N4's north-west corner (x 42..44, clear of the N4 plate): a sales window in the ground floor, papers, sweets and a drinks fridge, Herr Gerlach
+  for(let x=42;x<=44;x++){ for(let z=39;z<=40;z++) for(let y=T;y<T+3;y++) set(x,y,z,0); set(x,T,39,B.sandstone); }
+  P(3,.95,.04,43.5,T+.5,38.97,'#2e4a66'); for(let i=0;i<6;i++) for(let j=0;j<2;j++) P(.24,.32,.02,42.3+i*.48,T+.27+j*.4,38.94,['#d84a3a','#f2c84a','#4a8ad8','#ecebe4','#3aa86a','#e86aa8'][(i+j*3)%6]);
+  for(let i=0;i<3;i++){ P(.38,.05,.5,42.45+i*.5,T+1.03,39.35,'#ecebe4'); P(.3,.006,.08,42.45+i*.5,T+1.058,39.2,'#2a2a2a'); }
+  ['#d84a3a','#f2c84a','#e86aa8','#3aa86a'].forEach((c,i)=>P(.14,.2,.14,44.05+(i%2)*.2,T+1.1,39.25+(i>>1)*.2,c));
+  for(const y of [T+1.3,T+1.75]){ P(2,.04,.22,42.9,y,40.85,'#8a6a4a'); for(let i=0;i<8;i++) P(.16,.18,.12,42.05+i*.24,y+.11,40.85,['#d84a3a','#f2c84a','#4a8ad8','#e86aa8','#7a4a2a','#3aa86a'][(i+(y>T+1.5?2:0))%6]); }
+  P(.9,1.95,.55,44.45,T+.98,40.6,'#f2f2ee'); P(.74,1.5,.02,44.45,T+1.15,40.32,'#a8c4d0');
+  for(let r=0;r<3;r++) for(let i=0;i<5;i++) P(.08,.26,.02,44.17+i*.14,T+.68+r*.42,40.305,['#3a1a10','#f08a20','#3a9a4a','#9ad0f0','#f0d040'][(i+r)%5]);
+  P(3.2,.05,.9,43.5,T+2.79,38.58,'#2a5a8a',Math.PI,.38); P(3.2,.2,.03,43.5,T+2.48,38.16,'#e8e4dc',Math.PI);
+  P(.6,1,.25,41.3,T+.5,38.55,'#5a5e64'); P(.5,.32,.03,41.3,T+.8,38.41,'#ecebe4'); P(.5,.32,.03,41.3,T+.4,38.41,'#f2e6c8');
+  const PLKW={x0:-98,x1:77,zones:PKZ,cafe:[-20,26.05],kiosk:[43,40.3],busk:[[21.6,16.3],[51.6,25.7]],
+    flocks:[[-23,20.3],[-52,20.8],[12,20.6],[33,21.2],[63,20.4]]};
   // ---- v1.64 e-scooter stands (Flax 12:23 + 13:14): by Murat's döner window, in the Schloss's Ehrenhof and on the
   // Bahnhofsvorplatz. A painted white parking box on the ground; index.html parks n plain scooters in each, heading h.
   const ESKS=[{x:-13.25,z:-54.2,h:-Math.PI/2,n:3},{x:-14.2,z:86.6,h:0,n:3},{x:81.6,z:110.2,h:0,n:3}];
@@ -783,10 +857,10 @@ export function build(H){
     8,T+3.4,-78.97,Math.PI);
   const NB=[];   // v1.33 boards that light up at night: [board, day, night]
   // v1.62 the tram stop signs: a yellow disc with a green H over a white name plate (one canvas, cut out, both sides)
-  const stopSign=(name,x,z)=>NB.push([board(.62,.84,256,348,(g,w,h)=>{ g.clearRect(0,0,w,h); g.fillStyle='#1f7a3a'; g.beginPath(); g.arc(w/2,118,116,0,Math.PI*2); g.fill();
+  const stopSign=(name,x,z,ry)=>NB.push([board(.62,.84,256,348,(g,w,h)=>{ g.clearRect(0,0,w,h); g.fillStyle='#1f7a3a'; g.beginPath(); g.arc(w/2,118,116,0,Math.PI*2); g.fill();
     g.fillStyle='#f2c81e'; g.beginPath(); g.arc(w/2,118,100,0,Math.PI*2); g.fill(); g.fillStyle='#1f7a3a'; g.fillRect(78,52,26,132); g.fillRect(152,52,26,132); g.fillRect(78,105,100,26);
     g.fillStyle='#f4f4f0'; g.fillRect(6,250,w-12,92); g.strokeStyle='#1f2a2a'; g.lineWidth=4; g.strokeRect(8,252,w-16,88);
-    g.fillStyle='#1a1d22'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 38px '+FONT; g.fillText(name,w/2,297,w-30); },x,T+2.95,z,Math.PI/2,true,true),.3,.8]);
+    g.fillStyle='#1a1d22'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 38px '+FONT; g.fillText(name,w/2,297,w-30); },x,T+2.95,z,ry,true,true),.3,.8]);
   NB.push([board(3.4,.62,544,100,(g,w,h)=>{ g.fillStyle='#c8322a'; g.fillRect(0,0,w,h); g.strokeStyle='#f2c53a'; g.lineWidth=6; g.strokeRect(6,6,w-12,h-12);
     g.fillStyle='#fff4d8'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 52px '+FONT; g.fillText('DÖNER · DÜRÜM',w/2,h*.54); },-14.95,T+3.62,-58.1,Math.PI/2),.35,.9]);   // v1.55
   NB.push([board(2.8,.5,560,100,(g,w,h)=>{ g.fillStyle='#24452e'; g.fillRect(0,0,w,h); g.fillStyle='#f4ecd0'; g.textBaseline='middle'; g.font='700 30px '+FONT;
@@ -794,7 +868,52 @@ export function build(H){
   NB.push([board(15,1.5,640,64,(g,w,h)=>{ g.fillStyle='#14233f'; g.fillRect(0,0,w,h); g.fillStyle='#f4f1ea'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 40px '+FONT; g.fillText('MANNHEIM HAUPTBAHNHOF',w/2,h/2+2); },
     (HBF.hx0+HBF.hx1+1)/2,T+12.6,HBF.z0-.03,Math.PI),.3,.9]);
   const clock=board(2.6,2.6,128,128,()=>{},(HBF.hx0+HBF.hx1+1)/2,T+14.65,HBF.z0-.04,Math.PI); NB.push([clock,.3,1.25]);
-  stopSign('Paradeplatz',-1.75,24.2); stopSign('Wasserturm',68.5,16.95);   // v1.62
+  for(const p of TRM.plat) stopSign(p[3],p[0],p[1],p[2]);   // v1.62, v1.65 the new line
+  { // v1.65 the Planken shop fronts: 8 kinds of display window (256x170) and their signs (512x72) on one canvas, one mesh
+    const SHT=['Schuhe','Bäckerei','Bücher','Mode','Blumen','Optik','Spielwaren','Uhren · Schmuck'];
+    const SGC=[['#1f3550','#f2ead8'],['#7a2e1e','#f6e3b0'],['#25402e','#efe4c4'],['#121214','#f4f1ea'],['#3d5f36','#fbf4e4'],['#e8e6e0','#1f2a3a'],['#c8442a','#fff2c8'],['#2a2440','#e6c870']];
+    const c=document.createElement('canvas'); c.width=1024; c.height=640; const g=c.getContext('2d'), rr=H.rngOf(1969);
+    const box=(x,y,w,h,col)=>{ g.fillStyle=col; g.fillRect(x,y,w,h); };
+    for(let i=0;i<8;i++){ const ox=(i%4)*256, oy=Math.floor(i/4)*170, W=256, Hh=170;
+      const gr=g.createLinearGradient(0,oy,0,oy+Hh); gr.addColorStop(0,['#4a3a30','#5a3c26','#3a3226','#2c2a2e','#3a3a2a','#e4e2dc','#3a2c3e','#141626'][i]); gr.addColorStop(1,['#2a201a','#3a2414','#221c14','#18171a','#22261a','#b8b6b0','#221a26','#0a0b14'][i]);
+      g.fillStyle=gr; g.fillRect(ox,oy,W,Hh);
+      if(i===0) for(let r=0;r<3;r++) for(let k=0;k<6;k++){ const x=ox+14+k*40, y=oy+40+r*44; box(ox+8,y+14,W-16,4,'#d8d0c0'); const col=['#5a2a1a','#c8a070','#1a1a1a','#a83a3a','#e8e4dc','#3a4a6a'][(k+r*2)%6]; box(x,y,24,10,col); box(x,y-6,9,8,col); box(x+20,y+6,6,4,'#1a1a1a'); }
+      if(i===1){ box(ox+8,oy+108,W-16,10,'#c8a070'); for(let k=0;k<7;k++){ g.fillStyle=k%2?'#a8642a':'#c88a3a'; g.beginPath(); g.ellipse(ox+28+k*33,oy+98,15,10,0,0,7); g.fill(); }
+        g.strokeStyle='#8a4a1e'; g.lineWidth=5; for(let k=0;k<4;k++){ g.beginPath(); g.arc(ox+40+k*58,oy+58,13,0,7); g.stroke(); } box(ox+8,oy+76,W-16,5,'#e8dcc4'); }
+      if(i===2) for(let r=0;r<3;r++){ box(ox+8,oy+52+r*44,W-16,5,'#8a6a4a'); for(let x=ox+12;x<ox+W-14;){ const w=6+rr()*9; box(x,oy+18+r*44,w-1,34-rr()*8,['#7a2a2a','#2a4a6a','#d8c890','#3a6a3a','#e8e4dc','#a86a2a','#4a2a5a'][Math.floor(rr()*7)]); x+=w; } }
+      if(i===3) for(let k=0;k<3;k++){ const x=ox+50+k*78, col=['#c84a5a','#2a5a8a','#e8d8b0'][k]; g.fillStyle='#e8d8c8'; g.beginPath(); g.arc(x,oy+34,10,0,7); g.fill(); box(x-3,oy+43,6,8,'#e8d8c8');
+        g.fillStyle=col; g.beginPath(); g.moveTo(x-16,oy+51); g.lineTo(x+16,oy+51); g.lineTo(x+26,oy+130); g.lineTo(x-26,oy+130); g.fill(); box(x-2,oy+130,4,28,'#2a2a2a'); }
+      if(i===4) for(let k=0;k<6;k++){ const x=ox+24+k*40; box(x-12,oy+112,24,40,['#6a6a72','#8a5a3a','#5a6a7a'][k%3]); box(x-1,oy+70,2,44,'#3a6a2a');
+        for(let n=0;n<9;n++){ g.fillStyle=['#e84a6a','#f2d23a','#f4f0f4','#c86ae8','#f08a3a'][(k+n)%5]; g.beginPath(); g.arc(x-12+rr()*24,oy+56+rr()*40,5,0,7); g.fill(); } }
+      if(i===5){ for(let r=0;r<3;r++){ box(ox+8,oy+58+r*40,W-16,4,'#a8a6a0'); for(let k=0;k<5;k++){ g.strokeStyle=['#1a1a1a','#8a3a2a','#2a4a8a','#c8a050','#3a3a3a'][(k+r)%5]; g.lineWidth=3; const x=ox+34+k*46, y=oy+44+r*40;
+        g.beginPath(); g.arc(x-9,y,8,0,7); g.stroke(); g.beginPath(); g.arc(x+9,y,8,0,7); g.stroke(); } } }
+      if(i===6){ g.fillStyle='#a8743a'; g.beginPath(); g.arc(ox+60,oy+98,26,0,7); g.fill(); g.beginPath(); g.arc(ox+60,oy+60,18,0,7); g.fill(); g.beginPath(); g.arc(ox+46,oy+44,7,0,7); g.arc(ox+74,oy+44,7,0,7); g.fill();
+        g.fillStyle='#e84a3a'; g.beginPath(); g.arc(ox+140,oy+120,20,0,7); g.fill(); box(ox+132,oy+106,16,4,'#f4f0e8');
+        ['#3a7ad8','#f2c83a','#3ab86a','#e84a6a'].forEach((col,k)=>box(ox+180+(k%2)*28,oy+128-(k>>1)*28,26,26,col)); box(ox+8,oy+150,W-16,6,'#e8e4dc'); }
+      if(i===7){ for(let r=0;r<2;r++){ box(ox+14,oy+60+r*56,W-28,26,'#1e2a5a'); for(let k=0;k<7;k++){ g.strokeStyle=r?'#e6c870':'#d8d8e0'; g.lineWidth=r?2:3; g.beginPath(); g.arc(ox+34+k*31,oy+72+r*56,r?6:9,0,7); g.stroke(); } } }
+      // the glass: the window's cells, a sill, a sheen
+      g.fillStyle='rgba(210,230,255,.10)'; g.beginPath(); g.moveTo(ox+30,oy); g.lineTo(ox+110,oy); g.lineTo(ox+40,oy+Hh); g.lineTo(ox-40,oy+Hh); g.fill();
+      box(ox,oy,W,5,'#d8d2c4'); box(ox,oy+Hh-6,W,6,'#bdb6a8'); for(const x of [0,85,170,251]) box(ox+x,oy,5,Hh,'#d8d2c4'); }
+    for(let i=0;i<8;i++){ const ox=(i%2)*512, oy=352+Math.floor(i/2)*72, [bg,fg]=SGC[i]; box(ox,oy,512,72,bg); g.strokeStyle=fg; g.globalAlpha=.55; g.lineWidth=3; g.strokeRect(ox+6,oy+6,500,60); g.globalAlpha=1;
+      g.fillStyle=fg; g.textAlign='center'; g.textBaseline='middle'; g.font=(i===2||i===7?'italic 700 46px Georgia, "Times New Roman", serif':'700 44px '+FONT); g.fillText(SHT[i],ox+256,oy+38,480); }
+    const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; t.anisotropy=4;
+    const sp=[], sn=[], su=[], si=[]; let vc=0;
+    const quad=(cx,w,y0,y1,zf,sd,u0,u1,v0,v1)=>{ const z=zf+sd*.025, xa=cx-sd*w/2, xb=cx+sd*w/2;
+      sp.push(xa,y0,z, xb,y0,z, xb,y1,z, xa,y1,z); for(let k=0;k<4;k++) sn.push(0,0,sd); su.push(u0,v0,u1,v0,u1,v1,u0,v1); si.push(vc,vc+1,vc+2,vc,vc+2,vc+3); vc+=4; };
+    for(const [a,b,zf,sd,ty] of PKW){ const ox=(ty%4)*256, oy=Math.floor(ty/4)*170, n=b-a;
+      quad((a+b)/2,n-.04,T+1.02,T+2.98,zf,sd,ox/1024,(ox+256*n/3)/1024,1-(oy+170)/640,1-oy/640); }
+    for(const [cx,w,zf,sd,ty] of PKG){ const ox=(ty%2)*512, oy=352+Math.floor(ty/2)*72; quad(cx,w,T+3.18,T+3.82,zf,sd,ox/1024,(ox+512)/1024,1-(oy+72)/640,1-oy/640); }
+    const sg=new THREE.BufferGeometry(); sg.setAttribute('position',new THREE.Float32BufferAttribute(sp,3)); sg.setAttribute('normal',new THREE.Float32BufferAttribute(sn,3)); sg.setAttribute('uv',new THREE.Float32BufferAttribute(su,2)); sg.setIndex(si);
+    const m=new THREE.Mesh(sg,new THREE.MeshLambertMaterial({map:t,emissive:0xffffff,emissiveMap:t,emissiveIntensity:.18})); m.matrixAutoUpdate=false; group.add(m); NB.push([{m},.18,.72]);
+    NB.push([board(5,.7,640,90,(g,w,h)=>{ g.fillStyle='#f6efe0'; g.fillRect(0,0,w,h); g.strokeStyle='#d86a84'; g.lineWidth=6; g.strokeRect(5,5,w-10,h-10);
+      g.fillStyle='#c23a5a'; g.textAlign='center'; g.textBaseline='middle'; g.font='italic 700 62px Georgia, "Times New Roman", serif'; g.fillText('Eiscafé',w/2,h/2+3); },-20,T+3.5,24.97,Math.PI),.3,.95]);
+    NB.push([board(.9,1.25,288,400,(g,w,h)=>{ g.fillStyle='#7a5232'; g.fillRect(0,0,w,h); g.fillStyle='#22382c'; g.fillRect(14,14,w-28,h-28);
+      g.fillStyle='#f4f1ea'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 38px '+FONT; g.fillText('Spaghettieis',w/2,56,w-40);
+      g.font='400 22px '+FONT; ['Vanilleeis durch','die Presse','Erdbeersoße','weiße Schokolade'].forEach((l,i)=>g.fillText(l,w/2,104+i*30,w-40));
+      g.fillStyle='#f2c84a'; g.font='700 28px '+FONT; g.fillText('6,50',w/2,232);
+      g.fillStyle='#f4f1ea'; g.font='400 19px '+FONT; g.fillText('Kugel 1,80',w/2,282); g.fillText('erfunden in Mannheim,',w/2,330,w-40); g.fillText('1969',w/2,356); },-23.45,T+1.55,24.96,Math.PI),.3,.9]);
+    NB.push([board(2.6,.62,416,100,(g,w,h)=>{ g.fillStyle='#1f4a7a'; g.fillRect(0,0,w,h); g.strokeStyle='#f4f1ea'; g.lineWidth=5; g.strokeRect(6,6,w-12,h-12);
+      g.fillStyle='#f4f1ea'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 56px '+FONT; g.fillText('Kiosk',w/2,h/2+3); },43.5,T+3.5,38.97,Math.PI),.3,.95]); }
   const RHC=[board(2.1,2.1,128,128,()=>{},-19.5,T+14.4,-5.04,Math.PI,false,true),board(2.1,2.1,128,128,()=>{},-17.96,T+14.4,-3.5,Math.PI/2,false,true)];   // v1.48 the Rathausturm's clocks
   for(const c of RHC) NB.push([c,.3,1.25]);
   function clockDraw(){ const g=clock.c.getContext('2d'), d=new Date(), hh=d.getHours()%12, mm=d.getMinutes(); g.clearRect(0,0,128,128);
@@ -1072,8 +1191,7 @@ export function build(H){
     if(x>=-84.6&&x<-59.4&&z>=65.4&&z<75.6){ if(!(x>-83&&x<-61&&z>67&&z<74)) return 'Jesuitenkirche';   // v1.49
       return jkO(Math.floor(x),Math.floor(z))<=3.45?'Jesuitenkirche · unter der Kuppel':x<-80?'Jesuitenkirche · Chor':x>-64?'Jesuitenkirche · Vorhalle':'Jesuitenkirche · Langhaus'; }
     if(x>=-15&&x<-12.6&&z>=-61&&z<-55.4) return 'Breite Straße · Imbiss am Ring';   // v1.55
-    if(x>=-4.2&&x<-1.3&&z>=23.9&&z<25.4) return 'Haltestelle Paradeplatz';   // v1.62
-    if(x>=65.2&&x<69&&z>=15.6&&z<17.4) return 'Haltestelle Wasserturm';
+    for(const p of TRM.plat) if(x>=p[4]&&x<p[5]&&z>=p[6]&&z<p[7]) return 'Haltestelle '+p[3];   // v1.62, v1.65
     const q=nearQ(x,z,2.2), on=q?' · '+q.code:'';
     if(q&&q.sq&&inR(x,z,q)) return q.sq+' · '+q.code;
     if(z<=-62.5) return (x<AX.c?'Luisenring':'Friedrichsring')+on;
@@ -1099,7 +1217,7 @@ export function build(H){
     if(PLD.vis){ PLD.lst+=dt*Math.PI*2/86164*60; PLD.eq.quaternion.setFromAxisAngle(PLD.pole,-PLD.lst); } }
 
   return { mhq:{doner:[DN.x,DN.z,Math.PI/2],baker:[BK.x+.4,BK.z-.75,Math.PI],kessler:[44.5,65.25,Math.PI],hannes:[13.5,-72.6,-2.4]}, group, place, riverD, tick, steps, QD, benz, flood, ghost:null, l2:{x:14,z:71,roofY:LT+1},
-    spawn:{x:4.5,z:-74.6,yaw:Math.PI}, pop:{x:34,z:-103}, tram:TRM, esk:ESKS, jupp:{x:7.2,z:-77.4}, seats:SEATS,
+    spawn:{x:4.5,z:-74.6,yaw:Math.PI}, pop:{x:34,z:-103}, tram:TRM, esk:ESKS, plk:PLKW, jupp:{x:7.2,z:-77.4}, seats:SEATS,
     dark:[PL.cx,PL.cz,PL.rin+.75,PL.rout+.3,T+4.05], pl:{staff:PLD.staff,doze:PLD.doze,mat:PLD.mat},   // v1.57 the Planetarium's dark hall + its two people
     facts:[[WT.x,WT.z,15,'Wasserturm: 60 m tall, built 1886-1889 to a design by Gustav Halmhuber. Up on the dome stands Amphitrite, the sea goddess, in copper.'],
       [112,20.5,6,'The Wasserspiele: the big fountain first played on 9 September 1893. Bruno Schmitz added the water steps, the basin and the pergolas from 1899. Today 178 nozzles, the tallest jet up to 28 m, from spring to mid-October.'],   // v1.58

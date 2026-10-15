@@ -668,6 +668,33 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   split into closed pockets for days without anyone noticing (fixed v1.18).
 
 ## todos
+- v1.66 NOT STARTED: the bag, saved with the continue-where-you-left-off save. DESIGN (coordinator, said on stream ~14:39):
+  phones get NO new permanent bag button; picking something up shows a small icon toast at the top for 2-3 s that tucks
+  away; the bag shows its items when the world asks for one (a door that takes a key, a quest giver who wants the Dreck):
+  the matching item glows as a tap target. Desktop: a key opens the full bag to rummage (B and I are both free as of
+  v1.65, grep again), and the quest log can list what's inside. A bag button only inside an existing menu, never the main
+  HUD row. Items: food (bakery or döner;
+  eat on a bench, feed ducks/pigeons), a hammer (fix one broken thing that stays fixed), a key (opens one locked door/gate
+  with something small and nice behind it), flags to plant (shown on map/compass, can be picked up again), Spaghettieis
+  buyable from Signora Bruna. Test: one walk-through with key + hammer. Caption "a bag with food, a hammer, a key and flags".
+  FIRST QUEST in the bag (Flax 14:07): MANNHEIMER DRECK ("Mannemer Dreck"), a traditional Mannheim pastry, NOT a brand: a
+  small macaroon/Lebkuchen-like bite on a wafer (marzipan, honey, hazelnuts, candied peel, cinnamon), chocolate-coated
+  today, brown little lumps. Name story: in the 1800s the city fined people for dumping household dirt on the street and a
+  clever baker baked "Dreck" for his shop window (say only "in the 1800s"; sources disagree 1822 vs 1838). An invented
+  confectioner behind a plain "Konditorei" sign (no real shop names, Herrdegen etc. are real; grep FOLK for her name):
+  her tray tipped, 5 pieces are scattered round the squares and the Planken pigeons (PKC.pg flocks) are after them.
+  Collect them into the bag before the pigeons do, bring them back; she tells the name story in 1-2 lines and gives you
+  one to eat (a food item).
+- v1.67 NOT STARTED: Schillerplatz on B3, a Schiller monument (standing bronze on a tall stone base) in a small green
+  square near the old National Theatre site.
+- Thingstätte on the Heiligenberg (Flax: "lost place, only build if you find info"; NOT built). Facts checked: egg-shaped
+  open-air amphitheatre modelled on Greek theatres, about 8,000 seats, in the forest just below the ruins of St. Michael's
+  monastery (Michaelskloster); Celtic ring-wall/hilltop settlement history on the mountain. Built 1934-35 by the Reich
+  Labour Service and Heidelberg students, architect Hermann Alker; opened 22 June 1935 (summer solstice) with a speech by
+  Propaganda Minister Goebbels; little used after 1937; renamed Heiligenberg-Anlage in 1945. Late 1980s to 2017/2018 an
+  unofficial Walpurgisnacht gathering of 10-20,000 people on 30 April (ended for safety). Today a protected monument, open
+  to walkers, no buildings, no fence, no lights. Build rule: an honest plain sign (who built it, when, for what), nothing
+  that celebrates it, quiet overgrown 'lost place' feel.
 - Gedenkhalle plaque in Mannheim's L2 is EMPTY on purpose: ask Flax who/what it remembers, then fill MEMO in mannheim.js
   (title + up to 4 lines); never invent a name or dedication.
 - Flax's queue, what's left, in this order (13:57):
@@ -836,6 +863,9 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   platform 39 calls / 86k tris.
 - v1.64 e-scooters: +1 call (one InstancedMesh, 9 scooters) +~1.5k tris; stand bays merged into props. Döner view 33->34 calls
   73.7k->75.2k tris; Planken view 70->71 calls 130.8k->132.4k tris.
+- v1.65 the Planken comes alive: Planken W view (-30,21 looking east) 93->111 calls, E view (70,21 looking west) 106->124
+  calls (+18: 8 instanced stroller meshes x 4 figures, 1 pigeon InstancedMesh (25 birds), 5 new folk, the shop windows +
+  signs as one quad mesh, the Eiscafé/menu/Kiosk boards). Café close view 72, night Planken 115, phone 412x900 Planken 54.
 
 ## testing
 - scratch: $SP/hb (index.html + mk.sh injects window.__G/__E into gaunt/sw/hm43/hb). The live file only has a
@@ -1236,3 +1266,24 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   toast "stays on streets and paths" (9 s cooldown). Trams stop ~1.3 m short of you (tramHit). Hop off with R again; the
   scooter stays put; refused on the tram rails. Leaving Mannheim drops you off (eskOff(true)). No saving while riding.
   Names: ESK/esk* (SCO is taken). Left out: speed readout, sliding along walls at an angle (you stop; turn in place works).
+- 14:38 2026-10-15 v1.65 the Planken comes alive (Flax). TRAMS MOVED OFF THE PLANKEN (Flax 13:39 "pretty less space"): new
+  line Hafen – Paradeplatz – Schloss – Hauptbahnhof (mannheim.js TRM: harbour on the north bank, over the Kurpfalzbrücke,
+  down the Breite Straße/Kurpfalzstraße past the Paradeplatz, left along the Bismarckstraße in front of the Schloss, right
+  down the Kaiserring to the Bahnhofsvorplatz; stops [uW Hafen, 143 Paradeplatz, 201 Schloss, uE Hauptbahnhof], shelters +
+  stop signs from TRM.plat, place names 'Haltestelle X'). Bell, braking for you and boarding kept; the v1.62 Planken
+  track, wires and the Wasserturm stop are gone; scooter stands unchanged. Planken now paved wall to wall (x -100..79).
+  Shop fronts: houses facing the Planken (PKH footprints from block(), D1 skipped for the café) get display windows on
+  their shop cells (8 generic tiles: Schuhe, Bäckerei, Bücher, Mode, Blumen, Optik, Spielwaren, Uhren · Schmuck), a plain
+  sign and an awning by type (AWC); only the east Planken has shop cells, the west stays plain houses. No brand names.
+  32 strollers (index.html PKC/plkBuild: 8 InstancedMeshes x 4, folkMatI with per-instance walk phase hbI, lanes
+  PKC_LN, keep out of PLKW.zones = café tables; 11 at night). 5 pigeon flocks (25 birds, one InstancedMesh) flutter up
+  when you come close and land ~8 m on (hidden at night). Buskers: Jakob (guitar, 84 bpm triangle loop, north side
+  21.6,16.3) and Oksana (accordion, 132 bpm waltz, south side 51.6,25.7), made-up WebAudio loops only heard nearby (gain k²*.28, k=1-d/24), open cases, coin
+  toast; silent at night. Anton's violin stays silent. Eiscafé in D1's ground floor (x -22..-18, sign just "Eiscafé"):
+  glass counter with 16 tubs, 3 tables with parasols, Frau Lindner seated with a Spaghettieis, a chalkboard (Spaghettieis,
+  erfunden in Mannheim, 1969). Signora Bruna, thirty years at the counter, straight face: choice Spaghettieis / plain
+  lemon in a cup -> one small nod + "Finally, someone with taste." (choice stays open while you're near: MH.jf). Kiosk at
+  N4 (x 42..44, z 39, sign just "Kiosk"): Herr Gerlach (cap, moustache), newspapers, sweets, a drinks fridge; one
+  grumpy-warm bark when you walk up (resets past 16 m). Tested headless: 0 strollers under a tram over 300 s, tram ride
+  Paradeplatz -> Schloss, Bruna's lemon nod, coin toast, night, phone 412x900 + Bruna's choice on touch; 0 JS errors.
+  Left out: Spaghettieis to carry (needs the bag), shops you can enter.
