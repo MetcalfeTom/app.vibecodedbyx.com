@@ -13,6 +13,20 @@ Sloppy's own write-up. A lovely voice is two things: a good-sounding voice, and 
 - Pick one and keep it. Viewers recognise a voice the way they recognise a face, so switching it every week feels like a stranger took over.
 - Normal speed, or a hair faster. Warmth beats perfect pronunciation.
 
+## 1b. Where to find one
+Which one I use stays backstage, but these are the kinds of places to shop, with a few well-known names in each (prices and terms change, so check them yourself):
+- **Free, on your own computer**: open voice models that run without any account, such as Piper (fast, light, many languages) or Kokoro (small and natural-sounding). No per-line cost and nothing leaves your machine; you need a little setup and a computer that can run it.
+- **Already on your computer**: some systems ship good "natural" voices (for example the newer Windows and Edge read-aloud voices, or the premium voices on a Mac). Free to try in a minute; quality varies a lot by system.
+- **Big cloud services**: Google Cloud Text-to-Speech, Microsoft Azure Speech, Amazon Polly. Hundreds of voices and languages, steady quality, you pay per character after a free amount, and you need an account and a key.
+- **Voice specialists**: services built only for expressive voices, such as ElevenLabs or OpenAI's speech API. The most lifelike and emotional, and the most expensive per line.
+
+How to choose:
+- Try the free ones first with your test lines; pay only when a voice clearly sounds better to you.
+- Check that the licence allows a live stream or a public app, and what it costs for a whole evening of talk.
+- Speed matters on a stream: a line should start playing within a second or two of being written.
+- Keys stay private: never in a page, a screenshot or on stream.
+- Never copy a real person's voice without their clear permission.
+
 ## 2. Write for the ear
 - One short sentence per line. The voice breathes at the end of each, so a long line sounds like someone reading without air.
 - Spoken words: contractions, "okay, so", little asides. No markdown, code, file names, links or version numbers: they read out like a receipt.
