@@ -39,7 +39,7 @@ export function build(H){
   const PLK={z0:18,z1:23};                    // the Planken
   const KR={x0:80,x1:87};                     // Kaiserring
   const WT={x:100.5,z:20.5};                  // Wasserturm on the Friedrichsplatz (v1.58 6 west, by the Kaiserring)
-  const ROWW='KJHGFEDCBA', ROWE='UTSRQPONML';  // north (by the Neckar) to south (by the Schloss); there is no I
+  const ROWW='KIHGFEDCBA', ROWE='UTSRQPONML';  // north (by the Neckar) to south (by the Schloss); there is no J (v1.61 fix: the I-squares are real, the J ones aren't)
   const rowZ=r=>-62+r*14+(r>=6?2:0);
   const QD=[];
   for(let r=0;r<10;r++) for(let n=1;n<=6;n++){

@@ -501,7 +501,7 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   same in reverse (MH_HOME -> card -> MH_BACK -> homeLand at the Heidelberg dock). The whole town lives in
   apps/heidelberg-blocks/mannheim.js, loaded with import() only on the first ride (MH_BASE from location.pathname,
   ?v=130, retry nonce after a failure; a failed load shows an error line on the card and brings you home).
-  Mannheim: the Quadrate (rows A-K west + L-U east of the Breite/Kurpfalzstraße, no I; G1 Marktplatz and O1
+  Mannheim: the Quadrate (rows A-K west + L-U east of the Breite/Kurpfalzstraße, no J (v1.61: was 'no I' with a J row, fixed); G1 Marktplatz and O1
   Paradeplatz left open), a blue corner sign with the block code at every corner (one mesh), the Planken, the
   Ringe, the Wasserturm with its copper dome + gold figure on the Friedrichsplatz (basin, benches, board), the
   Schloss (a long front mirror-symmetric about the axis: end pavilions, Ehrenhof wings with head pavilions, a
@@ -830,6 +830,7 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
 - v1.59 bridge statues: one merged mesh, +1 call / +2.4k tris (phone 390x844 at Carl Theodor 47/131k, v1.58 same spot 46/128k;
   desktop 1280x800 at his plate 104/194k).
 - v1.60 right ring: DOM only, no render cost (phone 390x844 on the bridge 47 calls, same as v1.59).
+- v1.61 three Mannheim folk: one draw call each when in view (phone 390x844 Paradeplatz 40 -> 41, Marktplatz 29 -> 30).
 
 ## testing
 - scratch: $SP/hb (index.html + mk.sh injects window.__G/__E into gaunt/sw/hm43/hb). The live file only has a
@@ -1171,3 +1172,14 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   landscape (max-height 500) Talk and ride sit left of the right ring (right: 1rem + 14rem). Under 370px wide both rings
   are 6rem. Checked 390x844, 360x740, 844x390: no overlaps with jump, talk, ride, rub or the top-right buttons. Short
   landscape (~300px tall) with rub + talk + ride all at once stacks the ride high under the HUD: rare, left as is.
+- v1.61 (11:40, Flax's "more life in Mannheim", kept lean by request): three locals with real history, no crowd.
+  Frau Seidel, Briefträgerin, at the Marktplatz edge of the Breite Straße (-14.6,-12.4): the Quadrate (144 squares, A-K west,
+  L-U east, numbers out from the Breite Straße, codes since 1811) and a bet with her colleague over a letter for "J1": walk two
+  squares up to I1 and read the corner sign (Q.mhi 1 asked, 2 within 4.5 of the I1 block = read it, 3 told her; mhiTick, Mannheim
+  only). Then the house numbers (start at the corner facing the Schloss, anticlockwise round A-K, clockwise round L-U). Ute on
+  her bike loops the Kaiserring (south on x 82.3, north on 85.7, z -50..86) and tells Drais's ride of 12 June 1817 to the
+  Relaishaus on the Schwetzingen road and back (about 14 km, about an hour, no pedals). Anton plays the violin on the
+  Paradeplatz (1.4,25.4, facing the Planken, fixed, open case at his feet): Mozart in Mannheim Oct 1777 - Mar 1778 with his
+  mother, the court orchestra, Aloysia Weber and her aria, Leopold's letters to go to Paris, later married her sister Constanze.
+  FIX: the Quadrate had a J row and no I (ROWW 'KJHGFEDCBA'); now 'KIHGFEDCBA' like the real city, the corner signs follow.
+  No sound for Anton (silent bow, barks only); a soft fiddle loop could come later if Flax wants it.
