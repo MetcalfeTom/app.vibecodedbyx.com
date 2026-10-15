@@ -680,8 +680,9 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   (garden lanterns DONE v1.22; Neckarwiese + ducks DONE v1.21; busking DONE v1.20, Funkjoker v1.21; Karzer DONE v1.19)
 - NEXT for Flax (00:45 + 00:50 10-15): Heiliggeistkirche walk-in DONE v1.47; then the MANNHEIM MAKEOVER in steps of
   one or two landmarks per release (Flax: "so many famous places and churches"): Marktplatz with the Altes Rathaus +
-  St. Sebastian + Marktplatzbrunnen DONE v1.48; the Jesuitenkirche DONE v1.49 (A4+A5, walk-in); NEXT Wasserturm
-  gardens + fountains or the Barockschloss facade (Flax picks, it's on the board), then Kunsthalle, Planken shops. Ideas for the Marktplatz: walk into St. Sebastian, the
+  St. Sebastian + Marktplatzbrunnen DONE v1.48; the Jesuitenkirche DONE v1.49 (A4+A5, walk-in); Wasserturm
+  gardens + Rosengarten + Kunsthalle DONE v1.50 (Flax: "Both"); NEXT the Barockschloss facade + Ehrenhof (v1.51),
+  then the Popakademie in a Jungbusch corner (Flax 06:44), then Planken shops. Ideas for the Marktplatz: walk into St. Sebastian, the
   weekly market stalls on the square (check the real days first).
   Note in the log any landmark placed where it isn't really. The castle queue above (Stückgarten first) comes after.
 - Jesuitenkirche ideas (v1.49): the organ gallery over the porch + its stair (asked on the board), Brinckmann's four
@@ -950,3 +951,34 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   Probes: 0 JS errors. Walked round the outside (no stuck points), in through the middle portal, under the dome, up
   the choir step (maxY T+1) and back out; the side portals stop you (doors). Place names OK. Shots: desktop
   day/night/golden/air, inside, phone 412x860 touch day + night + inside. Live probe: Jule's call reaches cs 2.
+- v1.50 2026-10-15 07:03 (Flax's Mannheim makeover, step three; he answered "Both" to gardens or palace): the
+  FRIEDRICHSPLATZ as the Jugendstil square round the Wasserturm (mannheim.js, built after the houses, no R()).
+  Red sandstone ARCADES along the east edge (x 125-127, z -14..62): an open arcade walk on pillars at ground level,
+  four storeys of windows over it, balconies with green railings, three taller pavilions (middle + both ends) under
+  copper caps with finials, slate mansards between, ceiling lamps in the arcade. The ROSENGARTEN on the north side
+  (front at z -7, five doors, a big arched window, gable, side towers, copper roof, gold name, plaque "Bruno Schmitz
+  · 1903"). The KUNSTHALLE on the south side (front at z 48, open portal, pavilions, a T-wing, a copper dome with a
+  windowed drum and lantern, gold name, plaque "Hermann Billing · 1907"). The gardens: a flower ring round the
+  tower, two round fountains on the tower's axis with bronze-coloured figures (a nymph and a triton with his trident)
+  and planted rims, six three-globe candelabra, the long basin + cascade from v1.36 with more jets. Every jet now has
+  a faint full-height veil (one InstancedMesh). At night the basin water glows blue, the cascade brighter, and lamps
+  sit under the water at the jets + round fountains (no floodlight slot, all 6 still used). Two benches by the
+  cascade: walk up, 🪑 "Sit on the bench" (R / tap), look at the fountains, WASD or "Stand up" to get up (new MH seat
+  system: MH.sit, mhSeat/mhSit/mhStand; Heidelberg's CAFE seats untouched). Two fact hints (w.facts, once a visit):
+  by the tower (60 m, 1886-1889, Gustav Halmhuber, Amphitrite) and by the cascade (Bruno Schmitz from 1899, ready
+  for the city's 300th birthday in 1907). Place names: Friedrichsplatz · Arkaden, Rosengarten, Kunsthalle.
+  COMPRESSION / OURS: the real gardens sit about 2.5 m below the street; ours are level. The real arcade houses form
+  a half circle round the square; ours is one straight row on the map's east edge. The Rosengarten and the
+  Kunsthalle stand at other points of the real square's edge; here both sit on the tower's north-south axis, and
+  the Kunsthalle replaced the two Oststadt blocks there.
+  The long basin is narrower (x 120-124) to leave the arcade walk. The bronze figures are stylised; the real stone
+  centaurs and the putti are not there. Amphitrite on the dome is unchanged. Facades, window counts, colours of the
+  Kunsthalle (real: red sandstone) and the Rosengarten's front details are ours.
+  Facts checked on de.wikipedia (Wasserturm Mannheim, Friedrichsplatz (Mannheim), Rosengarten (Mannheim), Kunsthalle
+  Mannheim): tower 1886-1889 by Halmhuber, about 60 m, Amphitrite on top; the square laid out by Bruno Schmitz from
+  1899 and finished for the 1907 jubilee, with arcade houses in red sandstone, water basins, cascades and lanterns;
+  the Rosengarten by Schmitz, opened 1903; the Kunsthalle's Jugendstil building by Hermann Billing, 1907.
+  Probes: 0 JS errors desktop + phone 412x860 touch. Walked the whole arcade (z -13.5 -> 61.5, no stuck points),
+  round a round fountain (steps up on the rim, OK). Bench sit/stand desktop + phone (button text checked), at night
+  too. Fact hint shown. Live probe: Jule's call reaches cs 2.
+  Budget: desktop 960x600 golden aerial 44 calls / 93.5k tris, bench 28 / 62.5k; phone aerial 35 / 72k, east 20 / 56k.
