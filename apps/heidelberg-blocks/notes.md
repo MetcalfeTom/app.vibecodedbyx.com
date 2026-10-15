@@ -982,3 +982,23 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   round a round fountain (steps up on the rim, OK). Bench sit/stand desktop + phone (button text checked), at night
   too. Fact hint shown. Live probe: Jule's call reaches cs 2.
   Budget: desktop 960x600 golden aerial 44 calls / 93.5k tris, bench 28 / 62.5k; phone aerial 35 / 72k, east 20 / 56k.
+- v1.50.1 2026-10-15 07:20 (Flax at 06:40: the Heiliggeistkirche is "asymetric and to small inside"). Cause: the shell
+  (z 74..83) was centred on z 79, but the tower, west portal, altar, chandeliers and middle walkway were on z 78.5, so
+  from the west door everything sat half a block off; and 1x1 block pillars cut the 8-wide hall into 2-wide slots.
+  Fix: the north wall moved one block out onto the Marktplatz (shell z 73..83, inside z 74..82 = 9 wide, centred on
+  z 78.5 like the tower). The north buttresses and the four Krämerbuden moved with it to z 72 (awnings to z 71.15,
+  the 'kram' hint zone too); the Marktplatz still has z 59..71. Slim red sandstone pillars as props (square + diamond,
+  eight edges, plinth) at z 76.5 / 80.5, x -22.5 -19.5 -16.5 -13.5; each has an invisible collider cell (hgCol in
+  solidAt, Heidelberg only, y TOWN..TOWN+19). The stepped vault is one step higher (apex TOWN+24, the roof ridge
+  TOWN+25) and has red ribs across it over each pillar pair. Galleries on both sides + the west end (U), a stair up
+  each aisle from the choir (open steps now, not solid wooden blocks). The tower hall is 5 wide (z 76..80) and opens
+  into the nave through a wide stepped arch. Pews split by a walkway on the axis, the end windows at z 75/78/81 are
+  symmetric now, the brass 1706 line spans the full width, the chandelier chains reach the new vault. The shader
+  region (whitewash + hall light) follows the new box; the old pillar whitewash exception (hbPil) is gone.
+  ROOM: no room to grow south (z 84 buttresses, lane z 85-86, then the river-side houses) or east (a 4-wide lane at x
+  -8..-5) or west (the tower), so the hall stays 16 long inside; the real church is much bigger. If Flax wants it
+  longer, the east lane could take a polygonal choir (narrows the lane to 2), ask him first.
+  Probes: 0 JS errors. Walked in from the west portal down the middle to the choir; both stairs up to the galleries
+  (y 25) and round the U; the side door out to the Marktplatz; a pillar stops you at its collider. Draw calls from the
+  west door unchanged (96 / 225k at 960x600, Heidelberg's busiest view). Phone not re-probed (geometry only).
+
