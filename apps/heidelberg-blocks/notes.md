@@ -683,7 +683,7 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   St. Sebastian + Marktplatzbrunnen DONE v1.48; the Jesuitenkirche DONE v1.49 (A4+A5, walk-in); Wasserturm
   gardens + Rosengarten + Kunsthalle DONE v1.50 (Flax: "Both"); the Barockschloss + Rittersaal DONE v1.51; the
   Popakademie DONE v1.52; Jule's stunt show DONE v1.53 (Flax 07:39: Birte stays calm in Heidelberg);
-  NEXT a record-a-clip button (Flax 07:36), then Planken shops. Ideas for the Marktplatz: walk into St. Sebastian, the
+  the ⏺ record-a-clip button DONE v1.54 (Flax 07:36); NEXT Planken shops. Ideas for the Marktplatz: walk into St. Sebastian, the
   weekly market stalls on the square (check the real days first).
   Note in the log any landmark placed where it isn't really. The castle queue above (Stückgarten first) comes after.
 - Jesuitenkirche ideas (v1.49): the organ gallery over the porch + its stair (asked on the board), Brinckmann's four
@@ -1074,3 +1074,17 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   Wasserturm. Long: 32-38 calls. NOT tested: how it feels on a real phone (motion), the full flight at real speed end
   to end in headless (frames too slow; legs checked one by one). The Rhine is not in our map, so the low passes are
   over the Neckar only (todo: a strip of the Rhine west of the Schloss?).
+- v1.54 2026-10-15 08:17 ⏺ record a clip (Flax 07:36: "can you also do videos? like mp4?" ... "Sure. Do it."). A third
+  button under 🔊 in the top-right column (key V): records ONLY the 3D canvas (no HUD, hints or compass) with
+  canvas.captureStream(30) + MediaRecorder, 5 Mbit/s; the type is the first of video/mp4;codecs=avc1, video/mp4,
+  webm vp9/vp8/webm that isTypeSupported says yes to. Sound: a MediaStreamDestination hung on SND.mix when the sound is
+  on and running (sfx()), unhooked when it stops; with the sound off the clip is silent. While recording the button
+  shows a blinking red dot and a timer (no blink with reduced motion); 60 s cap. Then a small card: '🎬 Your clip is
+  ready · 0:23', 💾 Save clip (a blob download heidelberg-blocks-YYYY-MM-DD-HHMMSS.mp4/.webm) and 📤 Share only where
+  navigator.canShare({files}) says yes (phones), ✕ closes. Kind toasts when the browser can't (no MediaRecorder or
+  captureStream: "Try Chrome"), when nothing got recorded, or when sharing fails. Nothing is uploaded. Works on the
+  Rundflüge too (it records the canvas whatever is on it). Toasts kept short so they don't cover the button on phones.
+  Probes: phone with a STUBBED MediaRecorder + canShare (probe copy only): button, timer, audio+video tracks, mp4
+  chosen, card, share button, close: 0 errors. Desktop with headless Chrome's real MediaRecorder: recorded 4 s,
+  card shown, share hidden: 0 errors. NOT tested: real phones (iPhone Safari mp4, Android Chrome), whether the saved
+  file plays everywhere, sound in the clip by ear, and Save on iOS (blob downloads open a preview there).
