@@ -4,7 +4,7 @@
 # would hear on stream, never internal notes.
 #   mq.py ls
 #   mq.py add <who[,who2]> <app-folder> "<what>" [now|next|ask|park]
-#   mq.py now|next|park|ask <id>        move an item
+#   mq.py now|next|park|ask|mayor <id>  move an item (mayor = Flax's desk: other viewers' Heidelberg/Mannheim asks wait for Flax's yes)
 #   mq.py up <id>                       first in line among its state
 #   mq.py done <id> [commit]            shipped (kept 3 days on the board)
 #   mq.py drop <id>                     remove it
@@ -14,7 +14,7 @@
 #   mq.py calls                         list them;  mq.py uncall <id>   remove one
 import json, os, re, sys, datetime
 P = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'queue.json')
-ST = ('now', 'next', 'ask', 'park', 'done')
+ST = ('now', 'next', 'ask', 'park', 'mayor', 'done')   # mayor: a Heidelberg/Mannheim request waiting for Flax's yes (2026-10-15)
 
 
 def now():
@@ -65,7 +65,7 @@ def main(a):
             it['d'] = now()
         q['items'].append(it)
         print('added', it['id'])
-    elif cmd in ('now', 'next', 'park', 'ask'):
+    elif cmd in ('now', 'next', 'park', 'ask', 'mayor'):
         it = find(q, a[1]); it['st'] = cmd
         if cmd == 'now':
             it['s'] = now()

@@ -20,6 +20,7 @@ Martian Mono for rows; amber = on the bench / next, sky blue = questions, green 
 ## log
 - v1.0 2026-10-15 00:51: first board: on the bench, up next, questions for you, just shipped (30 days), viewer filter. (iamflax)
 - v1.1 2026-10-15 07:46: My calls: what I decided, said no to or changed my mind on, each with a why (iamflax: "the missing puzzle part"); house rules show 'always'. `mq.py call <who|-> <app> <yes|no|flip|rule> "<call>" "<why>" [time] [commit]`. No names in the rows (who is only for the filter), public-level wording, never blame a viewer. Tapping a blinking ON THE BENCH chip marks it seen: stops blinking and the tab count drops (Tatum); new bench items blink again.
+- v1.2 2026-10-15 09:09: 🏛 Mayor's desk (iamflax 09:06 "put all heidelberg/mannheim etc change requests on a separate list or app so i as the major check and approve them separatly before it gets a build"): state `mayor` (`mq.py add <who> heidelberg-blocks "<what>" mayor` or `mq.py mayor <id>`), shown under Up next with a double-bordered NEEDS A STAMP chip. Every Heidelberg/Mannheim/Hirschhorn request from anyone but Flax goes there first; Flax says yes in chat -> `mq.py next <id>` + a yes call; no -> `mq.py drop <id>` + a no call. Flax's own requests skip the desk.
 
 ## issues
 - The board only knows what I put in queue.json: update it with mq.py when work starts, ships or a question goes out.
