@@ -1088,3 +1088,10 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   chosen, card, share button, close: 0 errors. Desktop with headless Chrome's real MediaRecorder: recorded 4 s,
   card shown, share hidden: 0 errors. NOT tested: real phones (iPhone Safari mp4, Android Chrome), whether the saved
   file plays everywhere, sound in the clip by ear, and Save on iOS (blob downloads open a preview there).
+- v1.54.1 2026-10-15 08:39 no more earthquake when you stop walking (coldpresss 08:33/08:34: "an earthquake every 5
+  seconds", "the quake happens every time i stop walking"). Since v1, P.bob was both the step phase and what shrank to
+  end the bob: P.bob*=.9 per frame swept a long walk's big phase back to 0 through dozens of fast sin() wobbles, so the
+  longer you'd walked the bigger the shake. Now the phase only grows while walking (kept mod 2π) and stays put when you
+  stop, and P.bobA (0..1, up at 4/s walking, down at 3/s otherwise, also on flights) scales the bob: it fades out in a
+  third of a second with no wobble. Every P.bob=0 reset zeroes bobA too. Probe: loads with 0 errors (headless at ~3 fps
+  couldn't drive a real walk, so the fade is checked by the math, not a run). Ask coldpresss if it's calm now.
