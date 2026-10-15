@@ -678,6 +678,12 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   5. Café Nerd: a board game you can join (and Nele's daily special)
   6. life in the west Altstadt: lit windows at night, a stall or a bench crowd (Manuel + Petra already walk there, v1.18.2)
   (garden lanterns DONE v1.22; Neckarwiese + ducks DONE v1.21; busking DONE v1.20, Funkjoker v1.21; Karzer DONE v1.19)
+- NEXT for Flax (00:45 + 00:50 10-15): Heiliggeistkirche walk-in DONE v1.47; then the MANNHEIM MAKEOVER in steps of
+  one or two landmarks per release (Flax: "so many famous places and churches"): Jesuitenkirche, Marktplatz with the
+  Altes Rathaus + St. Sebastian, Wasserturm gardens + fountains, Barockschloss facade, Kunsthalle, Planken shops.
+  Note in the log any landmark placed where it isn't really. The castle queue above (Stückgarten first) comes after.
+- Heiliggeistkirche ideas: a stair up the pulpit, the tower stair to the belfry (the bell already strikes the hours),
+  someone in the Krämerbuden selling things, the south side's booths (the lane there is only 3 wide).
 - Fernrohr ideas: more friends to spot later (Anselm on his night round, Hilde at a window), a postcard of the view
 - a second garden terrace (the south wall is one tall cut). v1.26 terraced the hill behind the castle moat; the
   Hortus' own south wall (z 101, up to y 77) and its sandy west end are still one tall cut
@@ -862,3 +868,28 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   top'. Clearance >= 10 m on legs 0 + 3 outside the L2 footprint (Schloss 10.4), approach 18.8. Birte's flight untouched.
   Probes: 1280x720 (walk, call, hold, land, full flight, skip, leave + come back = empty pad), 390x844 touch (tap call,
   tap take off, tap skip), reduced motion (fade .09 -> .76 -> parked). 0 JS errors.
+- v1.47 2026-10-15 01:29 (Flax 00:50 "Heiliggeistkirche should be possible to enter and see it from insight"): THE
+  HEILIGGEISTKIRCHE OPENS. hgCarve() runs at the end of buildChurch(): the box x -26..-9 z 74..83 is hollowed to one hall
+  x -25..-10 z 75..82 (nave + aisles the same height, a Gothic hall church) up into a stepped pointed vault inside the
+  steep roof (roof layer k keeps a one-block shell; air z max(75,74+k)..min(82,83-k), peak TOWN+21; the east gable's
+  inner cells set to sandstone). Stone floor. Slim 1x1 red pillars HG_PX x -23/-20/-17/-14 at z 77 + 80, in line with
+  the buttresses (moved there because the old x -22.. rows stood right in the side door). Galleries (Emporen) at
+  TOWN+5 as a U: north + south aisle x -25..-18 and the west end x -25..-24; a plank stair climbs west up the north
+  aisle from the choir (x -13..-17, top step feet TOWN+5, gallery feet TOWN+6). Ways in: the west portal under the
+  tower (door blocks gone, tower hall x -32..-28 z 77..79 to TOWN+4, through x -27/-26) and a side door on the
+  Marktplatz (x -19..-18, z 74, trim lintel). Krämerbuden in the four north bays (x -25/-22/-16/-13, z 73): plank
+  counter, open front, red tile roof + props (striped awnings with valances, goods, a back shelf, a bulb each).
+  Light: an else-if region in blockMat (hgLight from hgGlsl(): daylight from KZ_U.x, brighter up in the vault, three
+  chandeliers HG_CH + the altar candles); inside the hall sandstone + roofDark tiles are whitewashed in the shader
+  (tile index from vTileO: 4 + 28), pillars (hbPil) stay red, window glass (tile 17, blue > red) goes daylight-white.
+  Props (hgBuild, folkMat, culled like Café Nerd, e .22 by day): pews facing east, altar with cloth, candles + brass
+  cross, pulpit on pillar (-17,80), three chandeliers on chains, gallery balustrades, the west doors standing open,
+  King Ruprecht + Elisabeth's tomb (south side of the choir), a brass line at x -13 where the 1706-1936 wall stood
+  (THE LINE IS OURS, not in the real floor; the choir is x -13..-10). Hints once per page load (HGK.seen, 6 s apart):
+  hall (Gothic hall church begun 1398), emp (Bibliotheca Palatina in the galleries, to Rome 1623), wand (1706-1936
+  wall, Catholics choir / Protestants nave), grab (French troops wrecked the electors' graves 1693, Ruprecht's
+  survived), kram (shops between the buttresses). Place names Heiliggeistkirche · Langhaus / Empore / Chor /
+  Turmhalle, 'Krämerbuden' in front of the booths. SND: reverb .5 inside, no birds. Interior is smaller than the real
+  church (16x8 blocks); the stair, pews, chandeliers and pulpit are generic, placed where they fit. Probes: 1280x720 walks
+  (side door to nave, stair to gallery, gallery U, west portal to nave, choir) no stuck points, day/night/golden shots,
+  all five hints; 412x860 touch. 0 JS errors.
