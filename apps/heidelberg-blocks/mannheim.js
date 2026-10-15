@@ -114,14 +114,32 @@ export function build(H){
   // ---- v1.38 L2 (Flax): one house over the whole block, cream, flat roof. A bricked-up doorway on its west side
   // (x 10, z 70..71) is a ghost: index.html's solidAt lets you walk through it (w.ghost). Inside a quiet memorial hall
   // with a stone floor; a stone stair along the south + east walls climbs through a hatch onto the roof ----
-  const L2={x0:10,x1:18,z0:67,z1:74}, LT=T+10, L2G=[10,10,T,T+2,70,71];   // ghost box: x0,x1,y0,y1,z0,z1
-  for(let x=L2.x0;x<=L2.x1;x++) for(let z=L2.z0;z<=L2.z1;z++) for(let y=T;y<T+24;y++) set(x,y,z,0);
+  // v1.46 (Flax 18:25 "L2 please higher building"): six more storeys on top (HC = the old roof, now the hall ceiling, LT = the
+  // new roof, 9 storeys in all, ~10 above the tallest neighbour). Built by hand, not with block(), so R() and the rest of
+  // Mannheim stay exactly as they were. A second flight of floating steps runs once round the stairwell to the same roof hatch.
+  const L2={x0:10,x1:18,z0:67,z1:74}, HC=T+10, LT=T+28, L2G=[10,10,T,T+2,70,71];   // ghost box: x0,x1,y0,y1,z0,z1
+  for(let x=L2.x0;x<=L2.x1;x++) for(let z=L2.z0;z<=L2.z1;z++) for(let y=T;y<LT+8;y++) set(x,y,z,0);
   block(L2.x0,L2.z0,L2.x1,L2.z1,3,B.cream,null);
-  for(let x=L2.x0+1;x<L2.x1;x++) for(let z=L2.z0+1;z<L2.z1;z++){ set(x,T-1,z,B.stone); for(let y=T;y<LT;y++) set(x,y,z,0); }
+  for(let x=L2.x0+1;x<L2.x1;x++) for(let z=L2.z0+1;z<L2.z1;z++){ set(x,T-1,z,B.stone); for(let y=T;y<HC;y++) set(x,y,z,0); }
+  for(let x=L2.x0;x<=L2.x1;x++) for(let z=L2.z0;z<=L2.z1;z++){ const ex=x===L2.x0||x===L2.x1, ez=z===L2.z0||z===L2.z1;
+    for(let y=HC;y<LT;y++){ let b=0;
+      if(ex||ez){ const along=ex?z-L2.z0:x-L2.x0, corner=ex&&ez; b=B.cream;
+        if(y===HC||y===T+19) b=B.trim;   // belt courses: the old roof line and one more up
+        else if(corner) b=B.sandstone;   // sandstone quoins up the corners
+        else if(!corner&&(y-T-4)%3===1&&along%2===1) b=hsh(x,y,z)<.33?B.windowLit:B.window; }
+      else if(y===HC) b=B.cream;   // the hall ceiling = the stairwell floor
+      set(x,y,z,b); }
+    set(x,LT,z,(ex||ez)?B.trim:B.gravel); }
+  for(const [x,z] of [[L2.x0,L2.z0],[L2.x1,L2.z0],[L2.x0,L2.z1],[L2.x1,L2.z1]]) for(let y=T+4;y<HC;y++) set(x,y,z,B.sandstone);   // the quoins run down to the shops
   for(let y=T;y<=T+2;y++){ set(10,y,69,B.sandstone); set(10,y,72,B.sandstone); set(10,y,70,B.cream); set(10,y,71,B.cream); }
   const L2S=[[12,73],[13,73],[14,73],[15,73],[16,73],[17,73],[17,72],[17,71],[17,70],[17,69],[17,68]];   // 11 steps, the last one level with the roof
   L2S.forEach(([x,z],i)=>{ for(let y=T;y<=T+i;y++) set(x,y,z,y===T+i?B.sandstone:B.stone); });
-  set(17,LT,71,0); set(17,LT,70,0); set(17,LT,69,0);   // the hatch
+  set(17,HC,71,0); set(17,HC,70,0); set(17,HC,69,0);   // the hatch into the stairwell
+  // the stairwell: west along the north wall, south down the west wall, east along the south wall, north up the east wall,
+  // one rise per step with flat landings at three corners and mid-south; the last step is level with the roof (y LT)
+  const L2U=[]; for(let x=16;x>=11;x--) L2U.push([x,68]); for(let z=69;z<=73;z++) L2U.push([11,z]); for(let x=12;x<=17;x++) L2U.push([x,73]); for(let z=72;z>=68;z--) L2U.push([17,z]);
+  let uh=HC; L2U.forEach(([x,z],i)=>{ if(!(i===5||i===10||i===13||i===16)) uh++; set(x,uh,z,B.sandstone); if(uh-1>HC) set(x,uh-1,z,B.stone); });
+  set(17,LT,71,0); set(17,LT,70,0); set(17,LT,69,0);   // the roof hatch
   for(let x=L2.x0;x<=L2.x1;x++) for(let z=L2.z0;z<=L2.z1;z++) if(x===L2.x0||x===L2.x1||z===L2.z0||z===L2.z1) set(x,LT+1,z,B.parapet);   // a low parapet (no stepping over)
   for(let y=LT+1;y<=LT+3;y++){ set(11,y,73,B.sandstone); set(12,y,73,B.sandstone); } set(11,LT+4,73,B.trim); set(12,LT+4,73,B.trim);   // a chimney
   // Oststadt: two big blocks beyond the Kaiserring, south of the Friedrichsplatz
@@ -283,6 +301,7 @@ export function build(H){
   for(const x of [12.1,15.9]){ P(.36,.5,.36,x,T+.25,68.55,'#6a6258'); for(let k=0;k<5;k++) P(.16,.16,.16,x-.12+(k%3)*.12,T+.58+(k>2?.1:0),68.5+(k&1)*.1,k%2?'#e8e4dc':'#b8202a'); }
   for(const x of [12.6,15.4]){ P(2.2,.1,.46,x,T+.48,71.2,'#6a4a30'); P(2.2,.5,.08,x,T+.78,71.45,'#6a4a30'); for(const s of [-.9,.9]) P(.1,.44,.4,x+s,T+.22,71.2,'#4a3422'); }
   for(const z of [69.5,71.5]){ P(.14,.3,.1,11.05,T+3.4,z,'#3a3530'); LH.push([.18,.22,.1,11.1,T+3.62,z,'#ffe2a8']); LAMPS.push([11.2,T+3.62,z]); }
+  for(const [y,z,f] of [[HC+8.4,68.06,1],[HC+15.4,73.94,-1]]){ P(.3,.3,.1,14,y,z,'#3a3530'); LH.push([.22,.22,.1,14,y+.22,z+f*.05,'#ffe2a8']); LAMPS.push([14,y+.22,z+f*.15]); }   // v1.46 stairwell lamps
   P(2,.1,.46,14,LT+1.48,72.6,'#6a4a30'); P(2,.5,.08,14,LT+1.78,72.85,'#6a4a30'); for(const s of [-.8,.8]) P(.1,.44,.4,14+s,LT+1.22,72.6,'#4a3422');
   for(const [x,z] of [[11.6,68.4],[16.4,73.4]]){ P(.6,.5,.6,x,LT+1.25,z,'#a0582f'); P(.7,.6,.7,x,LT+1.8,z,'#3f7f3a'); }
   const propMat=new THREE.MeshLambertMaterial({vertexColors:true});
@@ -423,7 +442,7 @@ export function build(H){
     if(z<=RIV.s+1) return x>=BR.x0&&x<=BR.x1+1?'Kurpfalzbrücke':'Neckar';
     if(z<=-71) return x>-4&&x<30?'Anlegestelle':'Neckarufer';
     if(x>=FP.x0&&z>=FP.z0&&z<=FP.z1) return x>=115.5&&z>=BAS.z0&&z<=BAS.z1+1?'Wasserspiele':Math.hypot(x-WT.x,z-WT.z)<12?'Wasserturm':'Friedrichsplatz';
-    if(x>=L2.x0&&x<L2.x1+1&&z>=L2.z0&&z<L2.z1+1&&y>T-1){ if(y>=LT+.5) return 'L2 · Dach'; if(x>=L2.x0+1&&x<L2.x1&&z>=L2.z0+1&&z<L2.z1) return 'Gedenkhalle'; }
+    if(x>=L2.x0&&x<L2.x1+1&&z>=L2.z0&&z<L2.z1+1&&y>T-1){ if(y>=LT+.5) return 'L2 · Dach'; if(x>=L2.x0+1&&x<L2.x1&&z>=L2.z0+1&&z<L2.z1) return y>=HC+.5?'L2 · Treppenhaus':'Gedenkhalle'; }
     if(x>=66&&z>=HBF.vz0-8) return z>=HBF.z0-.5?'Hauptbahnhof':'Bahnhofsvorplatz';
     if(x>=SCH.x0&&x<=SCH.x1+1&&z>=SCH.wz0&&z<=SCH.z1+1) return (x>SCH.w1[1]+1&&x<SCH.w2[0]&&z<SCH.z0-2)?'Schloss · Ehrenhof':'Schloss';
     if(z>SCH.z1+1||x<-108) return 'Schlossgarten';

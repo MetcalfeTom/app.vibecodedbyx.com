@@ -751,8 +751,8 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   Benz dais x 20..23 z -77..-72; Paradeplatz fountain (-.5,28.5); Grumbach (-.85,-62.75); Kessler (44.5,65.25); Hannes (13.5,-72.6).
 - Mannheim: the ride in passes between two tall quay walls (TOWN-WATER = 8); a grassy dike on one bank would
   open it up (cranes need the north quay)
-- Rundflug: Birte's riverbank loop (v1.40) + Jule's three-town flight from the L2 roof (v1.45) both built. Ideas: a rotor
-  sound, a night flight with the castle lit, Jule landing when you arrive instead of waiting, a shorter "Heidelberg only"
+- Rundflug: Birte's riverbank loop (v1.40) + Jule's three-town flight from the L2 roof (v1.45) both built; v1.46 you call
+  Jule in (pad starts empty). Ideas: a rotor sound, a night flight with the castle lit, a shorter "Heidelberg only"
   choice from L2, the cloud card title in the night palette (#hfc.n, untested at night); ask Flax about flight length
 - Ruderboote (v1.39): ask Flax if the course is right (start east of the bridge, finish off the Neckarwiese); ideas:
   a 2-player ghost of your best run, a slalom variant, Ole's rematch line
@@ -844,3 +844,21 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   leg (Hirschhorn north ridge was 3.5 m, rerouted). Budget (headless 1280x720): Mannheim legs 28-38 calls / 52-85k tris;
   Heidelberg 64-135 / 194-327k (peak at the leg start seeing the whole town from the west); Hirschhorn 47-96 / 143-239k;
   Mannheim return 112 / 176k at the start, 31 / 60k on final approach. Tested 1280x720 + 390x844 touch, 0 JS errors.
+- v1.46 2026-10-15 00:56 (Flax 18:25 10-14 "L2 please higher building, heli call to fly in"; started by a helper 10-14,
+  finished 10-15): (a) L2 IS TALL: six storeys on top of the old three (mannheim.js: HC = T+10 the old roof, now the hall
+  ceiling; LT = T+28 the new roof, MH.w.l2.roofY = LT+1 = 48, was 30), cream with red trim belts at HC and T+19, red
+  sandstone quoins up all four corners from T+4, same window rhythm as the street. Built by hand after block(), so R() and
+  the rest of Mannheim are unchanged. Route: ghost door -> hall -> the old 11 steps -> hatch (17,HC,69..71) -> a stairwell
+  (place 'L2 · Treppenhaus', two wall lamps) with 22 steps once round the walls (L2U, landings at i 5/10/13/16) -> roof
+  hatch (17,LT,69..71) -> 'L2 · Dach'. Walk probe: street to roof, no stuck points. Pad, windsock, sign, bench, pots and
+  chimney all follow LT. (b) CALL JULE: the pad starts empty (HF.cs 0 empty / 1 on her way / 2 parked). Near the pad the
+  big button reads 🚁 Call Jule (R or tap, rideUi key 'bhcall'); hfCall flies her in from the west on a CatmullRom
+  (HF.ac, 5.5 s approach with a nose-up flare, 1.4 s hover at roof+6, 2.2 s touchdown, ~9 s in all), the rotor winds
+  down over 3 s and 🚁 Rundflug ↑ take off appears. If you stand where she sets down (hfInWay: her body's footprint,
+  x D.x-4.6..D.x+2.4, |z-D.z|<1.4) she keeps hovering with a hint until you step off. She stays parked after a flight or
+  a skip (hfLeave sets cs 2); mhLeave -> hfReset empties the pad, so every Mannheim visit starts with a call. Reduced
+  motion: she fades in on the pad in .7 s (own material HF.bm, transparent only during the fade). Flight legs: take-off
+  climb to roof+12, the last leg comes in level at roof+8/9 (no hump), Jule's last line 'the tall old block with the H on
+  top'. Clearance >= 10 m on legs 0 + 3 outside the L2 footprint (Schloss 10.4), approach 18.8. Birte's flight untouched.
+  Probes: 1280x720 (walk, call, hold, land, full flight, skip, leave + come back = empty pad), 390x844 touch (tap call,
+  tap take off, tap skip), reduced motion (fade .09 -> .76 -> parked). 0 JS errors.
