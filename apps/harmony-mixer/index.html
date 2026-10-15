@@ -517,7 +517,7 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
 .row .badge.has{ color:#0e0f12; }
 .cmain{ min-width:0; display:flex; flex-direction:column; gap:.1rem; }
 .cname{ font-weight:600; font-size:.82rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.cmeta .plyd{ color:#7ec97a; }
+.cmeta .plyd{ color:#7ec97a; } .cmeta .sungm{ color:#d9a6e8; } html[data-theme="light"] .cmeta .sungm{ color:#8b3aa6; }
 .cmeta .dupb{ color:#e0b64f; }
 .cmeta .btn.rmdup{ min-height:1.7rem; min-width:auto; padding:0 .45rem; font-size:.58rem; vertical-align:middle; }
 .sldrawer{ position:fixed; top:0; right:0; bottom:0; width:20rem; max-width:92vw; background:var(--panel, #17181d); border-left:1px solid var(--line, #2c2f36); z-index:40; padding:.8rem .9rem; overflow-y:auto; }
@@ -885,7 +885,7 @@ html[data-theme="light"] #lmx{ box-shadow:0 -.4rem 1.2rem rgba(60,40,10,.12); }
       <button type="button" class="btn small" id="playedreset" disabled title="Suggestions, the chain and the pool skip tracks you already played. The list is kept in this browser until you press this — reset forgets it">↺ played</button>
       <button type="button" class="btn small" id="slbtn" aria-pressed="false" title="Your ordered plan for tonight — separate from the crate; adding never touches the decks">≡ setlist · 0</button>
       <span class="cspacer"></span>
-      <label class="btn load" id="cimportBtn">＋ import<input type="file" accept="audio/*" multiple class="sr" id="cimport" aria-label="Import audio files into the crate"></label>
+      <label class="btn load" id="cimportBtn">＋ import<input type="file" accept="audio/*,.lrc" multiple class="sr" id="cimport" aria-label="Import audio files into the crate"></label>
       <label class="btn load" id="cfolderBtn" title="Import a whole folder — sub-folders become playlists. In Chrome and Edge Harmony also remembers the folder, so songs the browser couldn't keep come back from it with one click">＋ folder<input type="file" webkitdirectory multiple class="sr" id="cfolder" aria-label="Import a folder of audio files; sub-folders become playlists"></label>
       <button type="button" class="btn small" id="cbakbtn" aria-expanded="false" aria-controls="cbak" title="Back up what Harmony knows about your songs to a .harm file, or restore one">💾 backup</button>
       <select class="sel cplay" id="cplay" aria-label="Filter by playlist (from imported folder structure)" hidden></select>
@@ -1004,7 +1004,7 @@ html[data-theme="light"] #lmx{ box-shadow:0 -.4rem 1.2rem rgba(60,40,10,.12); }
 </main>
 <footer>
   <p>everything stays in your browser · <kbd>space</kbd> play A · <kbd>enter</kbd> play B · <kbd>←</kbd><kbd>→</kbd> crossfade · <kbd>m</kbd> auto-mix · keylock keeps the key · ♪ toggles vinyl mode</p>
-  <span id="buildstamp" role="note" aria-label="Build information">build v4.129 · 2026-10-13</span>
+  <span id="buildstamp" role="note" aria-label="Build information">build v4.130 · 2026-10-15</span>
 </footer>
 
 <script id="dsp">
@@ -4720,9 +4720,59 @@ function filesFromEntries(entries){
 }
 var batchN = 0, batchDone = 0, batchNote = '', skipNote = '', playSel = '', plSig = '';
 
+/* v4.130 SINGING MARKS (pushedbutton 2026-10-15: "LRC files contain not just lyrics but timecodes too. The first and last
+   timecodes ... can influence a clean mix, no clashing vocals"): an .lrc file next to a song (same name) says where the singing
+   starts and stops. Harmony keeps only those two times (rec.lrc = { vi: first sung line, vo: where the last one ends, n: sung lines });
+   the words are read past and never kept, shown or saved, and nothing is looked up online. planTransition shortens a mix until the
+   two singers don't overlap. */
+var LRC_T = /\[(\d{1,3}):(\d{1,2}(?:[.:]\d{1,3})?)\]/g;
+function lrcMarks(txt){
+  txt = String(txt || '');
+  var off = 0, pts = [], m = /\[offset:\s*([+-]?\d+)\s*\]/i.exec(txt);
+  if (m) off = +m[1] / 1000;   /* a positive offset shows the lines sooner */
+  txt.split(/\r?\n/).forEach(function(line){
+    var tm = /^\s*((?:\[\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?\]\s*)+)(.*)$/.exec(line); if (!tm) return;
+    var body = tm[2].replace(/<\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?>/g, '').replace(/[\s♪♫♬♩~*._\-–—]+/g, '');
+    var sung = !!body && !/^[(\[]?(instrumental|music|interlude|solo|intro|outro|break)[)\]]?$/i.test(body);
+    tm[1].replace(LRC_T, function(_, mm, ss){ var t = +mm * 60 + parseFloat(ss.replace(':', '.')) - off; if (isFinite(t)) pts.push({ t: Math.max(0, t), s: sung }); return ''; });
+  });
+  pts.sort(function(a, b){ return a.t - b.t; });
+  var sg = pts.filter(function(p){ return p.s; });
+  if (sg.length < 2) return null;
+  var last = sg[sg.length - 1], nx = null, gaps = [];
+  for (var i = 0; i < pts.length; i++) if (pts[i].t > last.t + 0.05){ nx = pts[i]; break; }
+  for (var j = 1; j < sg.length; j++){ var g = sg[j].t - sg[j - 1].t; if (g > 0.3) gaps.push(g); }
+  gaps.sort(function(a, b){ return a - b; });
+  var med = gaps.length ? gaps[gaps.length >> 1] : 4, vo = nx && nx.t - last.t <= 15 ? nx.t : last.t + Math.max(2, Math.min(6, med));
+  if (vo - sg[0].t < 5) return null;
+  return { vi: Math.round(sg[0].t * 100) / 100, vo: Math.round(vo * 100) / 100, n: sg.length };
+}
+function lrcBase(p){ return String(p || '').replace(/\.[^.\/]+$/, '').toLowerCase(); }
+function lrcAttach(lrcs, said){
+  var got = 0, none = 0, empty = 0, left = lrcs.length;
+  lrcs.forEach(function(lf){
+    var rp = relOf(lf), nm = lrcBase(lf.name), hit = null, same = [];
+    if (rp) for (var i = 0; i < crate.length; i++){ if (crate[i].relPath && lrcBase(crate[i].relPath) === lrcBase(rp)){ hit = crate[i]; break; } }
+    if (!hit){ crate.forEach(function(r){ if (lrcBase(r.fileName || r.name) === nm) same.push(r); }); if (same.length === 1) hit = same[0]; }
+    if (!hit){ none++; if (!--left) done(); return; }
+    lf.text().then(function(t){
+      var mk = t.length < 500000 ? lrcMarks(t) : null; t = null;
+      if (mk){ hit.lrc = mk; persist(hit); got++; } else empty++;
+    }).catch(function(){ empty++; }).then(function(){ if (!--left) done(); });
+  });
+  function done(){
+    var w = [];
+    if (got) w.push('singing times for ' + got + (got === 1 ? ' song' : ' songs') + ' from .lrc files: just when the singing starts and stops, the words stay in your files');
+    if (none) w.push(none + ' .lrc ' + (none === 1 ? 'file has' : 'files have') + ' no song of the same name in the crate');
+    if (empty) w.push(empty + ' .lrc ' + (empty === 1 ? 'file has' : 'files have') + ' no timed lines');
+    status((said ? said + ' · ' : '') + w.join(' · '), got ? '' : 'err');
+    render();
+  }
+}
 function importFiles(list, fromFolder){
-  var files = Array.prototype.slice.call(list || []), added = 0, dups = 0, bad = 0, mids = 0, filed = 0, back = 0;
+  var files = Array.prototype.slice.call(list || []), added = 0, dups = 0, bad = 0, mids = 0, filed = 0, back = 0, lrcs = [];
   files.forEach(function(f){
+    if (/\.lrc$/i.test(f.name || '')){ lrcs.push(f); return; }   /* v4.130 singing marks: read after the songs are in */
     if (!isAudio(f)){ if (notSound(f)) mids++; else bad++; return; }
     var rp = relOf(f), dup = dupOf(f);
     if (dup && dup.missing){                                   /* v4.40: remembered without audio: the file brings it back */
@@ -4746,6 +4796,7 @@ function importFiles(list, fromFolder){
   if (mids) msg.push(mids + (mids === 1 ? ' MIDI or playlist file' : ' MIDI + playlist files') + ' left out — no sound inside');
   if (added){ batchNote = msg.join(' · '); if (dups || bad || mids){ var sn = msg.slice(1).join(' · '); skipNote = skipNote ? skipNote + ' · ' + sn : sn; } }
   if (msg.length) status(msg.join(' · '), bad && !added && !back ? 'err' : '');  /* MIDI alone is no error */
+  if (lrcs.length) lrcAttach(lrcs, msg.join(' · '));
   if (back) keepNote();
   render(); pump();
   return added;
@@ -5466,6 +5517,7 @@ function render(){
     if (it.isRef) meta.push('<span class="on">on ' + it.on + ' · reference</span>'); else if (it.on) meta.push('<span class="on">on ' + it.on + '</span>');
     meta.push(r.bpm ? r.bpm.toFixed(1) + ' bpm' : (r.state ? r.state + '…' : r.err ? '<span class="rel ok0">' + esc(r.err) + '</span>' : r.done ? 'bpm —' : 'queued'));
     if (r.dur) meta.push(fmtTime(r.dur));
+    if (r.lrc) meta.push('<span class="sungm" title="Singing marks from this song\'s .lrc file: the first line at ' + fmtTime(r.lrc.vi) + ', the last ends about ' + fmtTime(r.lrc.vo) + '. Harmony keeps just these two times, never the words, and mixes so two singers don\'t overlap.">🎤 ' + fmtTime(r.lrc.vi) + '–' + fmtTime(r.lrc.vo) + '</span>');   /* v4.130 */
     if (r.missing) meta.push(r.link && canLink ? '<span class="miss" title="This song plays from your music folder. Press ↻ reconnect above the crate and Harmony reads it from your drive.">on your drive · ↻ reconnect</span>' : '<span class="miss" title="The browser didn\'t keep this song\'s audio. Add the same file or folder again: bpm, key and grid come straight back.">audio not kept · add the file again</span>');
     if (r.folder) meta.push('<span class="fold" title="' + esc(r.relPath || '') + '">▸ ' + esc(r.folder) + '</span>');
     if (r.key && r.key.conf < 0.25 && !r.manual) meta.push('key ?');
@@ -5541,7 +5593,7 @@ async function walkDir(dir, prefix, out){
   out = out || [];
   for await (var hd of dir.values()){
     if (hd.kind === 'file'){
-      if (!AUD.test(hd.name)) continue;
+      if (!AUD.test(hd.name) && !/\.lrc$/i.test(hd.name)) continue;   /* v4.130 singing marks */
       try{ var f = await hd.getFile(); try{ f._rel = prefix + hd.name; }catch(e){} out.push(f); }catch(e){}
     } else if (hd.kind === 'directory') await walkDir(hd, prefix + hd.name + '/', out);
   }
@@ -5767,7 +5819,15 @@ function twFor(S, outK, innK){
   if (sh && Math.abs(sh) <= TW_SHIFT_MAX) o.shift = sh;
   return o.bars || o.shift ? o : null;
 }
-function planTransition(out, inn, HM, FS){
+/* v4.130: how many bars of the overlap both songs sing (singing marks on both, both grids); bars count on the leaving song */
+function lrcSing(out, inn, outStart, inStart, bars, oBT){
+  var a = out.lrc, b = inn.lrc;
+  if (!a || !b || !out.grid || !inn.grid || !oBT || !(a.vi < out.dur) || !(b.vi < inn.dur)) return null;
+  var oS = a.vi >= outStart + bars * oBT ? 0 : (a.vo - outStart) / oBT, iS = (b.vi - inStart) / (240 / inn.grid.bpm);
+  var r2 = function(x){ return Math.round(x * 100) / 100; };
+  return { outTo: r2(Math.max(0, Math.min(bars, oS))), inFrom: r2(Math.max(0, iS)), both: r2(Math.max(0, Math.min(bars, oS) - Math.max(0, iS))) };
+}
+function planTransition(out, inn, HM, FS, cap){
   var warn = [], bars = 8;
   if (!out || !inn || !out.dur || !inn.dur) return null;
   var f = FS ? fbFor(FS, out.k, inn.k) : null, fbw = [], swapAt = 0.5;
@@ -5788,6 +5848,7 @@ function planTransition(out, inn, HM, FS){
   }
   var twk = FS ? twFor(FS, out.k, inn.k) : null, twB0 = bars;   /* v4.122: your last-mix tweak for this pair wins over every length above */
   if (twk && twk.bars) bars = Math.min(twk.bars, Math.max(1, Math.floor(out.dur / outBar) - 2));
+  if (cap >= 1 && cap < bars) bars = cap;   /* v4.130: the singing check below tries shorter mixes */
   if (f){ var fbS = Math.min(3, f.voc + Math.floor(f.gVoc / FB_GSTEP)); if (fbS > 0) swapAt = 0.5 - 0.1 * fbS; }
   var dur = bars * outBar;
   /* v4.70 (pushedbutton: "the end of the outgoing track is inaccessible. Sometimes the very last beat is important"):
@@ -5912,8 +5973,28 @@ function planTransition(out, inn, HM, FS){
     why = twk.bars ? 'your tweak for this pair: ' + twInfo.words + (twB0 !== twLen ? ' (without it: ' + twB0 + ')' : '') : (why ? why + '; ' : '') + 'your tweak for this pair: ' + twInfo.words;
   }
   if (tailCut >= 1) why = (why ? why + '; ' : '') + 'its fade is silent for the last ' + Math.round(tailCut) + ' s, so the mix ends before that';
-  return { bars: bars, dur: dur, outStart: outStart, inStart: inStart, rateNote: rateNote, score: score, label: label, warnings: warn, tag: tag, why: why, inSkip: inSkip, inWhy: inWhy, swapAt: swapAt, outEarly: fbEarly, fb: fbw, lead: lead, top: top, tailCut: tailCut,
-           gate: gate, endHand: endHand, endAt: outStart + (out.grid ? bars * oBT : dur), tw: twInfo, kind: ab.tag, kindWhy: ab.why };   /* v4.112; v4.122 tw + the song's own kind */
+  var res = { bars: bars, dur: dur, outStart: outStart, inStart: inStart, rateNote: rateNote, score: score, label: label, warnings: warn, tag: tag, why: why, inSkip: inSkip, inWhy: inWhy, swapAt: swapAt, outEarly: fbEarly, fb: fbw, lead: lead, top: top, tailCut: tailCut,
+           gate: gate, endHand: endHand, endAt: outStart + (out.grid ? bars * oBT : dur), tw: twInfo, kind: ab.tag, kindWhy: ab.why,   /* v4.112; v4.122 tw + the song's own kind */
+           sing: lrcSing(out, inn, outStart, inStart, bars, oBT) };   /* v4.130 */
+  if (cap) return res;
+  /* v4.130 singing marks: both songs would sing at once, so try shorter mixes and keep the first where they don't (or the least
+     overlap). A length set by hand or by a tweak for this pair is left alone, only warned about. */
+  var sg = res.sing, handB = (ob >= 1 && ob <= OVERLAP_MAX && ob === Math.floor(ob)) || (twk && twk.bars);
+  if (sg && sg.both > 0.05 && !handB){
+    var best = null;
+    for (var c = bars - lead - 1; c >= 1; c--){
+      var p2 = planTransition(out, inn, HM, FS, c); if (!p2 || !p2.sing) break;
+      if (!best || p2.sing.both < best.sing.both - 1e-6) best = p2;
+      if (p2.sing.both <= 0.05) break;
+    }
+    if (best && best.sing.both < sg.both - 0.05){
+      best.tag = best.tag ? best.tag + ' · lrc' : 'lrc';
+      best.why = (best.why ? best.why + '; ' : '') + 'singing marks (.lrc): ' + (best.bars - best.lead) + ' bars, not ' + (bars - lead) + (best.sing.both > 0.05 ? ', the least the two songs sing together' : ', so the two songs never sing at once');
+      best.sing.from = bars - lead; res = best;
+    }
+  }
+  if (res.sing && res.sing.both > 0.05) res.warnings.push('both sing together for ' + (res.sing.both >= 1 ? Math.round(res.sing.both) + (Math.round(res.sing.both) === 1 ? ' bar' : ' bars') : 'under a bar') + ' (.lrc)');
+  return res;
 }
 function planQueue(entries, HM, FS){
   /* entries: [{name,bpm,key,dur,grid,cue,src}] in play order → one plan per adjacent pair */
@@ -6245,13 +6326,13 @@ function deckInfo(d){
   var k = cueKey(d);
   return { name: d.name, bpm: d.bpm, key: d.key ? d.key.camelot : null, rate: d.rate || 1,
            dur: d.buffer.duration, grid: d.gridTrusted() ? d.grid : null, gridDoubt: !!d.grid && !d.gridTrusted(), cue: cueGet(k), k: k, shape: d.shape || null,
-           audEnd: (bufLevels(d.buffer) || {}).audEnd || null };   /* v4.110 */
+           audEnd: (bufLevels(d.buffer) || {}).audEnd || null, lrc: (C.byId[k] || {}).lrc || null };   /* v4.110; v4.130 singing marks */
 }
 function recInfo(rec){
   var c = cues[rec.id] || {};
   return { name: rec.name, bpm: rec.bpm, key: rec.key ? rec.key.camelot : null, rate: 1,
            dur: rec.dur || 0, grid: rec.grid && X.gridTrust(rec.bpm, rec.grid) ? rec.grid : null, gridDoubt: !!rec.grid && !X.gridTrust(rec.bpm, rec.grid),
-           cue: { 'in': c.top ? null : c['in'] != null ? c['in'] : rec.mixIn, out: c.out != null ? c.out : rec.mixOut, bars: c.bars, top: !!c.top, end: c.end }, k: rec.id, shape: rec.shape || null };
+           cue: { 'in': c.top ? null : c['in'] != null ? c['in'] : rec.mixIn, out: c.out != null ? c.out : rec.mixOut, bars: c.bars, top: !!c.top, end: c.end }, k: rec.id, shape: rec.shape || null, lrc: rec.lrc || null };
 }
 /* ── panel markup, inserted after the aligned timeline ── */
 var sec = document.createElement('section');
@@ -7831,7 +7912,7 @@ function lmxEq(L){
 }
 function lmxKind(p){
   var k = p && p.kind, kd = k === 'club' ? 'club mix: a long blend' : k === 'outro' ? 'drum outro' : k === 'fade' ? 'radio edit that fades out' : k === 'radio' ? 'radio edit: a quick swap' : k === 'default' ? 'default length' : '';
-  var src = p && p.tw && p.tw.bars ? 'your tweak' : p && !p.tag && k ? 'length set by hand' : p && /fb/.test(p.tag || '') ? 'shortened by your feedback' : '';
+  var src = p && p.tw && p.tw.bars ? 'your tweak' : p && !p.tag && k ? 'length set by hand' : p && /fb/.test(p.tag || '') ? 'shortened by your feedback' : p && /lrc/.test(p.tag || '') ? 'shortened so the two singers don\u2019t overlap (.lrc)' : '';
   return [kd, src].filter(Boolean).join(' · ');
 }
 function lmxAt(g, t){ var bb = g && t > -1e3 ? trimBB(g, t) : null; return fmtT(t) + (bb ? ' (bar ' + bb + ')' : ''); }
@@ -8192,6 +8273,7 @@ var SECTIONS = [
 var PILLARS = ['reliability', 'presentability', 'creativity'], LEVELS = ['low', 'med', 'high'], STATUS = ['verified', 'partial', 'unverified', 'proposal', 'idea'];
 /* s: section · v: version (log) · t: title · d: one concise sentence · p: pillar · i: impact · e: effort · st: status · ev: evidence */
 var ITEMS = [
+  { s:'log', v:'v4.130', t:'Singing marks', d:"Put a song's .lrc file next to it: Harmony reads only when the singing starts and stops, and shortens a mix so two singers never overlap. The words stay in your files.", p:'creativity', i:'med', e:'low', st:'verified', ev:'pushedbutton 2026-10-15 15:48: first and last LRC timecodes for clean mixes, no clashing vocals; local files only, no online lookup; node tests of the reader + planner on made-up timings' },
   { s:'log', v:'v4.129', t:"Tonight's theme", d:"Crown any crate folder tonight's theme: a pull knob brings the pool back to it, 1 in 3 by default, only with songs that mix well.", p:'creativity', i:'med', e:'low', st:'verified', ev:'pushedbutton 2026-10-13 20:28-20:44: a Halloween crate and a Christmas crate, nothing hard-coded, a ratio knob; node sim + headless pool runs: the share follows the knob, the mix wins when no theme song fits' },
   { s:'log', v:'v4.128', t:'Now playing on the visuals', d:"Optional: ♪ in the visuals' buttons puts the playing song's name in the corner of the picture and follows the mix; off by default.", p:'presentability', i:'low', e:'low', st:'verified', ev:'pushedbutton 2026-10-13 10:55: now playing on the visualiser, optional; headless: the name follows the audible deck through the demo mix' },
   { s:'log', v:'v4.127', t:'No sound effects in the autopilot', d:"The autopilot, the pool, quick start and next up skip songs under a minute or over 20 (sound effects, audiobooks); they still load by hand.", p:'reliability', i:'med', e:'low', st:'verified', ev:'pushedbutton 2026-10-13 10:51-10:52: audiobooks, plenty of sfx and a lot of Scooby Doo songs in the crate; headless: short songs drop out of next up and the pool' },
