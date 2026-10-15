@@ -56,6 +56,7 @@ it only helps through its moves.
 - v1.13.1 (2026-10-09 17:06): the copied result links to #today; fromLink() after the dictionary loads opens today's board for a fresh or finished game (keeps a game in progress and says how to switch), then drops the hash. Note: a player with their own word list gets a different Two, so 'same answers' holds only on the built-in list.
 
 - v1.14 (2026-10-09 17:21): today's board remembers your week. The game-over line for a daily game carries `wkStrip()`: the last 7 UTC days as little cells (weekday + that day's FIRST go, '·' for a missed day, today highlighted in brass) and 'N days in a row.' from 2 on; the button reads 'today's board ✓' once today's first go is in (`dayMark()` after the dictionary loads and after a daily finish). Probe ptcday3.js seeds three past days.
+- v1.15 (2026-10-15 08:05, Tatum: "dragging letters from the rack doesn't work if you pull down instead of up" + "drag tiles all the way off the left or right edge of the rack"): a rack tile lifts on a mostly-vertical pull either way (was up only), and a tile being sorted sideways that leaves the rack (0.9 tile past either end, or 0.6 tile above/below) is lifted: `sortRack()` (split out of dropTile) keeps the new order first, then `carryStart` on the re-rendered tile. Probe: synthetic pointer events down/up/off-left/off-right each place a tile, sideways sort still works, at 390 and 1440 wide.
 
 ## issues
 - Tatum: the built-in word list misses words; bring-your-own word list is wanted (Tatum has a list with 15-letter words).
