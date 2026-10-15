@@ -748,6 +748,11 @@ export function build(H){
       P(.62,.82,.03,xc-.45,T+1.5,zb+s*.035,'#f4f1ea'); P(.5,.06,.031,xc-.45,T+1.78,zb+s*.04,'#2a6a4a'); };
     shelter(-2.9,24.95,-1); shelter(66.6,16.05,1);
     for(const [x,z] of [[-1.75,24.2],[68.5,16.95]]) P(.07,2.62,.07,x,T+1.31,z,'#5a5e64'); }
+  // ---- v1.64 e-scooter stands (Flax 12:23 + 13:14): by Murat's döner window, in the Schloss's Ehrenhof and on the
+  // Bahnhofsvorplatz. A painted white parking box on the ground; index.html parks n plain scooters in each, heading h.
+  const ESKS=[{x:-13.25,z:-54.2,h:-Math.PI/2,n:3},{x:-14.2,z:86.6,h:0,n:3},{x:81.6,z:110.2,h:0,n:3}];
+  for(const e of ESKS){ const Wd=e.n*.9+.3, D=1.5, c=Math.cos(e.h), sn=Math.sin(e.h), L=(lx,lz)=>[e.x+lx*c+lz*sn,e.z-lx*sn+lz*c];
+    for(const sd of [-1,1]){ const [ax,az]=L(0,sd*D/2), [bx,bz]=L(sd*Wd/2,0); P(Wd+.06,.012,.06,ax,T+.006,az,'#dcdcd4',e.h); P(.06,.012,D,bx,T+.006,bz,'#dcdcd4',e.h); } }
   const propMat=new THREE.MeshLambertMaterial({vertexColors:true});
   const pm=new THREE.Mesh(blockyGeo(L),propMat); pm.matrixAutoUpdate=false; group.add(pm);
   const spit=new THREE.Mesh(blockyGeo(SPL),propMat); spit.position.set(DN.sx,0,DN.sz); spit.matrixAutoUpdate=false; spit.updateMatrix(); group.add(spit);   // v1.55
@@ -1094,7 +1099,7 @@ export function build(H){
     if(PLD.vis){ PLD.lst+=dt*Math.PI*2/86164*60; PLD.eq.quaternion.setFromAxisAngle(PLD.pole,-PLD.lst); } }
 
   return { mhq:{doner:[DN.x,DN.z,Math.PI/2],baker:[BK.x+.4,BK.z-.75,Math.PI],kessler:[44.5,65.25,Math.PI],hannes:[13.5,-72.6,-2.4]}, group, place, riverD, tick, steps, QD, benz, flood, ghost:null, l2:{x:14,z:71,roofY:LT+1},
-    spawn:{x:4.5,z:-74.6,yaw:Math.PI}, pop:{x:34,z:-103}, tram:TRM, jupp:{x:7.2,z:-77.4}, seats:SEATS,
+    spawn:{x:4.5,z:-74.6,yaw:Math.PI}, pop:{x:34,z:-103}, tram:TRM, esk:ESKS, jupp:{x:7.2,z:-77.4}, seats:SEATS,
     dark:[PL.cx,PL.cz,PL.rin+.75,PL.rout+.3,T+4.05], pl:{staff:PLD.staff,doze:PLD.doze,mat:PLD.mat},   // v1.57 the Planetarium's dark hall + its two people
     facts:[[WT.x,WT.z,15,'Wasserturm: 60 m tall, built 1886-1889 to a design by Gustav Halmhuber. Up on the dome stands Amphitrite, the sea goddess, in copper.'],
       [112,20.5,6,'The Wasserspiele: the big fountain first played on 9 September 1893. Bruno Schmitz added the water steps, the basin and the pergolas from 1899. Today 178 nozzles, the tallest jet up to 28 m, from spring to mid-October.'],   // v1.58

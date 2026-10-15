@@ -834,6 +834,8 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
 - v1.62 trams: +6 calls (3 sections x 2 trams, one shared folkMat) + ~1.5k-2k tris per section in view; rails/wires/shelters
   are boxes in the merged props mesh (0 calls). Desktop 1280x720 Paradeplatz stop 83-85 calls / 148k tris; phone 390x844 on the
   platform 39 calls / 86k tris.
+- v1.64 e-scooters: +1 call (one InstancedMesh, 9 scooters) +~1.5k tris; stand bays merged into props. Döner view 33->34 calls
+  73.7k->75.2k tris; Planken view 70->71 calls 130.8k->132.4k tris.
 
 ## testing
 - scratch: $SP/hb (index.html + mk.sh injects window.__G/__E into gaunt/sw/hm43/hb). The live file only has a
@@ -1225,3 +1227,12 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   Tested headless: HD + MH round trips through a reload land on the exact spot; L2 save -> (15.6,75.8) street south of
   L2; out-of-bounds -> Old Bridge + toast; river save -> Neckarwiese bank; garbage/unknown-town saves -> plain card;
   no save while on the tram; Start from scratch -> Old Bridge, hb-spot cleared; phone 390x844 card fits; 0 JS errors.
+- 13:28 2026-10-15 v1.64 e-scooters in Mannheim (Flax 12:23, stands 13:14): three plain blocky scooter stands, three each, at Murat's
+  döner window (Breite Straße), on the Schloss Ehrenhof path and on the Bahnhofsvorplatz (painted bay lines in mannheim.js
+  ESKS, merged into props). One InstancedMesh (folkMat, 9 instances). R / "Ride the e-scooter" hops on (first person,
+  handlebar at the bottom, pitch -.3), same keys/stick; ~11 m/s top (2.5-3x walking), smooth accel 4.4*(1-v/11), brake 6.5,
+  reverse 1.2, coast .8; jump = 🔔 bell (2350 Hz); soft sine+triangle whine 190+58*v Hz through a bandpass. Streets/paths only
+  (asphalt/cobble/pave/gravel): no grass, buildings, stairs, the Schloss halls or the station hall (ESK_IN place regex),
+  toast "stays on streets and paths" (9 s cooldown). Trams stop ~1.3 m short of you (tramHit). Hop off with R again; the
+  scooter stays put; refused on the tram rails. Leaving Mannheim drops you off (eskOff(true)). No saving while riding.
+  Names: ESK/esk* (SCO is taken). Left out: speed readout, sliding along walls at an angle (you stop; turn in place works).
