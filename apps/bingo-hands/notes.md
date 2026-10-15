@@ -12,6 +12,12 @@ A 90-ball bingo caller for Pushed's workplace in Wigan (colleagues with a range 
   - London 6-9 redrawn (Pushed 19:41/19:43): hand turned sideways (back of the hand to the viewer, fingers pointing across the body), fist with the thumb UP and BENT at the joint. 6 = just that, 7 = + index, 8 = + index and middle, 9 = + index, middle and ring. 16-19 waggle that sideways hand. The thumb stays bent in 7-9 too (my reading of "like the 6 but with an additional finger"; ask). 10 is still the upright fist with a straight thumb up plus a small shake, so 6 and 10 now look clearly different. Northern 6-9 unchanged (upright, no thumb).
   - Digits font (viewer 19:42: the 5 looked like a 6/8): all digits 0-9 now come from Atkinson Hyperlegible Next (a font built to tell characters apart), embedded in the page as a 4 KB digits-only subset (SIL OFL), weight 800 for the big number. They look the same online, offline, or if Google Fonts is blocked at work. The 0 has a slash (part of the font's design).
   - Share picture re-rendered with the real fonts; the whole tens-and-ones strip now fits.
+- 2026-10-15 20:16 v1.2 (Pushed 19:58-20:10):
+  - BACK OF THE HAND to the viewer for 1-9, 0 and northern 6-9 (Pushed 19:58: "the signs mostly shown so the back of the hand is facing the audience"; 20:10: "1 doesn't keep its palm"). The hand is mirrored, so the thumb sits on the OUTER side (screen-left for a right-hand signer) and is tucked behind the hand when folded. The back of the hand has fingernails on raised fingers, knuckle bumps at each finger base and faint tendon lines. No palm creases.
+  - 10 is the ONE sign that shows the PALM (Pushed 20:09: "the sign for 10 is the only time you see a palm"). The hand turns round, the palm creases show, the thumb is up on the inner side, and it shakes.
+  - Arm at about 40 degrees (Pushed 20:02: "hard to hold a sign straight up"). It pivots at the wrist with the elbow out at the lower left and the sleeve running off the frame. The sideways London 6-9 keep a level forearm across the body.
+  - Character: head 18% bigger, short neck, higher shoulders (Pushed 20:02: "head far too small for his long neck"). viewBox now 0 100 452 340 (wider, cropped top).
+  - About line shortened so the footer stays two lines on 1200-1280 wide screens (the share picture's tens/ones strip was squeezed).
 - Signing: 1-9 + 0 finger counting, 10 = fist with thumb up + small shake, 11-19 = the unit's hand shape waggled side to side (Pushed 19:32: "13 needs animating, it's 3 waggled side to side"), 20-90 digit by digit, each digit held ~1.65 s with the digit under the hand. prefers-reduced-motion: shapes switch with no motion, no wag/shake (the caption still says "waggled").
 
 ## issues
@@ -20,7 +26,8 @@ A 90-ball bingo caller for Pushed's workplace in Wigan (colleagues with a range 
 - Pushed's workplace is in Wigan but they are taught the London way (Pushed 19:13): Southern (thumb-first 6-9) stays the default, Northern is the switch in Staff settings.
 - 11-19 = the unit waggled side to side is how PUSHED'S WORKPLACE signs them (Pushed 19:32: "13 needs animating, it's 3 waggled side to side"). BSL SignBank was not checked; Pushed's answer took priority.
 - Northern 9 (four fingers, no thumb) looks the same as 4 in this drawing. Check with Pushed whether northern signers turn the hand or move it for 6-9.
-- The hand is drawn palm towards the viewer as asked. Many BSL signers show 1-5 with the back of the hand to the viewer; flip it if his colleagues expect that.
+- Hand faces: back of the hand for everything except 10 (palm). The shape code's 6th letter decides it: s = sideways (London 6-9), p = palm (10), none = upright back of hand. #ori upright = translate(160px,0) rotate(0) scale(-1,1) (the mirror), #sig.palm #ori = translate(26px,0) ... scale(1,1), #sig.side #ori = translate(120px,228px) rotate(90deg) scale(-.85,.85). Keep the three function lists the same shape so CSS interpolates them as a turn and not a squash. #tilt (the whole arm) = rotate(40deg) scale(.9) about the wrist (146,370); for sideways it is level, scale 1.08.
+- Body proportions: head = the old head group scaled 1.18 at (362,196), neck 345-379 x 240-306, shoulders y 298. The hand must not touch the face: at 40 degrees the little/ring fingertips come closest (checked by hand maths, ~80 units clear).
 - 0 is drawn as a stylised O ring on the hand (palm-facing view can't show a real O handshape well). 40 = 4 then the O.
 - 20, 30 ... 90 are signed digit by digit (2 then 0); BSL has its own signs for some tens in some regions. Ask before changing.
 - Headless test notes: fonts/emoji are blocked in the sandbox, so screenshots show fallback fonts and tofu for the 🖐️ logo. Port 8973 was taken; tests used 8977 + debug port 9473.
@@ -35,6 +42,7 @@ A 90-ball bingo caller for Pushed's workplace in Wigan (colleagues with a range 
 - 90-ball (1-90) or 75-ball?
 - Do you want traditional bingo calls ("legs eleven", "two little ducks")? They can be hard for people with numeracy needs, so they'd be optional and off by default.
 - Northern 9 vs 4: same shape here, is that right where you are?
-- Palm to the viewer, or the back of the hand? (1-5 and 10 show the palm; London 6-9 show the back of the hand, fingers across the body.)
+- Palm vs back: answered 19:58-20:10 (back of the hand everywhere, palm only for 10). Does the 0 (the O in 20, 30 ...) also show the back of the hand?
+- Is the arm angle (about 40 degrees, fingers leaning towards the face) right, or should it lean the other way / less?
 - London 7, 8, 9: does the thumb stay bent like the 6, or straighten? Do the fingers point across the body (towards the signer's other side), as drawn?
 - The digits font has a slashed 0 (so 0 is never read as O). Fine for your colleagues, or would a plain 0 be easier?
