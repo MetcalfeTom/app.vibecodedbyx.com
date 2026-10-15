@@ -9,6 +9,9 @@
 #   mq.py done <id> [commit]            shipped (kept 3 days on the board)
 #   mq.py drop <id>                     remove it
 #   mq.py edit <id> "<what>"
+#   mq.py call <who|-> <app> <yes|no|flip|rule> "<the call>" "<why>" [time] [commit]   my calls: what I decided and why (iamflax
+#                                       2026-10-15 "the missing puzzle part"); rule = a standing house rule, no time
+#   mq.py calls                         list them;  mq.py uncall <id>   remove one
 import json, os, re, sys, datetime
 P = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'queue.json')
 ST = ('now', 'next', 'ask', 'park', 'done')
@@ -76,6 +79,30 @@ def main(a):
         q['items'] = [i for i in q['items'] if i['id'] != a[1]]
     elif cmd == 'edit':
         find(q, a[1])['what'] = a[2]
+    elif cmd == 'calls':
+        for c in q.get('calls', []):
+            print('%-4s %-4s %-17s %-18s %s | %s' % (c['id'], c['k'], ','.join(c['who']), c['app'], c['call'], c['why']))
+        return
+    elif cmd == 'call':
+        who = [w.strip() for w in a[1].split(',') if w.strip() and w.strip() != '-']
+        app, k, call, why = a[2], a[3], a[4], a[5]
+        assert k in ('yes', 'no', 'flip', 'rule') and re.fullmatch(r'[a-z0-9][a-z0-9-]*', app) and os.path.isdir('/vibespace/apps/' + app), 'bad kind or app'
+        q['cn'] = q.get('cn', 0) + 1
+        c = {'id': 'c%d' % q['cn'], 'who': who, 'app': app, 'k': k, 'call': call, 'why': why}
+        for x in a[6:]:   # optional: when (2026-10-15T07:20Z) and the commit it led to
+            if re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\dZ', x):
+                c['t'] = x
+            elif re.fullmatch(r'[0-9a-f]{7,40}', x):
+                c['h'] = x[:7]
+        if k == 'rule':
+            c.pop('t', None)
+        elif 't' not in c:
+            c['t'] = now()
+        q.setdefault('calls', []).insert(0, c)
+        q['calls'] = q['calls'][:60]
+        print('added', c['id'])
+    elif cmd == 'uncall':
+        q['calls'] = [c for c in q.get('calls', []) if c['id'] != a[1]]
     else:
         sys.exit(__doc__ if False else 'commands: ls add now next park ask up done drop edit')
     save(q)

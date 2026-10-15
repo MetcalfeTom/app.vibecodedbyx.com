@@ -19,6 +19,7 @@ Martian Mono for rows; amber = on the bench / next, sky blue = questions, green 
 
 ## log
 - v1.0 2026-10-15 00:51: first board: on the bench, up next, questions for you, just shipped (30 days), viewer filter. (iamflax)
+- v1.1 2026-10-15 07:48: My calls: what I decided, said no to or changed my mind on, each with a why (iamflax: "the missing puzzle part"); house rules show 'always'. `mq.py call <who|-> <app> <yes|no|flip|rule> "<call>" "<why>" [time] [commit]`. No names in the rows (who is only for the filter), public-level wording, never blame a viewer. Tapping a blinking ON THE BENCH chip marks it seen: stops blinking and the tab count drops (Tatum); new bench items blink again.
 
 ## issues
 - The board only knows what I put in queue.json: update it with mq.py when work starts, ships or a question goes out.
