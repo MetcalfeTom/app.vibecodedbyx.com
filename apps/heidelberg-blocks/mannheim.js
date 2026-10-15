@@ -518,6 +518,67 @@ export function build(H){
       if(dd<=1&&!get(x+dx,cy+dy,z+dz)) set(x+dx,cy+dy,z+dz,hsh(x+dx,cy+dy,z+dz)<.85?B.leaves:B.leavesY); }
     for(let y=T;y<=cy;y++) set(x,y,z,B.log); }
 
+  // ---- v1.69 (Flax's easter egg, his own app; logged in notes.md like any version, but nothing on screen points to it): a court
+  // building fills A2 (its houses make way after the dice, no R(), like the Schillerplatz). Its west wall has a doorway you only
+  // find by walking into it (w.ghost, nothing drawn; a boot scraper and a worn threshold on the pavement are the only clue). Inside
+  // a small court hall, and an old brass key on a hook behind the bench (index.html: the bag). The key opens a side door in the
+  // Schloss's east wing (w.solid until it's unlocked): a stair hall, a Festsaal upstairs, a library below. One bookcase in the
+  // library is only a bookcase in front of a hole: a stair goes down into a vaulted passage under the Ehrenhof and the
+  // Bismarckstraße and comes up through the floor of the L2 hall (Flax's own exception to v1.56: L2 stays sealed from the street) ----
+  const CRT={x0:-39,x1:-31,z0:67,z1:74,g:[-39,-39,T,T+2,70,71],key:[-31.07,T+2.5,72.45]};   // the ghost box: x0,x1,y0,y1,z0,z1
+  const PDR={shut:1,x:29,z0:92,z1:93,zc:93,hinge:[29.97,92,94]};                                 // the side door, two cells wide, two leaves
+  const TNL=new Set(), tk=(x,y,z)=>x+','+y+','+z;
+  const inTnl=(x,y,z)=>(y<T-.5&&x>=11&&x<13&&z>=72&&z<104)||(y<T-.5&&x>=11&&x<18&&z>=102&&z<104)||(y<T+2.5&&x>=17&&x<23&&z>=103&&z<104);
+  { const {x0,x1,z0,z1}=CRT, wl=(x,y,z)=>hsh(x+.7,y,z+.3)<.3?B.windowLit:B.window;
+    for(let x=x0;x<=x1;x++) for(let z=z0;z<=z1;z++) for(let y=T;y<=T+30;y++) set(x,y,z,0);
+    for(let x=x0;x<=x1;x++) for(let z=z0;z<=z1;z++){ const ex=x===x0||x===x1, ez=z===z0||z===z1;
+      for(let y=T;y<=T+12;y++){ let b=B.cream;
+        if(ex||ez){ const a=ex?z-z0:x-x0;
+          const gW=ex?x===x0&&(a===1||a===6):(z===z1?a===1||a===7:a%2===1), uW=ex?a===1||a===3||a===4||a===6:a%2===1;
+          if((ex&&ez)||y===T) b=B.sandstone; else if(y===T+7||y===T+12) b=B.trim;
+          else if(y<T+7){ if(gW&&y>=T+2&&y<=T+5) b=wl(x,y,z); }
+          else if(uW&&(y===T+9||y===T+10)) b=wl(x,y,z); }
+        set0(x,y,z,b); }
+      set(x,T+13,z,(ex||ez)?B.trim:B.gravel); }
+    for(let k=1;k<=2;k++) for(let x=x0+k-1;x<=x1-k+1;x++) for(let z=z0+k-1;z<=z1-k+1;z++){ const edge=x===x0+k-1||x===x1-k+1||z===z0+k-1||z===z1-k+1;
+      set(x,T+13+k,z,edge&&k===1&&(x+z)%3===0?B.window:B.slate); }
+    for(let x=x0+3;x<=x0+5;x++) for(let y=T;y<=T+3;y++) set(x,y,z1,B.sandstone);   // the portal's stone surround (the door itself is a prop)
+    for(let x=x0+1;x<x1;x++) for(let z=z0+1;z<z1;z++){ set(x,T-1,z,B.plank); for(let y=T;y<=T+6;y++) set(x,y,z,0); set(x,T+7,z,B.stucco); }   // the hall
+    for(let z=z0+1;z<z1;z++) for(const x of [x1-2,x1-1]) set(x,T,z,B.plank);   // the judges' dais
+    for(const z of [70,71]) set(x0-1,T-1,z,B.stone); }                       // a worn threshold on the pavement where there is no door
+  { const SY=B.schYel, ST=B.stucco, isW=b=>b===B.window||b===B.windowLit||b===B.winCurt||b===B.winTv||b===B.winTv2;
+    for(let z=PDR.z0;z<=PDR.z1;z++){ for(let y=T;y<=T+2;y++) set0(29,y,z,0); set0(29,T+3,z,B.schRed); set0(29,T-1,z,B.pave); }   // the side door, a red lintel
+    // the stair hall (x 23..28, z 90..95): slab floor, open to a stucco ceiling; the wing's own walls with their windows
+    for(let x=23;x<=28;x++) for(let z=90;z<=95;z++){ set0(x,T-1,z,B.pave); for(let y=T;y<=T+11;y++) set0(x,y,z,0); set0(x,T+12,z,ST); }
+    for(let x=23;x<=28;x++) for(let y=T;y<=T+11;y++) set0(x,y,96,SY);   // the main front's back wall, hidden behind the wing until now
+    for(let k=0;k<=4;k++) for(let x=23;x<=24;x++) for(let y=T;y<=T+k;y++) set0(x,y,90+k,y===T+k?B.carpet:ST);   // the stair up the west wall
+    for(let x=23;x<=24;x++){ for(let y=T;y<T+4;y++) set0(x,y,95,ST); set0(x,T+4,95,B.carpet); }   // the landing, carpeted like the steps
+    for(let x=25;x<=28;x++) for(const z of [94,95]) set0(x,T+4,z,B.plank);   // the gallery to the Festsaal
+    // the library (x 24..31, z 98..103): plank floor, stucco walls a block in from the outer ones, the Festsaal's floor for a ceiling
+    for(let x=23;x<=32;x++) for(let z=97;z<=104;z++){ const rim=x===23||x===32||z===97||z===104;
+      set0(x,T-1,z,rim?ST:B.plank); for(let y=T;y<=T+3;y++) set0(x,y,z,rim?ST:0); }
+    // the Festsaal upstairs (x 24..43, z 98..103): parquet, stucco, deep window niches where the outer walls have windows
+    for(let x=23;x<=44;x++) for(let z=97;z<=104;z++){ const rim=x===23||x===44||z===97||z===104;
+      for(let y=T+4;y<=T+12;y++) set0(x,y,z,rim||y===T+12?ST:y===T+4?B.plank:0); }
+    for(let x=24;x<=43;x++) for(let y=T+5;y<=T+11;y++){ if(x>=30&&isW(get(x,y,96))) set0(x,y,97,0); if(isW(get(x,y,105))) set0(x,y,104,0); }
+    for(const x of [26,28,30]) for(let y=T+1;y<=T+2;y++) if(isW(get(x,y,105))) set0(x,y,104,0);   // three garden windows in the library
+    for(let y=T+1;y<=T+2;y++) if(isW(get(30,y,96))) set0(30,y,97,0);
+    for(let x=27;x<=28;x++) for(let y=T;y<=T+2;y++){ set0(x,y,96,0); set0(x,y,97,0); }       // hall -> library, under the gallery
+    for(let x=25;x<=26;x++) for(let y=T+5;y<=T+7;y++){ set0(x,y,96,0); set0(x,y,97,0); }     // gallery -> Festsaal
+    // the passage: behind the last bookcase on the library's west wall, a stair down (z 103), west under the main front (z 102..103),
+    // north under the Ehrenhof and the Bismarckstraße (x 11..12), and up in the L2 hall's south-west corner (x 11, z 75..72)
+    const cv=(x,y,z)=>{ TNL.add(tk(x,y,z)); set0(x,y,z,0); };
+    for(let y=T;y<=T+2;y++){ TNL.add(tk(23,y,103)); set0(23,y,103,0); }
+    for(let i=0;i<=5;i++){ const s=T-i; for(let y=s;y<=s+2;y++) cv(22-i,y,103); }
+    for(let x=11;x<=17;x++) for(const z of [102,103]) for(let y=T-5;y<=T-3;y++) cv(x,y,z);
+    for(let x=11;x<=12;x++) for(let z=76;z<=103;z++) for(let y=T-5;y<=T-3;y++) cv(x,y,z);
+    for(const [z,s] of [[75,T-4],[74,T-3],[73,T-2],[72,T-1]]) for(let y=s;y<=Math.min(s+2,T-1);y++) cv(11,y,z);
+    const D6=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]], cells=[...TNL].map(s=>s.split(',').map(Number)).filter(c=>c[0]<=22);
+    for(const [x,y,z] of cells) for(const [dx,dy,dz] of D6){ const nx=x+dx, ny=y+dy, nz=z+dz; if(TNL.has(tk(nx,ny,nz))||!get(nx,ny,nz)) continue;
+      if(ny<=T-2||(nx>=17&&nx<=22&&nz>=102&&nz<=104)) set0(nx,ny,nz,B.castle); }   // old red masonry round the passage
+    for(const [x,y,z] of cells) if(!TNL.has(tk(x,y-1,z))&&get(x,y-1,z)) set0(x,y-1,z,B.cobble);   // cobbles underfoot, the steps too
+  }
+
   // ---- props: one vertex-coloured mesh (cranes, containers, bollards, benches), boards, corner signs ----
   const group=new THREE.Group(), L=[];
   const P=(w,h,d,x,y,z,c,ry,rx)=>L.push([w,h,d,x,y,z,c,ry||0,0,rx||0]);
@@ -863,6 +924,109 @@ export function build(H){
   PKZ.push([LZ.x-1.3,LZ.x+1.3,17,18.4]);
   const PLKW={x0:-98,x1:77,zones:PKZ,yard:YD,kond:[LZ.x,LZ.z],cafe:[-20,26.05],kiosk:[43,40.3],busk:[[21.6,16.3],[51.6,25.7]],
     flocks:[[-23,20.3],[-52,20.8],[12,20.6],[33,21.2],[63,20.4]]};
+  // ---- v1.69 Flax's easter egg, the props (see the voxels above the props). Three meshes (court, palace rooms, passage) with the
+  // Schloss rooms' materials (candle-warm at night), each only drawn while the camera is in or near its place (tick) ----
+  const EGC=[], EGP=[], EGT=[];
+  { const GD='#d4a53c', WH='#f2ede2', RD='#9b2a2a', BK='#141418', DW='#4a2e1c', MW='#7a5232', GR='#2f5a3a', BR='#c8a24a', IR='#2b2b2e', SS='#8a4a3a';
+    let TG=EGC; const Q=(w,h,d,x,y,z,c,ry,rx)=>TG.push([w,h,d,x,y,z,c,ry||0,0,rx||0]);
+    const chand=(cx,cz,cy,top,n,r)=>{ Q(.04,top-cy-.55,.04,cx,(top+cy+.55)/2,cz,GD); Q(r*1.45,.07,r*1.45,cx,cy,cz,GD); Q(.5,.4,.5,cx,cy-.22,cz,GD); Q(.18,.35,.18,cx,cy-.58,cz,GD); Q(.36,.06,.36,cx,cy+.55,cz,GD);
+      for(let a=0;a<n;a++){ const an=a*Math.PI*2/n, ax=cx+Math.cos(an)*r, az=cz+Math.sin(an)*r; Q(.1,.05,.1,ax,cy+.04,az,GD); LH.push([.08,.18,.08,ax,cy+.16,az,'#fff2cc']); }
+      LAMPS.push([cx,cy+.1,cz]); };
+    const sconce=(x,y,z,nx,nz)=>{ Q(nx?.1:.26,.3,nx?.26:.1,x,y,z,GD); LH.push([nx?.1:.16,.26,nx?.16:.1,x+nx*.07,y+.3,z+nz*.07,'#ffe2a8']); LAMPS.push([x+nx*.2,y+.3,z+nz*.2]); };
+    const rl=(x0,z0,x1,z1,y,c)=>{ const L=Math.hypot(x1-x0,z1-z0), n=Math.max(1,Math.round(L/.4)), ax=x0===x1;
+      Q(ax?.12:L,.09,ax?L:.12,(x0+x1)/2,y+.92,(z0+z1)/2,c); for(let i=0;i<=n;i++){ const t=i/n; Q(.08,.82,.08,x0+(x1-x0)*t,y+.45,z0+(z1-z0)*t,c); } };
+    const lantern=(x,y,z,nx,nz)=>{ Q(nx?.2:.06,.06,nx?.06:.2,x-nx*.1,y+.22,z-nz*.1,IR); Q(.27,.05,.27,x,y+.16,z,IR); Q(.24,.04,.24,x,y-.15,z,IR); Q(.07,.07,.07,x,y+.21,z,IR);
+      for(const a of [-.1,.1]) for(const b of [-.1,.1]) Q(.03,.28,.03,x+a,y,z+b,IR); LH.push([.18,.26,.18,x,y,z,'#ffcf7a']); LAMPS.push([x+nx*.1,y,z+nz*.1]); };
+    // the court hall (x -38..-32, z 68..73): oak panelling, the public's benches, a barrier, two tables, the witness's chair, the bench on its dais
+    Q(.06,1.3,6,-37.97,T+.65,71,DW); Q(7,1.3,.06,-34.5,T+.65,68.03,DW); Q(7,1.3,.06,-34.5,T+.65,73.97,DW);
+    Q(.1,.06,6,-37.95,T+1.32,71,MW); Q(7,.06,.1,-34.5,T+1.32,68.05,MW); Q(7,.06,.1,-34.5,T+1.32,73.95,MW);
+    Q(.06,3.4,5.6,-31.03,T+2.7,71,DW); Q(.1,.16,5.8,-31.06,T+4.45,71,MW); Q(.06,.5,1.4,-31.05,T+4.75,71,MW);   // tall panelling behind the bench, a carved crest
+    Q(.05,.62,.62,-31.07,T+5.6,71,GD); Q(.05,.52,.52,-31.09,T+5.6,71,WH); Q(.02,.2,.03,-31.12,T+5.68,71,BK); Q(.02,.03,.16,-31.12,T+5.6,70.94,BK);   // the clock
+    for(const x of [-37.4,-36.3]) for(const z of [69,73]){ Q(.42,.07,1.7,x,T+.46,z,MW); Q(.06,.5,1.7,x-.22,T+.78,z,MW); for(const s of [-.82,.82]) Q(.4,.46,.06,x,T+.23,z+s,DW); }
+    for(const [z0,z1] of [[68.05,70.2],[71.8,73.95]]){ const z=(z0+z1)/2; Q(.1,.08,z1-z0,-35.6,T+.98,z,MW); Q(.04,.8,z1-z0,-35.6,T+.45,z,DW); }   // the Schranke
+    for(const z of [70.2,71.8]) Q(.14,1.1,.14,-35.6,T+.55,z,MW);
+    for(const [z,c,b] of [[69.1,68.45,68.2],[72.9,73.55,73.8]]){ Q(1.6,.06,.62,-34.3,T+.78,z,MW); Q(1.5,.72,.05,-34.3,T+.4,z+(z<71?.28:-.28),DW);
+      for(const s of [-.76,.76]) Q(.06,.74,.56,-34.3+s,T+.38,z,DW);
+      for(const x of [-34.75,-33.85]){ Q(.42,.06,.42,x,T+.46,c,GR); Q(.38,.4,.38,x,T+.22,c,DW); Q(.42,.55,.06,x,T+.76,b,DW); }
+      Q(.3,.03,.22,-34.5,T+.82,z,'#efe6cf',.2); Q(.26,.05,.34,-33.95,T+.835,z,z<71?'#8a2a2a':'#2a4a6a'); }
+    Q(.42,.95,.6,-34.0,T+.475,71,DW); Q(.5,.05,.7,-34.0,T+.97,71,MW); Q(.42,.06,.42,-34.62,T+.46,71,GR); Q(.38,.4,.38,-34.62,T+.22,71,DW); Q(.06,.6,.42,-34.85,T+.78,71,DW);
+    Q(.08,1.1,3.6,-32.96,T+1.55,70.5,DW); Q(.72,.07,3.8,-32.62,T+2.13,70.5,MW); for(const z of [68.65,72.35]) Q(.66,1.1,.06,-32.62,T+1.55,z,DW);   // the judges' desk
+    Q(.05,.12,3.5,-33.02,T+1.85,70.5,MW); Q(.05,.12,3.5,-33.02,T+1.25,70.5,MW);
+    for(const [z,hb] of [[69.6,1.3],[70.5,1.6],[71.4,1.3]]){ Q(.5,.08,.5,-31.8,T+1.48,z,GR); Q(.44,.42,.44,-31.8,T+1.22,z,DW); Q(.08,hb,.5,-31.52,T+1.5+hb/2,z,DW); Q(.02,hb-.4,.36,-31.57,T+1.55+hb/2,z,GR); }
+    Q(.3,.03,.22,-32.7,T+2.18,69.6,'#efe6cf',-.15); Q(.24,.14,.32,-32.6,T+2.24,71.6,'#6a2a2a'); Q(.22,.04,.3,-32.6,T+2.33,71.6,'#3a5a3a');
+    Q(.06,.03,.03,-31.04,T+2.56,CRT.key[2],BR);   // the hook (the key itself is index.html's, so it can go)
+    for(const x of [-36.3,-33.9]){ Q(.03,1.55,.03,x,T+6.2,71,BK); Q(.52,.2,.52,x,T+5.33,71,'#e8dcc0'); Q(.56,.04,.56,x,T+5.45,71,BR); LH.push([.4,.06,.4,x,T+5.21,71,'#fff2cc']); LAMPS.push([x,T+5.05,71]); }
+    for(const z of [69.2,72.8]) sconce(-37.95,T+3.1,z,1,0);
+    for(const s of [-1,1]){ Q(.9,2.85,.05,-35+s*.46,T+1.43,73.93,'#3a2416'); for(const y of [T+.75,T+2.0]) Q(.62,.95,.03,-35+s*.46,y,73.89,'#4a3020'); }   // the main door from inside, shut
+    // outside: the portal's double door and steps, a small pair of scales over it; on the west side a boot scraper by a wall with no door
+    for(const s of [-1,1]){ const x=-35+s*.46; P(.9,2.85,.06,x,T+1.43,75.04,'#3a2416'); for(const y of [T+.75,T+2.0]) P(.62,.95,.03,x,y,75.08,'#4a3020'); P(.06,.06,.06,-35+s*.12,T+1.35,75.1,BR); }
+    P(2.4,.14,.24,-35,T+3.05,75.1,'#b8a088'); P(3.4,.12,.56,-35,T+.06,75.3,'#9a948a');
+    P(.04,.62,.03,-35,T+4.75,75.03,'#a8823a'); P(.86,.04,.03,-35,T+5.06,75.03,'#a8823a'); for(const s of [-.4,.4]){ P(.01,.3,.02,-35+s,T+4.9,75.04,'#a8823a'); P(.26,.04,.03,-35+s,T+4.74,75.04,'#a8823a'); }
+    P(.04,.16,.04,-39.25,T+.08,69.58,IR); P(.04,.16,.04,-39.25,T+.08,69.98,IR); P(.03,.035,.44,-39.25,T+.15,69.78,IR);
+    TG=EGP;
+    // the stair hall: a white balustrade up the stair and round the gallery, a chandelier over the void, two orange trees by the door
+    for(let k=0;k<4;k++) Q(.08,.82,.08,24.9,T+k+1.45,90.5+k,WH);
+    Q(.1,.09,5.23,24.9,T+3.55,92.15,WH,0,-Math.PI/4); Q(.2,1.05,.2,24.9,T+1.52,90.15,GD); Q(.24,.12,.24,24.9,T+2.1,90.15,GD);
+    rl(24.94,94.06,28.97,94.06,T+4,WH); Q(.2,1.05,.2,24.94,T+5.52,94.06,GD); Q(.24,.12,.24,24.94,T+6.1,94.06,GD);
+    chand(26.9,91.9,T+8.8,T+12,8,.62);
+    sconce(28.95,T+3.2,91.5,-1,0); sconce(27.6,T+6.6,95.95,0,-1); sconce(23.9,T+6.6,95.95,0,-1);
+    Q(6,.28,.3,26,T+11.86,90.15,GD); Q(6,.28,.3,26,T+11.86,95.85,GD); Q(.3,.28,6,23.15,T+11.86,93,GD); Q(.3,.28,6,28.85,T+11.86,93,GD);
+    Q(4,.02,2,27,T+3.985,95,'#8a6040'); Q(2,.02,2,28,T+2.985,97,'#d8ccb0'); Q(2,.02,2,26,T+7.985,97,'#d8ccb0');   // soffits under the gallery and the two door lintels (block undersides go black at night)
+    for(const z of [90.65,94.4]){ const x=28.35; Q(.62,.55,.62,x,T+.28,z,'#e8eef2'); for(const y of [T+.1,T+.46]) Q(.64,.05,.64,x,y,z,'#2f5f8f'); Q(.08,.8,.08,x,T+.95,z,'#5a3a22');
+      Q(.8,.66,.8,x,T+1.62,z,'#3f6f3a',.4); Q(.66,.6,.66,x,T+1.72,z,'#4a7f3a',1.1); for(let i=0;i<5;i++){ const a=i*1.3; Q(.1,.1,.1,x+Math.cos(a)*.36,T+1.45+(i%3)*.16,z+Math.sin(a)*.36,'#e8822a'); } }
+    // the Festsaal: a red runner, a long table laid with candelabra, sixteen gilt chairs, gold pilasters, a cornice, three chandeliers,
+    // a marble fireplace with a mirror, a painting of a red castle ruin above a river
+    Q(18.8,.02,1.4,33.9,T+5.012,101,'#7a2226');
+    Q(9,.06,1.3,34,T+5.78,101,'#f4f0e6'); for(const z of [100.36,101.64]) Q(9,.5,.02,34,T+5.5,z,'#ece6d8'); for(const x of [29.51,38.49]) Q(.02,.5,1.3,x,T+5.5,101,'#ece6d8'); Q(8.8,.7,1.1,34,T+5.4,101,'#3a2416');
+    for(let i=0;i<8;i++){ const x=29.8+i*1.2; for(const [z,f] of [[99.95,-1],[102.05,1]]){ Q(.46,.07,.46,x,T+5.47,z,RD); Q(.42,.4,.42,x,T+5.2,z,GD); Q(.44,.62,.06,x,T+5.82,z+f*.22,GD); Q(.32,.42,.02,x,T+5.82,z+f*.18,RD); } }
+    for(const [x,f] of [[28.7,-1],[39.3,1]]){ Q(.46,.07,.46,x,T+5.47,101,RD); Q(.42,.4,.42,x,T+5.2,101,GD); Q(.06,.8,.46,x+f*.22,T+5.92,101,GD); Q(.02,.56,.32,x+f*.18,T+5.88,101,RD); }
+    for(const x of [30.5,34,37.5]){ Q(.16,.06,.16,x,T+5.84,101,GD); Q(.05,.42,.05,x,T+6.05,101,GD); Q(.56,.04,.04,x,T+6.24,101,GD);
+      for(const d of [-.26,0,.26]){ Q(.045,.16,.045,x+d,T+6.34,101,WH); LH.push([.04,.08,.04,x+d,T+6.46,101,'#ffcf6a']); } LAMPS.push([x,T+6.5,101]); }
+    for(let x=25;x<=43;x+=2) Q(.42,6.9,.05,x+.5,T+8.45,103.97,GD);
+    for(let x=31;x<=43;x+=2) Q(.42,6.9,.05,x+.5,T+8.45,98.03,GD);
+    Q(20,.28,.3,34,T+11.86,98.15,GD); Q(20,.28,.3,34,T+11.86,103.85,GD); Q(.3,.28,6,24.15,T+11.86,101,GD); Q(.3,.28,6,43.85,T+11.86,101,GD);
+    for(const x of [27.5,34,40.5]) chand(x,101,T+9.7,T+12,8,.62);
+    for(const x of [31.5,39.5]){ sconce(x,T+7.5,103.95,0,-1); sconce(x,T+7.5,98.05,0,1); }
+    Q(.35,.12,2.0,43.8,T+6.25,101,WH); for(const z of [100.15,101.85]) Q(.3,1.2,.3,43.85,T+5.6,z,WH); Q(.06,.95,1.4,43.97,T+5.48,101,BK);
+    LH.push([.2,.22,.8,43.8,T+5.16,101,'#ff9a3c']); LAMPS.push([43.6,T+5.3,101]);
+    Q(.05,2.1,1.7,43.99,T+7.6,101,GD); Q(.04,1.9,1.5,43.97,T+7.6,101,'#c8d4da');
+    Q(1.7,1.3,.05,28.2,T+7.4,98.03,GD); Q(1.5,1.1,.03,28.2,T+7.4,98.06,'#8aa8c8'); Q(1.5,.36,.032,28.2,T+7.03,98.065,'#4a6a8a'); Q(1.5,.2,.034,28.2,T+7.28,98.067,'#5a7a4a');
+    Q(.6,.3,.036,27.9,T+7.52,98.07,'#9b5a4a'); Q(.16,.52,.036,27.66,T+7.6,98.072,'#8a4a3a'); Q(.12,.36,.036,28.16,T+7.5,98.072,'#8a4a3a');
+    // the library: bookcases floor to ceiling (the last one on the west wall stands a little proud, one red book pulled out), a reading
+    // table with a green lamp, a globe, a ladder, an armchair by a garden window, a small chandelier
+    const BKC=['#7a2a2a','#2a4a6a','#3a5a3a','#8a6a3a','#5a3a5a','#a8843a','#2a2a2a','#6a3a2a','#3a3a5a'];
+    const bk=(x0,x1,z0,z1,nx,nz,sec)=>{ const H3=3.35, cx=(x0+x1)/2, cz=(z0+z1)/2, ax=nz!==0, L=ax?x1-x0:z1-z0, fx=nx>0?x1:nx<0?x0:0, fz=nz>0?z1:nz<0?z0:0;
+      Q(x1-x0,H3,z1-z0,cx,T+H3/2,cz,DW);
+      for(let r=0;r<4;r++){ const y=T+.12+r*.8; let s=.06;
+        Q(ax?L:.06,.05,ax?.06:L,ax?cx:fx+nx*.03,y,ax?fz+nz*.03:cz,MW);
+        while(s<L-.1){ const hh=hsh(cx*3+s,r,cz*5), w=Math.min(L-.06-s,.16+hh*.3), h=.44+hsh(cz+s,r*7,cx)*.2, c=BKC[Math.floor(hsh(s*9,r,cx+cz)*BKC.length)];
+          const p=(ax?x0:z0)+s+w/2; Q(ax?w-.02:.05,h,ax?.05:w-.02,ax?p:fx+nx*.025,y+.025+h/2,ax?fz+nz*.025:p,c); s+=w; } }
+      Q(ax?L+.04:.1,.1,ax?.1:L+.04,ax?cx:fx+nx*.02,T+H3+.03,ax?fz+nz*.02:cz,MW);
+      if(sec) Q(.05,.56,.16,fx+nx*.09,T+.92+.8+.28,(z0+z1)/2-.25,'#9b2a2a',0,.35); };
+    bk(24,24.42,98.05,100.45,1,0); bk(24,24.42,100.55,102.5,1,0); bk(24,24.5,102.6,104,1,0,1);
+    bk(31.58,32,98.05,100.9,-1,0); bk(31.58,32,101.1,103.95,-1,0);
+    bk(24.55,25.95,103.58,104,0,-1); bk(27.05,27.95,103.58,104,0,-1); bk(29.05,29.95,103.58,104,0,-1); bk(31.0,31.55,103.58,104,0,-1);
+    bk(24.45,26.95,98,98.42,0,1); bk(29.05,29.95,98,98.42,0,1); bk(31.0,31.55,98,98.42,0,1);
+    Q(1.9,.07,1.0,28,T+.78,101,MW); Q(1.7,.012,.8,28,T+.818,101,GR); for(const dx of [-.85,.85]) for(const dz of [-.4,.4]) Q(.08,.74,.08,28+dx,T+.37,101+dz,DW);
+    Q(.14,.03,.14,28.6,T+.83,100.75,BR); Q(.03,.28,.03,28.6,T+.97,100.75,BR); Q(.32,.09,.15,28.6,T+1.12,100.75,'#2f6a3a'); LH.push([.28,.02,.11,28.6,T+1.07,100.75,'#fff2cc']); LAMPS.push([28.6,T+1.0,100.75]);
+    Q(.38,.025,.27,27.6,T+.83,101.05,'#efe6cf',.2); Q(.02,.03,.27,27.6,T+.835,101.05,'#7a2a2a',.2);
+    for(const [z,f] of [[100.1,-1],[101.9,1]]){ Q(.44,.06,.44,28,T+.46,z,RD); Q(.4,.4,.4,28,T+.22,z,DW); Q(.42,.56,.06,28,T+.76,z+f*.21,DW); }
+    { const x=25.7, z=99.5; Q(.42,.05,.42,x,T+.03,z,DW); Q(.06,.6,.06,x,T+.33,z,DW); Q(.04,.7,.7,x,T+.96,z,GD,.5); Q(.5,.44,.5,x,T+.96,z,'#c8b88a',.3); Q(.44,.5,.44,x,T+.96,z,'#c8b88a',1.0);
+      Q(.2,.16,.02,x+.04,T+1.02,z-.27,'#6a8a4a',.3); Q(.14,.2,.02,x-.18,T+.9,z+.22,'#6a8a4a',.3); }
+    for(const dx of [-.2,.2]) Q(.05,3.2,.05,27.5+dx,T+1.55,103.2,MW,0,.2);
+    for(let i=0;i<7;i++){ const s=-1.3+i*.43; Q(.42,.04,.04,27.5,T+1.55+s*Math.cos(.2),103.2+s*Math.sin(.2),MW); }
+    { const x=30.6, z=102.7; Q(.62,.3,.6,x,T+.3,z,RD); Q(.62,.62,.15,x,T+.76,z+.25,RD); for(const s of [-.31,.31]) Q(.12,.42,.6,x+s,T+.42,z,RD); }
+    chand(28,101,T+3.15,T+4,6,.45);
+    TG=EGT;
+    // the passage: a lantern on the hidden stair, an iron gate stood open at its foot, red sandstone ribs every few steps, lanterns
+    // along the way, and in the L2 hall a little rail and the trapdoor stood up against the wall
+    lantern(19.5,T-1.4,103.85,0,-1); lantern(14.5,T-3.7,103.85,0,-1);
+    { const z=102.06; for(let i=0;i<6;i++) Q(.04,2.3,.04,15.6+i*.18,T-3.85,z,IR); for(const y of [T-4.85,T-2.9]) Q(1.0,.05,.04,16.05,y,z,IR); }
+    for(const z of [100.5,96.5,92.5,88.5,84.5,80.5,77.5]){ Q(.18,2.4,.3,11.09,T-3.8,z,SS); Q(.18,2.4,.3,12.91,T-3.8,z,SS); Q(2,.22,.3,12,T-2.13,z,SS); }
+    for(const z of [98.5,90.5,82.5]) lantern(11.12,T-3.7,z,1,0);
+    lantern(12.88,T-3.7,94.5,-1,0); lantern(12.88,T-3.7,86.5,-1,0); lantern(12.88,T-3.6,78.5,-1,0);
+    TG=RSL; rl(11.97,72.02,11.97,72.98,T,IR); Q(.05,1.0,1.96,11.04,T+.5,73,'#4a3020'); Q(.06,.04,.3,11.07,T+.15,73,IR); Q(.06,.04,.3,11.07,T+.85,73,IR);
+  }
   // ---- v1.64 e-scooter stands (Flax 12:23 + 13:14): by Murat's döner window, in the Schloss's Ehrenhof and on the
   // Bahnhofsvorplatz. A painted white parking box on the ground; index.html parks n plain scooters in each, heading h.
   const ESKS=[{x:-13.25,z:-54.2,h:-Math.PI/2,n:3},{x:-14.2,z:86.6,h:0,n:3},{x:81.6,z:110.2,h:0,n:3}];
@@ -873,6 +1037,8 @@ export function build(H){
   const spit=new THREE.Mesh(blockyGeo(SPL),propMat); spit.position.set(DN.sx,0,DN.sz); spit.matrixAutoUpdate=false; spit.updateMatrix(); group.add(spit);   // v1.55
   const rsDay=new THREE.MeshLambertMaterial({vertexColors:true}), rsNight=new THREE.MeshBasicMaterial({vertexColors:true,color:0xc8b49a});   // v1.51 the Schloss rooms' props
   const rsm=new THREE.Mesh(blockyGeo(RSL),rsDay); rsm.matrixAutoUpdate=false; group.add(rsm);
+  const EGM=[EGC,EGP,EGT].map(a=>{ const m=new THREE.Mesh(blockyGeo(a),rsDay); m.matrixAutoUpdate=false; m.visible=false; group.add(m); return m; });   // v1.69
+  const EGZ=[c=>c.x>-39.5&&c.x<-30.5&&c.z>66.5&&c.z<75&&c.y<T+8, c=>c.x>20&&c.x<47&&c.z>84&&c.z<106&&c.y<T+14, c=>c.x>9&&c.x<24&&c.z>70&&c.z<106&&c.y<T-.3];
 
   // lamp glow: one Points cloud, only drawn at night
   const lg=new THREE.BufferGeometry(); lg.setAttribute('position',new THREE.Float32BufferAttribute(LAMPS.flat(),3));
@@ -1109,6 +1275,28 @@ export function build(H){
       g.fillStyle='#d4a53c'; for(const [x,y] of [[34,34],[w-34,34],[34,h-34],[w-34,h-34],[w/2,22],[w/2,h-22],[22,h/2],[w-22,h/2]]){ g.beginPath(); g.arc(x,y,11,0,7); g.fill(); } },
     -10,T+12.97,98.5,0);
     cb.m.rotation.x=Math.PI/2; cb.m.updateMatrix(); NB.push([cb,.6,.45]); }
+  // v1.69 ceilings for the easter-egg rooms (down-facing boards like the Rittersaal's, so they read by day and at night; shown with their zone)
+  const EGX=[[],[],[]];
+  { const stuc=(g,w,h,base)=>{ const gr=g.createRadialGradient(w/2,h/2,4,w/2,h/2,Math.max(w,h)*.6); gr.addColorStop(0,'#fbf5e8'); gr.addColorStop(1,base); g.fillStyle=gr; g.fillRect(0,0,w,h); },
+      ring=(g,cx,cy,rx,ry,c,lw)=>{ g.strokeStyle=c; g.lineWidth=lw; g.beginPath(); g.ellipse(cx,cy,rx,ry,0,0,7); g.stroke(); },
+      ros=(g,cx,cy,r)=>{ g.fillStyle='#d4a53c'; for(let i=0;i<8;i++){ const a=i*Math.PI/4; g.beginPath(); g.ellipse(cx+Math.cos(a)*r*.55,cy+Math.sin(a)*r*.55,r*.42,r*.16,a,0,7); g.fill(); } g.fillStyle='#f2ede2'; g.beginPath(); g.arc(cx,cy,r*.3,0,7); g.fill(); },
+      put=(zi,b)=>{ b.m.rotation.x=Math.PI/2; b.m.updateMatrix(); b.m.visible=false; EGX[zi].push(b.m); NB.push([b,.6,.45]); };
+    // the Festsaal (x 24.3..43.7, z 98.3..103.7): stucco, three gilded coffers round the chandeliers, a leaf border
+    put(1,board(19.4,5.4,640,178,(g,w,h)=>{ stuc(g,w,h,'#e6dcc4'); g.strokeStyle='#d4a53c'; g.lineWidth=8; g.strokeRect(6,6,w-12,h-12); g.strokeStyle='#c9bfa6'; g.lineWidth=2; g.strokeRect(18,18,w-36,h-36);
+      g.fillStyle='#d4a53c'; for(let x=30;x<w-20;x+=22){ g.beginPath(); g.ellipse(x,12,6,3,0,0,7); g.ellipse(x,h-12,6,3,0,0,7); g.fill(); }
+      for(const f of [3.2/19.4,9.7/19.4,16.2/19.4]){ const cx=f*w, cy=h/2; g.fillStyle='rgba(255,252,244,.7)'; g.fillRect(cx-88,cy-56,176,112); g.strokeStyle='#d4a53c'; g.lineWidth=6; g.strokeRect(cx-88,cy-56,176,112);
+        ring(g,cx,cy,64,40,'#d4a53c',4); ring(g,cx,cy,52,30,'#e8dcc0',2); ros(g,cx,cy,22);
+        for(const [sx,sy] of [[-1,-1],[1,-1],[-1,1],[1,1]]){ g.fillStyle='#d4a53c'; g.beginPath(); g.arc(cx+sx*80,cy+sy*48,6,0,7); g.fill(); } } },34,T+11.97,101,0));
+    // the stair hall (x 23.3..28.7, z 90.3..95.7): an oval gilded ring, the rosette where the chandelier hangs
+    put(1,board(5.4,5.4,192,192,(g,w,h)=>{ stuc(g,w,h,'#e6dcc4'); g.strokeStyle='#d4a53c'; g.lineWidth=6; g.strokeRect(5,5,w-10,h-10);
+      const cx=(26.9-23.3)/5.4*w, cy=(95.7-91.9)/5.4*h; ring(g,cx,cy,52,44,'#d4a53c',5); ring(g,cx,cy,40,33,'#e8dcc0',2); ros(g,cx,cy,18); },26,T+11.97,93,0));
+    // the library (x 24..32, z 98..104): dark oak coffers under the Festsaal's floor, a small rosette over the chandelier
+    put(1,board(8,6,256,192,(g,w,h)=>{ g.fillStyle='#4a301c'; g.fillRect(0,0,w,h);
+      for(let i=0;i<4;i++) for(let j=0;j<3;j++){ const x=8+i*61, y=8+j*60; g.fillStyle='#6a4428'; g.fillRect(x,y,56,54); g.fillStyle='#7a5232'; g.fillRect(x+7,y+7,42,40); g.fillStyle='#c8a24a'; g.fillRect(x+25,y+24,6,6); }
+      g.fillStyle='#3a2414'; g.fillRect(w/2-22,h/2-22,44,44); ros(g,w/2,h/2,16); },28,T+3.97,101,0));
+    // the court hall (x -38..-31, z 68..74): plain plaster, a moulded border, a small rosette between the two pendant lamps
+    put(0,board(7,6,224,192,(g,w,h)=>{ stuc(g,w,h,'#e2d8c2'); g.strokeStyle='#bfb49c'; g.lineWidth=8; g.strokeRect(6,6,w-12,h-12); g.lineWidth=2; g.strokeRect(22,22,w-44,h-44);
+      g.fillStyle='#bfb49c'; g.beginPath(); g.arc(w/2,h/2,14,0,7); g.fill(); g.fillStyle='#e8dfcc'; g.beginPath(); g.arc(w/2,h/2,7,0,7); g.fill(); },-34.5,T+6.97,71,0)); }
   // v1.52 the Popakademie's name over the glass (plain letters, no logo)
   NB.push([board(9,1.3,720,104,(g,w,h)=>{ g.fillStyle='#1c1c22'; g.fillRect(0,0,w,h); g.fillStyle='#e0307a'; g.fillRect(24,h-20,96,8);
     g.fillStyle='#f4f1ea'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 62px '+FONT; g.fillText('Popakademie',w/2,h/2); },34,T+8,-103.97,0),.35,1.1]);
@@ -1229,9 +1417,11 @@ export function build(H){
     if(x>=88.5&&x<112.5&&z>=53.6&&z<64) return 'Kunsthalle';
     if(x>=88&&z>=63&&z<96) return Math.hypot(x-PL.cx,z-PL.cz)<PL.rout&&y<T+6?'Planetarium · Kuppelsaal':'Planetarium';   // v1.57
     if(x>=FP.x0&&z>=FP.z0&&z<=FP.z1+1) return x>=108.5&&x<122.5&&z>=BAS.z0-1&&z<=BAS.z1+2?'Wasserspiele':Math.hypot(x-WT.x,z-WT.z)<12?'Wasserturm':'Friedrichsplatz';   // v1.58 the basin + its terraces
+    if(inTnl(Math.floor(x),y,Math.floor(z))) return 'Gewölbegang';   // v1.69
     if(x>=L2.x0&&x<L2.x1+1&&z>=L2.z0&&z<L2.z1+1&&y>T-1){ if(y>=LT+.5) return 'L2 · Dach'; if(x>=L2.x0+1&&x<L2.x1&&z>=L2.z0+1&&z<L2.z1) return y>=HC+.5?'L2 · Treppenhaus':'Gedenkhalle'; }
     if(x>=66&&z>=HBF.vz0-8) return z>=HBF.z0-.5?'Hauptbahnhof':'Bahnhofsvorplatz';
     if(x>=RX0+1&&x<RX1&&z>=RZ+1&&z<SCH.z1&&y>T-1&&y<T+13) return y>=T+4.5?'Schloss · Rittersaal':z<RZ+4?'Schloss · Eingangshalle':'Schloss · Treppenhaus';   // v1.51
+    if(y>T-1&&y<T+12.5){ if(x>=23&&x<29&&z>=90&&z<96) return 'Schloss · Treppenhaus Ost'; if(x>=24&&x<44&&z>=98&&z<104) return y>=T+4.5?'Schloss · Festsaal':x<32?'Schloss · Bibliothek':'Schloss'; }   // v1.69
     if(x>=SCH.x0&&x<=SCH.x1+1&&z>=SCH.wz0&&z<=SCH.z1+1) return (x>SCH.w1[1]+1&&x<SCH.w2[0]&&z<SCH.z0-2)?'Schloss · Ehrenhof':'Schloss';
     if(z>SCH.z1+1||x<-108) return 'Schlossgarten';
     if(x>=88&&z>FP.z1) return 'Oststadt';
@@ -1239,6 +1429,7 @@ export function build(H){
     if(x>=-26.6&&x<-13.4&&z>=-6.8&&z<3.6) return z<-5&&x>=-21&&x<-18?'Rathausturm':x<-20?'St. Sebastian':'Altes Rathaus';
     if(x>=-84.6&&x<-59.4&&z>=65.4&&z<75.6){ if(!(x>-83&&x<-61&&z>67&&z<74)) return 'Jesuitenkirche';   // v1.49
       return jkO(Math.floor(x),Math.floor(z))<=3.45?'Jesuitenkirche · unter der Kuppel':x<-80?'Jesuitenkirche · Chor':x>-64?'Jesuitenkirche · Vorhalle':'Jesuitenkirche · Langhaus'; }
+    if(x>=CRT.x0+1&&x<CRT.x1&&z>=CRT.z0+1&&z<CRT.z1&&y>T-1&&y<T+7) return 'Gerichtssaal · A2';   // v1.69
     if(x>=-15&&x<-12.6&&z>=-61&&z<-55.4) return 'Breite Straße · Imbiss am Ring';   // v1.55
     if(x>=-55&&x<-44&&z>=52&&z<62) return 'Schillerplatz · B3';   // v1.67
     if(x>=43&&x<49&&z>=42&&z<46) return 'Hinterhof · N4';   // v1.66
@@ -1260,15 +1451,16 @@ export function build(H){
   function tick(dt,night,cam){
     if(night!==nightWas){ nightWas=night; lamps.visible=pools.visible=night; headMat.emissive.set(night?0xffd27a:0x000000); headMat.emissiveIntensity=night?1.3:0;
       for(const [b,d,n] of NB) b.m.material.emissiveIntensity=night?n:d;
-      bw.material.emissive.setHex(night?0x2c6c92:0); cw.material.emissiveIntensity=night?.9:.35; rsm.material=night?rsNight:rsDay; spit.material=night?rsNight:propMat; PLD.glass.material.emissiveIntensity=night?.35:0; }   // v1.50 the fountains are lit at night
+      bw.material.emissive.setHex(night?0x2c6c92:0); cw.material.emissiveIntensity=night?.9:.35; rsm.material=night?rsNight:rsDay; for(const m of EGM) m.material=rsm.material; spit.material=night?rsNight:propMat; PLD.glass.material.emissiveIntensity=night?.35:0; }   // v1.50 the fountains are lit at night
     if(night&&(tvT-=dt)<0){ tvT=.1+Math.random()*.35; tvPaint(TL.winTv,.45+Math.random()*.55,Math.random()); if(Math.random()<.5) tvPaint(TL.winTv2,.4+Math.random()*.5,Math.random()); H.emTex.needsUpdate=true; }
     jt+=dt; jetsSet(); spit.rotation.y+=dt*.9; spit.updateMatrix();
     if((clk-=dt)<0){ clk=5; if(new Date().getMinutes()!==clockDraw.m) clockDraw(); }
     if(cam){ const v=Math.abs(cam.x-PL.cx)<16.5&&Math.abs(cam.z-PL.cz)<16.5&&cam.y<T+9; if(v!==PLD.vis){ PLD.vis=v; for(const o of PLD.in) o.visible=v; } }   // v1.57 the Planetarium's hall only draws from close by
+    if(cam) for(let i=0;i<3;i++){ const v=EGZ[i](cam); if(v!==EGM[i].visible){ EGM[i].visible=v; for(const m of EGX[i]) m.visible=v; } }   // v1.69
     if(PLD.vis){ PLD.lst+=dt*Math.PI*2/86164*60; PLD.eq.quaternion.setFromAxisAngle(PLD.pole,-PLD.lst); } }
 
-  return { mhq:{doner:[DN.x,DN.z,Math.PI/2],baker:[BK.x+.4,BK.z-.75,Math.PI],kessler:[44.5,65.25,Math.PI],hannes:[13.5,-72.6,-2.4]}, group, place, riverD, tick, steps, QD, benz, flood, ghost:null, l2:{x:14,z:71,roofY:LT+1},
-    spawn:{x:4.5,z:-74.6,yaw:Math.PI}, pop:{x:34,z:-103}, tram:TRM, esk:ESKS, plk:PLKW, slp:SLP, solid:(x,y,z)=>YD.shut&&Math.floor(x)===48&&Math.floor(z)===43&&y>=T&&y<T+2, jupp:{x:7.2,z:-77.4}, seats:SEATS,
+  return { mhq:{doner:[DN.x,DN.z,Math.PI/2],baker:[BK.x+.4,BK.z-.75,Math.PI],kessler:[44.5,65.25,Math.PI],hannes:[13.5,-72.6,-2.4]}, group, place, riverD, tick, steps, QD, benz, flood, ghost:CRT.g, crt:CRT, pdoor:PDR, l2:{x:14,z:71,roofY:LT+1},
+    spawn:{x:4.5,z:-74.6,yaw:Math.PI}, pop:{x:34,z:-103}, tram:TRM, esk:ESKS, plk:PLKW, slp:SLP, solid:(x,y,z)=>(YD.shut&&Math.floor(x)===48&&Math.floor(z)===43&&y>=T&&y<T+2)||(PDR.shut&&Math.floor(x)===PDR.x&&Math.floor(z)>=PDR.z0&&Math.floor(z)<=PDR.z1&&y>=T&&y<T+3), jupp:{x:7.2,z:-77.4}, seats:SEATS,
     dark:[PL.cx,PL.cz,PL.rin+.75,PL.rout+.3,T+4.05], pl:{staff:PLD.staff,doze:PLD.doze,mat:PLD.mat},   // v1.57 the Planetarium's dark hall + its two people
     facts:[[SLP.cx,SLP.cz,5.5,'Schillerplatz: Friedrich Schiller (1759-1805) in bronze. His first play, Die Räuber, had its premiere on 13 January 1782 at the Nationaltheater, which stood by this square until 1943.'],[WT.x,WT.z,15,'Wasserturm: 60 m tall, built 1886-1889 to a design by Gustav Halmhuber. Up on the dome stands Amphitrite, the sea goddess, in copper.'],
       [112,20.5,6,'The Wasserspiele: the big fountain first played on 9 September 1893. Bruno Schmitz added the water steps, the basin and the pergolas from 1899. Today 178 nozzles, the tallest jet up to 28 m, from spring to mid-October.'],   // v1.58

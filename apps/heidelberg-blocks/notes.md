@@ -853,6 +853,12 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
 - v1.65 the Planken comes alive: Planken W view (-30,21 looking east) 93->111 calls, E view (70,21 looking west) 106->124
   calls (+18: 8 instanced stroller meshes x 4 figures, 1 pigeon InstancedMesh (25 birds), 5 new folk, the shop windows +
   signs as one quad mesh, the Eiscafé/menu/Kiosk boards). Café close view 72, night Planken 115, phone 412x900 Planken 54.
+- v1.69 easter egg (court, palace rooms, passage): props in three proximity meshes + four ceiling boards shown only inside
+  their zone. Desktop 1280x720 day v1.68 -> v1.69 calls/tris: street west of A2 158/200.3k -> 161/204.4k, court hall
+  102/163.7k -> 107/168.9k, stair hall 51/116.2k -> 54/127.3k, Festsaal 61/116.3k -> 67/127.1k, library 53/121.0k ->
+  57/132.2k, passage 144/207.1k -> 145/212.0k, L2 hall 125/182.9k -> 125/186.1k, Ehrenhof by the side door 55/124.1k ->
+  62/135.5k. Phone 390x844 ?touch day: street 86/160k, court 77/140k, stair 42/104k, Festsaal 51/102k, library 41/105k,
+  passage 110/158k, L2 hall 102/146k; night within ±3 calls.
 
 ## testing
 - scratch: $SP/hb (index.html + mk.sh injects window.__G/__E into gaunt/sw/hm43/hb). The live file only has a
@@ -1336,3 +1342,48 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   0 JS errors. Open questions for Flax: q1 orientation: ours opens south, down to the walk and
   the valley; which way does the real bowl face? q2 the stage: real one has a wall/terrace behind; ours a low parapet: enough? q3 the Michaelskloster ruins:
   build them properly next (walk-in basilica walls, tower stumps), or keep these few low walls?
+- v1.69 (2026-10-15 21:02) FLAX'S EASTER EGG: a hidden court entrance in A2, a key for the Schloss side door, palace rooms
+  and a tunnel into L2 (Flax 19:33: "That's fine. Then it is in the log, but please implement it"). Fully logged here like
+  any version. PRODUCT CHOICES (it's an easter egg, Flax's own): no announce, no Sloppy Monitor entry, no on-screen hint,
+  no map label, no quest marker, no fact, no in-game changelog line pointing to it. Keep it that way unless Flax asks.
+  * The court (mannheim.js CRT={x0:-39,x1:-31,z0:67,z1:74}): A2's houses are cleared after they're built, no R() (like the
+    Schillerplatz), so the rest of Mannheim is unchanged. Cream walls, sandstone plinth/corners, trim belts, slate roof,
+    a red sandstone portal on the south face (Bismarckstraße side) with a shut double door and a small pair of scales over
+    it (the main door never opens). The way in: the WEST wall's cells x -39, y T..T+2, z 70..71 are w.ghost (solidAt
+    lets you through, nothing drawn, no door mesh or label). The only clues: a worn stone threshold on the pavement and an
+    iron boot scraper by a wall with no door. Inside (place 'Gerichtssaal · A2', x -38..-32, z 68..73, y T..T+6): plank
+    floor, panelling, the judges' dais and bench, a clock, two pendant lamps, benches, the main door from inside. The key
+    hangs on a hook behind the bench (CRT.key [-31.07,T+2.5,72.45]).
+  * The key (index.html bag): BGI.pkey '🔑 Old brass key' (tag "Schloss, Ostflügel, Seitentür"). Chip "Take the old brass
+    key" inside the court within 2.7 of the hook; the key mesh hides once taken. BG.pd=1 once the door is unlocked (saved in
+    hb-bag; the door stays open for good, the key stays in the bag).
+  * The Schloss side door (PDR={x:29,z0:92,z1:93}, the east wing's court-facing side, red lintel): w.solid while
+    PDR.shut. With the key: chip "Unlock the side door" (east of the door, within 1.9), a clunk, two oak leaves swing
+    inwards over 1.3 s. Without the key, walking into it: a knock and '🚪 Locked.' once (resets 2.5 away).
+  * The palace rooms (place names 'Schloss · Treppenhaus Ost' / 'Schloss · Festsaal' / 'Schloss · Bibliothek'; the
+    Mittelbau's Rittersaal from v1.51 is untouched, so ours is a Festsaal, Rittersaal-STYLE): stair hall x 23..28,
+    z 90..95 open to T+12, red-carpet stair up the west wall, gallery at T+4, chandelier, two orange trees by the door.
+    Festsaal upstairs x 24..43, z 98..103, y T+5..T+11: parquet, red runner, long table, 18 gilt chairs, gold pilasters,
+    cornice, three chandeliers, sconces, a marble fireplace with a mirror, a painting of a red castle ruin over a river,
+    window niches. Library below it x 24..31, z 98..103, y T..T+3: bookcases floor to ceiling, ladder, reading table
+    with a green lamp, globe, armchair by a garden window, small chandelier. Ceilings are down-facing boards like the
+    Rittersaal's (stucco + gilded coffers / dark oak coffers / plaster in the court) so they read by day AND at night
+    (plain block undersides go black at night); three soffit props under the gallery and the two lintels for the same reason.
+  * The tunnel: the last bookcase on the library's west wall stands a little proud with one red book pulled out (the
+    only clue); behind it (23, T..T+2, 103) a stair goes down west under the main front, a vaulted passage
+    ('Gewölbegang', red castle masonry, cobbles, sandstone ribs, lanterns, an iron gate stood open) runs north at
+    x 11..12 under the Ehrenhof and the Bismarckstraße, and comes up a stair through the floor of the L2 hall's
+    south-west corner (11, T, 72..73: a little rail, the trapdoor stood up against the wall). FLAX'S OWN EXCEPTION to the
+    v1.56 seal: L2 stays sealed from the street (its walls are unchanged; the ghost box is the court's, not L2's).
+    Leak audit: the passage's only openings are the library hole and the L2 hall cells.
+  * Budget: the indoor props are three proximity meshes (EGC court / EGP palace rooms / EGT passage, rsm materials,
+    visible only with the camera inside their box: EGZ in tick), so the street pays only the voxels (~+3k tris) and the
+    outside props (228 tris). Props: court 1248 tris, stair 888, Festsaal 2544, library 4500, passage 1296. Four ceiling
+    boards (small canvases) ride with the zones. Numbers in ## budget.
+  * Resume: cwlStand still rejects spots in L2's footprint, so a save in the L2 hall resumes on the street outside; a save
+    in the court, the palace rooms or the passage resumes there and you can walk out (the side door stays open, BG.pd).
+  Tested headless desktop 1280x720 + phone 390x844 ?touch: walked in through the ghost cells, key chip (touch tap),
+  locked line without the key, unlock chip (touch tap) + leaves swing, stair -> gallery -> Festsaal, library -> bookcase
+  -> stair down -> passage -> up into the L2 hall and back, L2 street walls still shut, touch stick walking in the stair
+  hall, day/golden/night looks; 0 JS errors. Open questions for Flax: q1 the court looks like a plain classical court
+  house; should it look like a real one? q2 is something waiting for you inside L2 at the end of the tunnel?
