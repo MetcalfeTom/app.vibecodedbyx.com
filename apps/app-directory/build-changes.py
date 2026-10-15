@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-# Bakes changes.json for the app directory's change log: the latest 8 commit
-# lines per app (UTC time as 2026-10-01T22:44Z, subject), newest first, from one git log walk over apps/.
+# Bakes changes.json for the app directory's change log: every commit
+# line per app (hamburglar06 2026-10-15: "Let's not limit the items in the change log"; the window shows 20 at a time) (UTC time as 2026-10-01T22:44Z, subject), newest first, from one git log walk over apps/.
 # Commits that only touch an app's notes, or touch more than 6 apps at once
 # (sweeps), are left out. Run it again to refresh the log; it is not on a cron.
 import subprocess, json, re, os, datetime
 ROOT = '/vibespace'
-N = 8
+N = 0   # lines kept per app, 0 = all of them (was 8 until 2026-10-15)
 raw = subprocess.run(['git', '-C', ROOT, 'log', '--format=%x01%ad%x02%s', '--date=format-local:%Y-%m-%dT%H:%MZ', '--name-only', '--', 'apps/'],
                      capture_output=True, text=True, check=True, env=dict(os.environ, TZ='UTC')).stdout
 apps = {d for d in os.listdir(ROOT + '/apps') if os.path.isdir(ROOT + '/apps/' + d)}
@@ -28,7 +28,7 @@ for block in raw.split('\x01')[1:]:
         if len(t) > 220:
             t = t[:217].rsplit(' ', 1)[0] + '…'
         L = out.setdefault(slug, [])
-        if len(L) < N:
+        if not N or len(L) < N:
             L.append([date, t])
 # Credits for the creator search (Tatum 2026-10-01 23:33: "you can search by creator name, but only twitch usernames count"):
 # a name counts for an app when a commit on it names them in an attribution spot: "(Tatum)", "(fannar22 23:33 ...", "per X",

@@ -1,6 +1,7 @@
 # App Directory
 
 ## log
+- 2026-10-15 04:53 UTC (hamburglar06: "Let's not limit the items in the change log", "they can load in groups of 20", "no button just scrolling"): build-changes.py keeps every line per app (N = 0; changes.json ~1.15 MB, ~410 KB gzipped, was ~570 KB); a card's change log shows 20 and adds 20 more as you scroll near the end (scroll listener on #histL, fills a tall window, 'the very first change' at the bottom, later pages join with aria-live off; footer 'the latest 40 of 535, scroll for older')
 - 2026-10-14 11:24 UTC (Tatum): the 'genre all ↓' value up top is a button: it scrolls to the genre chips (smooth unless reduced motion), focuses the active chip, and the chip row glows cyan for 1.6 s.
 - 2026-10-14 11:06 UTC (Tatum): 'last sync' is now 'last change' (it always was the newest app's change time in the list, worked out once on load, no polling), the time ticks on every 30 s, and a small ↻ button beside it downloads both lists again (title says how many new apps; fresh row and counts update). Hidden on phones like before.
 - 2026-10-13 22:47 (hamburglar06): the git log board's heading now says 'app activity' (was 'git log · busiest apps'), sort group aria-label 'Sort app activity'.
