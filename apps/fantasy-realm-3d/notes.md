@@ -471,6 +471,7 @@
 - Knight leash could use a visible clearing boundary.
 
 - v2.40.25 (2026-10-11 02:15, fannar22): emptying a body closes the bag too when the loot window opened it (lootSync no longer clears lootInv); a bag you opened yourself stays open.
+- v2.45.2 (2026-10-15 01:08): corpse drawing on the map and the corpse arrow read the difficulty through diffNow(), which survives bootRealm emptying OPTS and DIFFS; a save with a corpse could crash the wake-up ("reading 'diff'", 3 visitors this week).
 - v2.40.32 (2026-10-11 15:50): the difficulty orb update (WO.od) no longer reads OPTS.diff while bootRealm has OPTS emptied - a visitor hit "reading diff" of undefined in this week's stats.
 
 - 2026-10-11 17:55 SEO pass (no version bump): title "Fantasy Realm 3D — free browser RPG: make a hero and explore a fantasy world", 137-char description, og:title, VideoGame JSON-LD.
