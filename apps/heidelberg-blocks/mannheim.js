@@ -217,6 +217,54 @@ export function build(H){
     if(d>2.45) set(x,T,z,B.quay); else set(x,T-1,z,B.blue); }
   for(let x=-2;x<=0;x++) for(let z=27;z<=29;z++) for(let y=T-1;y<T+2;y++) set(x,y,z,y===T+1&&(x!==-1||z!==28)?B.quay:B.stone);
   for(let y=T+2;y<T+7;y++) set(-1,y,28,y===T+6?B.bronze:B.stone);
+  // ---- v1.48 (Flax 00:45 "give mannheim a make over"): the Altes Rathaus and St. Sebastian, a town hall and a church joined by one
+  // bell tower (foundation stone 1700, done by 1713), and the Marktplatzbrunnen. Really the pair stands on the south edge of the
+  // Marktplatz inside G1; ours stands across the lane in F1 so the little square stays open. Seen from the square the Rathaus is on
+  // the left (east, by the Breite Straße) and the church on the right. Built over F1's houses after they were made and with no R(),
+  // so every other house, tree and container in Mannheim stays exactly where it was.
+  for(let x=-25;x<=-15;x++) for(let z=-5;z<=2;z++){ set(x,T-1,z,B.pave); for(let y=T;y<T+36;y++) set(x,y,z,0); }
+  const rhBox=(x0,x1,z0,z1,y0,y1,b)=>{ for(let x=x0;x<=x1;x++) for(let z=z0;z<=z1;z++) for(let y=y0;y<=y1;y++) set(x,y,z,b); };
+  rhBox(-25,-22,-5,2,T,T+11,B.ochre); rhBox(-18,-15,-5,2,T,T+11,B.ochre);   // the church wing (west), the Rathaus wing (east)
+  rhBox(-21,-19,-2,2,T,T+7,B.ochre); rhBox(-21,-19,-5,-3,T,T+19,B.ochre);   // a lower link behind, the bell tower in the middle
+  // one face: cells in order along it, rule(i,f,n) picks the block at height f (null keeps the ochre, 'L' = a window that may be lit;
+  // set0 skips the curtain/TV moods, nobody watches TV in the Rathaus)
+  const rhRun=(x0,z0,x1,z1)=>{ const c=[]; for(let x=x0;x<=x1;x++) for(let z=z0;z<=z1;z++) c.push([x,z]); return c; };
+  const rhFace=(cells,f0,f1,rule)=>cells.forEach(([x,z],i)=>{ for(let f=f0;f<=f1;f++){ let b=rule(i,f,cells.length); if(b==null) continue;
+    if(b==='L') b=hsh(x,T+f,z)<.35?B.windowLit:B.window; (b===B.windowLit?set0:set)(x,T+f,z,b); } });
+  const qn=(i,n)=>i===0||i===n-1, belt=f=>f===3||f===11;
+  const rhStd=win=>(i,f,n)=>qn(i,n)||f===0?B.sandstone:belt(f)?B.trim:win(i)&&(f===1||f===2||f===4||f===5||f===8||f===9)?'L':null;
+  // the Rathaus: three storeys of paired windows; on the square a portal, and Justitia in a niche up top. Quoins only on the outer
+  // corners, belts at the ground floor and the cornice (more ochre, less red)
+  rhFace(rhRun(-15,-5,-15,2),0,11,rhStd(i=>i===1||i===3||i===4||i===6));
+  rhFace(rhRun(-18,2,-15,2),0,11,rhStd(i=>i===1||i===2));
+  rhFace(rhRun(-18,-2,-18,2),8,11,(i,f)=>f===11?B.trim:(f===8||f===9)&&(i===1||i===3)?'L':null);
+  rhFace(rhRun(-18,-5,-15,-5),0,11,(i,f)=>i===3?B.sandstone:i===0?(f===0?B.sandstone:belt(f)?B.trim:null):f<=2?B.door:belt(f)?B.trim:f===4||f===5?'L':f===8||f===9?0:null);
+  // St. Sebastian: tall church windows down the side lane, the same front as the Rathaus (Mannheim likes its symmetry), Pietas in the niche
+  rhFace(rhRun(-25,-5,-25,2),0,11,(i,f,n)=>qn(i,n)||f===0?B.sandstone:f===3||f===11?B.trim:(i===2||i===5)?(f===10?B.sandstone:f!==3?B.window:null):null);
+  rhFace(rhRun(-25,2,-22,2),0,11,(i,f,n)=>qn(i,n)||f===0?B.sandstone:f===3||f===11?B.trim:(i===1||i===2)&&f>=4?(f===10?B.sandstone:B.window):null);
+  rhFace(rhRun(-22,-2,-22,2),8,11,(i,f)=>f===11?B.trim:(f===8||f===9)&&(i===1||i===3)?B.window:null);
+  rhFace(rhRun(-25,-5,-22,-5),0,11,(i,f)=>i===0?B.sandstone:i===3?(f===0?B.sandstone:belt(f)?B.trim:null):f<=2?B.door:belt(f)?B.trim:f>=4&&f<=6?B.window:f===8||f===9?0:null);
+  // the link behind the tower: two storeys, a flat roof
+  rhFace(rhRun(-21,2,-19,2),0,7,(i,f)=>f===0?B.sandstone:f===3||f===7?B.trim:i===1&&(f===1||f===2||f===4||f===5)?'L':null);
+  for(let x=-21;x<=-19;x++) for(let z=-2;z<=1;z++) set(x,T+7,z,B.gravel);
+  // the tower: a portal, the plaque, two windows, the clock above the roofs (boards), an open belfry with its bell (props), then the helm
+  const twr=(i,f,n)=>qn(i,n)?B.sandstone:belt(f)||f===16||f===19?B.trim:i===1&&(f===17||f===18)?0:null;
+  rhFace(rhRun(-21,-5,-19,-5),0,19,(i,f,n)=>i===1&&f<=2?B.door:i===1&&(f===8||f===9)?B.window:f===0&&!qn(i,n)?B.sandstone:twr(i,f,n));
+  rhFace(rhRun(-19,-5,-19,-3),12,19,twr); rhFace(rhRun(-21,-5,-21,-3),12,19,twr);
+  rhFace(rhRun(-21,-3,-19,-3),8,19,(i,f,n)=>i===1&&(f===8||f===9)?B.window:twr(i,f,n));
+  set(-20,T+17,-4,0); set(-20,T+18,-4,0);
+  for(let x=-21;x<=-19;x++) for(let z=-5;z<=-3;z++) set(x,T+20,z,B.slate);
+  // roofs: a steep gable over the church (its end faces the square), a slate mansard with dormers over the Rathaus
+  for(let x=-25;x<=-22;x++) for(let z=-5;z<=2;z++){ const end=z===-5||z===2, rim=x===-25||x===-22;
+    set(x,T+12,z,end?(rim?B.trim:B.ochre):B.roofDark); if(!rim) set(x,T+13,z,end?B.trim:B.roofDark); }
+  for(let x=-18;x<=-15;x++) for(let z=-5;z<=2;z++){ const edge=x===-18||x===-15||z===-5||z===2; set(x,T+12,z,edge&&(x+z)%3===0?B.window:B.slate);
+    if(x>-18&&x<-15&&z>-5&&z<2) set(x,T+13,z,B.slate); }
+  // ---- v1.48 the Marktplatzbrunnen in the middle of G1: a red sandstone rim you can't step over (the real one has a railing),
+  // water, a stone base with four spouts; the figures are props (below) ----
+  const MB={x:-19.5,z:-15.5};
+  for(let x=-24;x<=-15;x++) for(let z=-20;z<=-11;z++){ const d=Math.hypot(x+.5-MB.x,z+.5-MB.z); if(d>3.4) continue; if(d>2.45) set(x,T,z,B.parapet); else set(x,T-1,z,B.blue); }
+  for(let x=-21;x<=-19;x++) for(let z=-17;z<=-15;z++) for(let y=T-1;y<=T+1;y++) set(x,y,z,y===T+1&&(x!==-20||z!==-16)?B.quay:B.stone);
+
   // ---- Carl Benz's Patent-Motorwagen: a low stone dais on the quay east of the landing ----
   const BZ={x:22,z:-74,x0:20,x1:23,z0:-77,z1:-72};
   for(let x=BZ.x0;x<=BZ.x1;x++) for(let z=BZ.z0;z<=BZ.z1;z++) set(x,T-1,z,x===BZ.x0||x===BZ.x1||z===BZ.z0||z===BZ.z1?B.trim:B.stone);
@@ -281,6 +329,42 @@ export function build(H){
   P(.34,.34,.34,-.5,T+7.25,28.5,'#d8a636'); P(.14,.5,.14,-.5,T+7.65,28.5,'#d8a636');
   for(const [dx,dz] of [[1.6,0],[-1.6,0],[0,1.6],[0,-1.6]]){ P(.14,1.1,.14,-.5+dx*1.08,T+.55,28.5+dz*1.08,'#bfe4f0'); P(.5,.06,.5,-.5+dx*1.08,T+.03,28.5+dz*1.08,'#e8f6fa'); }
   for(const [x,z,r] of [[-4.6,28.5,Math.PI/2],[3.6,28.5,Math.PI/2],[-.5,24.9,0],[-.5,32.1,0]]){ P(1.9,.12,.5,x,T+.45,z,'#7a5232',r); P(.12,.45,.4,x+(r?0:-.8),T+.22,z+(r?-.8:0),'#2b2b2e',r); P(.12,.45,.4,x+(r?0:.8),T+.22,z+(r?.8:0),'#2b2b2e',r); }
+  // v1.48 the Rathaus + St. Sebastian and the Marktplatzbrunnen: stone figures (one helper, turned to face their way), the tower's helm
+  // and bell, the fountain's group, spouts and railing, two benches and lanterns on the square
+  const STN='#d8cfbd', STD='#bfb4a0';
+  const statue=(x,y,z,ry,sc,o,c)=>{ c=c||STN; const s=Math.sin(ry), co=Math.cos(ry);
+    for(const p of H.person(Object.assign({skin:c,hair:c,shirt:c,pants:c,shoes:c,swing:{legs:0,armL:0,armR:0}},o))){ const lx=p[3]*sc, lz=p[5]*sc;
+      L.push([p[0]*sc,p[1]*sc,p[2]*sc,x+lx*co+lz*s,y+p[4]*sc,z-lx*s+lz*co,p[6]==='#1d1714'||p[6]==='#9a4a3a'?STD:p[6],ry+(p[7]||0),0,p[9]||0]); } };
+  // Justitia (sword up, scales) on the Rathaus, Pietas on the church, each in her niche looking out over the square
+  statue(-16,T+8,-4.45,Math.PI,.55,{armUp:'R',extra:[[.05,.8,.05, .34,2.5,.02,STD],[.2,.05,.05, .34,2.17,.02,STD],[.04,.32,.04, -.42,.9,.16,STD],[.52,.04,.04, -.42,1.06,.16,STD],[.17,.03,.17, -.66,.82,.16,STD],[.17,.03,.17, -.18,.82,.16,STD]]});
+  statue(-23,T+8,-4.45,Math.PI,.55,{extra:[[.66,.1,.34, 0,1.86,-.02,STN]]});
+  // the helm, stepped like the real one (a bell shape, a little open lantern, two more steps, a gilded ball and the spike)
+  { const X=-19.5, Z=-3.5, HC='#46505c';
+    P(2.5,1,2.5,X,T+21.5,Z,HC); P(1.9,.5,1.9,X,T+22.25,Z,HC);
+    for(const [dx,dz] of [[-.48,-.48],[.48,-.48],[-.48,.48],[.48,.48]]) P(.2,1.1,.2,X+dx,T+23.05,Z+dz,HC);
+    P(.6,.9,.6,X,T+23.0,Z,'#2a2e34'); P(1.4,.22,1.4,X,T+23.71,Z,HC); P(.95,.6,.95,X,T+24.12,Z,HC); P(.55,.4,.55,X,T+24.62,Z,HC);
+    P(.36,.36,.36,X,T+25,Z,'#d8a636'); P(.1,.95,.1,X,T+25.6,Z,'#2b2b2e'); P(.5,.06,.06,X,T+25.75,Z,'#2b2b2e');
+    // the bell in the belfry, on its beam
+    P(1,.14,.14,X,T+18.85,Z,'#5a3a22'); P(.5,.45,.5,X,T+18.5,Z,'#9a7a3a'); P(.72,.3,.72,X,T+18.15,Z,'#8a6a2a'); P(.82,.08,.82,X,T+17.97,Z,'#9a7a3a'); }
+  // the fountain group: the city goddess with her map of Mannheim, Mercury above her, Father Rhine with his oar in front, the Neckar behind
+  { const X=MB.x, Z=MB.z, E=Math.PI/2;
+    P(1.5,1.6,1.5,X,T+2.8,Z,STD); P(1.8,.2,1.8,X,T+3.7,Z,'#b0a490'); P(1.62,.14,1.62,X,T+2.07,Z,'#b0a490');
+    statue(X+.15,T+3.8,Z,E,.62,{extra:[[.03,.3,.36, .44,1.0,.12,STD]]});
+    P(.62,1.3,.62,X-.45,T+4.45,Z,STD); statue(X-.45,T+5.1,Z,E,.5,{armUp:'R',extra:[[.44,.1,.42, 0,1.9,0,STN],[.06,.16,.22, -.24,1.95,-.04,STN],[.06,.16,.22, .24,1.95,-.04,STN],[.04,1.0,.04, -.36,1.0,.12,STD]]});
+    statue(X+1.0,T+2,Z+.1,E,.6,{sit:.12}); P(.07,2.1,.07,X+1.25,T+2.9,Z-.45,STD,0,.42); P(.2,.55,.06,X+1.25,T+2.25,Z-.86,STD,0,.42);
+    statue(X-1.0,T+2,Z-.1,-E,.6,{sit:.12,extra:[[.24,.3,.2, .3,.35,.25,STD]]});
+    // the four spouts (on the real one they are named Rhine, Danube, Neckar and Moselle) and their water
+    for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]]){ P(dx?.45:.16,.16,dz?.45:.16,X+dx*1.62,T+1.45,Z+dz*1.62,STD);
+      P(.12,1.35,.12,X+dx*1.98,T+.72,Z+dz*1.98,'#bfe4f0'); P(.5,.05,.5,X+dx*1.98,T+.03,Z+dz*1.98,'#e8f6fa'); }
+    // the railing round the rim, iron with gilded knobs
+    for(let i=0;i<16;i++){ const a=i*Math.PI/8, r=2.95, b=a+Math.PI/16, len=2*r*Math.sin(Math.PI/16)+.05;
+      P(.09,.8,.09,X+Math.sin(a)*r,T+1.4,Z+Math.cos(a)*r,'#26282c'); P(.14,.14,.14,X+Math.sin(a)*r,T+1.86,Z+Math.cos(a)*r,'#c89a3a');
+      for(const y of [T+1.25,T+1.7]) P(len,.05,.05,X+Math.sin(b)*r*.99,y,Z+Math.cos(b)*r*.99,'#26282c',b); }
+    // the plaque's posts on the Breite Straße side
+    for(const z of [Z-1.1,Z+1.1]) P(.14,1.9,.14,-15.12,T+.95,z,'#3a2a1c');
+    // two benches on the west side, facing the fountain
+    for(const z of [Z-2.2,Z+2.2]){ P(.5,.12,1.9,-24.1,T+.45,z,'#7a5232'); P(.1,.45,1.9,-24.32,T+.75,z,'#7a5232'); for(const s of [-.8,.8]) P(.4,.45,.12,-24.1,T+.22,z+s,'#2b2b2e'); } }
+  lamp(-24.4,-19.4,1); lamp(-24.4,-10.6,1);
   // the Benz dais: a low slab (the car sits on it until you drive off), the plaque on a post facing the landing
   P(3.6,.3,5.6,BZ.x,T+.15,BZ.z,'#8f8a80'); P(3.75,.06,5.75,BZ.x,T+.32,BZ.z,'#b8b2a4');
   P(.14,1.05,.14,BZ.x0-.45,T+.52,BZ.z,'#3a2a1c');
@@ -333,11 +417,14 @@ export function build(H){
   NB.push([board(15,1.5,640,64,(g,w,h)=>{ g.fillStyle='#14233f'; g.fillRect(0,0,w,h); g.fillStyle='#f4f1ea'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 40px '+FONT; g.fillText('MANNHEIM HAUPTBAHNHOF',w/2,h/2+2); },
     (HBF.hx0+HBF.hx1+1)/2,T+12.6,HBF.z0-.03,Math.PI),.3,.9]);
   const clock=board(2.6,2.6,128,128,()=>{},(HBF.hx0+HBF.hx1+1)/2,T+14.65,HBF.z0-.04,Math.PI); NB.push([clock,.3,1.25]);
+  const RHC=[board(2.1,2.1,128,128,()=>{},-19.5,T+14.4,-5.04,Math.PI,false,true),board(2.1,2.1,128,128,()=>{},-17.96,T+14.4,-3.5,Math.PI/2,false,true)];   // v1.48 the Rathausturm's clocks
+  for(const c of RHC) NB.push([c,.3,1.25]);
   function clockDraw(){ const g=clock.c.getContext('2d'), d=new Date(), hh=d.getHours()%12, mm=d.getMinutes(); g.clearRect(0,0,128,128);
     g.fillStyle='#f4f1ea'; g.beginPath(); g.arc(64,64,60,0,7); g.fill(); g.lineWidth=6; g.strokeStyle='#2a2a2e'; g.stroke();
     for(let i=0;i<12;i++){ const a=i*Math.PI/6; g.fillStyle='#2a2a2e'; g.fillRect(64+Math.sin(a)*48-3,64-Math.cos(a)*48-3,6,6); }
     const hand=(a,l,w)=>{ g.lineWidth=w; g.lineCap='square'; g.beginPath(); g.moveTo(64,64); g.lineTo(64+Math.sin(a)*l,64-Math.cos(a)*l); g.stroke(); };
-    hand((hh+mm/60)*Math.PI/6,30,8); hand(mm*Math.PI/30,46,5); clock.t.needsUpdate=true; clockDraw.m=mm; }
+    hand((hh+mm/60)*Math.PI/6,30,8); hand(mm*Math.PI/30,46,5); clock.t.needsUpdate=true; clockDraw.m=mm;
+    for(const c of RHC){ const x=c.c.getContext('2d'); x.clearRect(0,0,128,128); x.drawImage(clock.c,0,0); c.t.needsUpdate=true; } }
   clockDraw();
   board(6,1.2,384,77,(g,w,h)=>{ g.fillStyle='#f1e7cf'; g.fillRect(0,0,w,h); g.fillStyle='#5a2a1c'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 30px '+FONT; g.fillText('Wasserturm',w/2,h*.38); g.font='400 18px '+FONT; g.fillText('Friedrichsplatz · 1889',w/2,h*.76); },
     WT.x-10.4,T+1.25,WT.z,-Math.PI/2,true);
@@ -348,6 +435,12 @@ export function build(H){
   board(2.5,1.05,8,8,(g,w,h)=>{ g.fillStyle='#4a2f17'; g.fillRect(0,0,w,h); },BZ.x0-.53,T+1.35,BZ.z,Math.PI/2);
   board(5,.8,400,64,(g,w,h)=>{ g.fillStyle='#3a2414'; g.fillRect(0,0,w,h); g.strokeStyle='#d8b060'; g.lineWidth=4; g.strokeRect(4,4,w-8,h-8); g.fillStyle='#f4e6c0'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 34px '+FONT; g.fillText('BÄCKEREI GRUMBACH',w/2,h/2+2); },
     BK.x,T+3.5,BK.z-.03,Math.PI);
+  // v1.48 plaques: over the Rathausturm's portal, and by the Marktplatzbrunnen facing the Breite Straße (a plain back behind it)
+  const plq=(t,a,b)=>(g,w,h)=>{ g.fillStyle='#2e2418'; g.fillRect(0,0,w,h); g.strokeStyle='#d8b060'; g.lineWidth=6; g.strokeRect(6,6,w-12,h-12);
+    g.fillStyle='#f4e6c0'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 32px '+FONT; g.fillText(t,w/2,h*.28); g.font='400 21px '+FONT; g.fillText(a,w/2,h*.55); g.fillText(b,w/2,h*.77); };
+  NB.push([board(2.7,1.3,432,208,plq('Altes Rathaus','and St. Sebastian','one tower · begun 1700'),-19.5,T+5.2,-5.03,Math.PI),.3,.8]);
+  NB.push([board(2.5,1.2,416,200,plq('Marktplatzbrunnen','made 1719 for Heidelberg','Mannheim\'s since 1767'),-14.98,T+1.35,MB.z,Math.PI/2),.3,.8]);
+  board(2.5,1.2,8,8,(g,w,h)=>{ g.fillStyle='#2e2418'; g.fillRect(0,0,w,h); },-15.0,T+1.35,MB.z,-Math.PI/2);
   for(const [x,y,z] of SCHP) board(3.4,3.4,136,136,(g,w,h)=>{ g.clearRect(0,0,w,h);
       g.save(); g.beginPath(); g.ellipse(w/2,h*.58,w*.34,h*.38,0,0,7); g.clip();
       for(let i=-6;i<7;i++) for(let j=-6;j<7;j++){ const cx=w/2+(i-j)*11, cy=h*.58+(i+j)*11; g.fillStyle=(i+j)&1?'#f4f1ea':'#2f6fb8'; g.beginPath(); g.moveTo(cx,cy-11); g.lineTo(cx+11,cy); g.lineTo(cx,cy+11); g.lineTo(cx-11,cy); g.fill(); }
@@ -364,9 +457,9 @@ export function build(H){
     const X=cx+nx*.03, Z=cz+nz*.03;
     sp.push(X-tx*w,y-h,Z-tz*w, X+tx*w,y-h,Z+tz*w, X+tx*w,y+h,Z+tz*w, X-tx*w,y+h,Z-tz*w); for(let k=0;k<4;k++) sn.push(nx,0,nz);
     su.push(u0,v0,u1,v0,u1,v1,u0,v1); si.push(vc,vc+1,vc+2,vc,vc+2,vc+3); vc+=4; }
-  for(const q of codes){ const X0=q.x0+1, X1=q.x1, Z0=q.z0+1, Z1=q.z1;   // building faces (the sidewalk ring is outside)
-    plate(q,X0+.8,Z0,0,-1); plate(q,X1-.8,Z0,0,-1); plate(q,X0+.8,Z1,0,1); plate(q,X1-.8,Z1,0,1);
-    plate(q,X0,Z0+.8,-1,0); plate(q,X0,Z1-.8,-1,0); plate(q,X1,Z0+.8,1,0); plate(q,X1,Z1-.8,1,0); }
+  for(const q of codes){ const f1=q.code==='F1', X0=f1?q.x0:q.x0+1, X1=f1?q.x1+1:q.x1, Z0=q.z0+1, Z1=q.z1, o=f1?.5:.8;   // building faces (the sidewalk ring is outside;
+    plate(q,X0+o,Z0,0,-1); plate(q,X1-o,Z0,0,-1); plate(q,X0+o,Z1,0,1); plate(q,X1-o,Z1,0,1);                              // v1.48 F1's Rathaus fills its block, signs on its quoins)
+    plate(q,X0,Z0+o,-1,0); plate(q,X0,Z1-o,-1,0); plate(q,X1,Z0+o,1,0); plate(q,X1,Z1-o,1,0); }
   const sg=new THREE.BufferGeometry(); sg.setAttribute('position',new THREE.Float32BufferAttribute(sp,3)); sg.setAttribute('normal',new THREE.Float32BufferAttribute(sn,3)); sg.setAttribute('uv',new THREE.Float32BufferAttribute(su,2)); sg.setIndex(si);
   const signs=new THREE.Mesh(sg,new THREE.MeshLambertMaterial({map:st,emissive:0xffffff,emissiveMap:st,emissiveIntensity:.35})); signs.matrixAutoUpdate=false; group.add(signs);
 
@@ -447,6 +540,8 @@ export function build(H){
     if(x>=SCH.x0&&x<=SCH.x1+1&&z>=SCH.wz0&&z<=SCH.z1+1) return (x>SCH.w1[1]+1&&x<SCH.w2[0]&&z<SCH.z0-2)?'Schloss · Ehrenhof':'Schloss';
     if(z>SCH.z1+1||x<-108) return 'Schlossgarten';
     if(x>=88&&z>FP.z1) return 'Oststadt';
+    if(Math.hypot(x-MB.x,z-MB.z)<4.2) return 'Marktplatzbrunnen';   // v1.48
+    if(x>=-26.6&&x<-13.4&&z>=-6.8&&z<3.6) return z<-5&&x>=-21&&x<-18?'Rathausturm':x<-20?'St. Sebastian':'Altes Rathaus';
     const q=nearQ(x,z,2.2), on=q?' · '+q.code:'';
     if(q&&q.sq&&inR(x,z,q)) return q.sq+' · '+q.code;
     if(z<=-62.5) return (x<AX.c?'Luisenring':'Friedrichsring')+on;
@@ -460,7 +555,7 @@ export function build(H){
   function riverD(x,z){ return z>RIV.s+1?z-RIV.s-1:z<RIV.n?RIV.n-z:0; }
   let clk=0, tvT=0, nightWas=null;
   // v1.33 floodlights (drawn in the block shader at night, see mhMat): a=[cx,cz,radius,0] round, or [x0,z0,x1,z1] a box lit from the side b.zw faces; b=[y0,y1,dx,dz]
-  const flood=[{a:[WT.x,WT.z,10.6,0],b:[T,T+40,0,0]},{a:[SCH.x0-1,SCH.wz0-.5,SCH.x1+1,SCH.z1+1],b:[T,T+31,0,-1]},{a:[HBF.x0-1,HBF.z0-1,HBF.x1+1,HBF.z1+1],b:[T,T+22,0,-1]}];
+  const flood=[{a:[WT.x,WT.z,10.6,0],b:[T,T+40,0,0]},{a:[SCH.x0-1,SCH.wz0-.5,SCH.x1+1,SCH.z1+1],b:[T,T+31,0,-1]},{a:[HBF.x0-1,HBF.z0-1,HBF.x1+1,HBF.z1+1],b:[T,T+22,0,-1]},{a:[-25.5,-6,-13.5,3.5],b:[T,T+21,0,-1]}];   // v1.48 + the Rathaus front
   function tick(dt,night){
     if(night!==nightWas){ nightWas=night; lamps.visible=pools.visible=night; headMat.emissive.set(night?0xffd27a:0x000000); headMat.emissiveIntensity=night?1.3:0;
       for(const [b,d,n] of NB) b.m.material.emissiveIntensity=night?n:d; }

@@ -679,8 +679,11 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   6. life in the west Altstadt: lit windows at night, a stall or a bench crowd (Manuel + Petra already walk there, v1.18.2)
   (garden lanterns DONE v1.22; Neckarwiese + ducks DONE v1.21; busking DONE v1.20, Funkjoker v1.21; Karzer DONE v1.19)
 - NEXT for Flax (00:45 + 00:50 10-15): Heiliggeistkirche walk-in DONE v1.47; then the MANNHEIM MAKEOVER in steps of
-  one or two landmarks per release (Flax: "so many famous places and churches"): Jesuitenkirche, Marktplatz with the
-  Altes Rathaus + St. Sebastian, Wasserturm gardens + fountains, Barockschloss facade, Kunsthalle, Planken shops.
+  one or two landmarks per release (Flax: "so many famous places and churches"): Marktplatz with the Altes Rathaus +
+  St. Sebastian + Marktplatzbrunnen DONE v1.48; NEXT the Jesuitenkirche (A4, west of the Schloss: twin-tower baroque
+  front, a big dome; the A4 block is only 9x8 so it will need A4+A5 or a squeezed dome), then Wasserturm gardens +
+  fountains, Barockschloss facade, Kunsthalle, Planken shops. Ideas for the Marktplatz: walk into St. Sebastian, the
+  weekly market stalls on the square (check the real days first).
   Note in the log any landmark placed where it isn't really. The castle queue above (Stückgarten first) comes after.
 - Heiliggeistkirche ideas: a stair up the pulpit, the tower stair to the belfry (the bell already strikes the hours),
   someone in the Krämerbuden selling things, the south side's booths (the lane there is only 3 wide).
@@ -893,3 +896,26 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   church (16x8 blocks); the stair, pews, chandeliers and pulpit are generic, placed where they fit. Probes: 1280x720 walks
   (side door to nave, stair to gallery, gallery U, west portal to nave, choir) no stuck points, day/night/golden shots,
   all five hints; 412x860 touch. 0 JS errors.
+- v1.48 2026-10-15 01:50 (Flax 00:45 "give mannheim a make over ... so many famous places and churches"): first step,
+  THE MARKTPLATZ. mannheim.js: F1's houses are cleared after they are built (no R() calls, so every other house, tree and
+  container stays where it was) and the ALTES RATHAUS + ST. SEBASTIAN stand there as one Doppelbau: the town hall wing
+  east (x -18..-15, by the Breite Straße), the church wing west (x -25..-22, tall windows down the side lane, a steep
+  gable), the bell tower between (x -21..-19, to T+20 + a stepped slate helm with a lantern and a gilded ball, props).
+  Ochre walls, red sandstone quoins on the outer corners, belts at the ground floor + cornice. On the square: two
+  portals, Justitia (sword + scales) and Pietas in niches, a plaque over the tower portal ('Altes Rathaus / and St.
+  Sebastian / one tower · begun 1700'), two clocks (north + east) that copy the station clock's face (RHC in clockDraw),
+  an open belfry with a bell. G1 gets the MARKTPLATZBRUNNEN: a red sandstone rim you can't step over (B.parapet), water,
+  a stone base with four spouts, the city goddess with her map, Mercury above her, Father Rhine with his oar in front,
+  the Neckar behind (blocky stone props), an iron railing with gilded knobs, a plaque facing the Breite Straße
+  ('made 1719 for Heidelberg / Mannheim's since 1767'), two benches + two lanterns on the west side. F1's corner signs
+  sit on the quoins now. Night: a fourth floodlight zone on the Rathaus front (flood[3]). Place names: Marktplatzbrunnen,
+  St. Sebastian, Rathausturm, Altes Rathaus. Facts (de.wikipedia, checked tonight): foundation stone Sept 1700, done by
+  1713, Rathaus + church under one bell tower ('Mannheimer Symmetrie'), Justitia on the Rathaus, Pietas on the church;
+  the fountain group by Peter van den Branden 1719 for the Heidelberg castle garden, given to Mannheim 1767 (reworked
+  1767-71), goddess with a map of Mannheim, Mercury above, Rhine with an oar in front, Neckar behind, spouts named
+  Rhine/Danube/Neckar/Moselle, railing restored 2009/10. NOT WHERE IT REALLY IS: the real Doppelbau stands on the
+  south edge of the Marktplatz inside G1; ours stands across the lane in F1 so the little square stays open. Which wing
+  is which (Rathaus left/east seen from the square) comes from a photo caption + the 1860s Rathaus extension on the
+  Breite Straße, not a plan. Niche positions, the helm's shape, window counts and colours are ours. Probes: walks round
+  the square, round the building, into the rim (stops) and the portal (stops), place names, day/night/golden + air
+  shots. 0 JS errors.
