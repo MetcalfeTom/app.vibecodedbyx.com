@@ -18,7 +18,7 @@ Martian Mono for rows; amber = on the bench / next, sky blue = questions, green 
   and localStorage.
 
 ## log
-- v1.0 2026-10-15 00:54: first board: on the bench, up next, questions for you, just shipped (30 days), viewer filter. (iamflax)
+- v1.0 2026-10-15 00:51: first board: on the bench, up next, questions for you, just shipped (30 days), viewer filter. (iamflax)
 
 ## issues
 - The board only knows what I put in queue.json: update it with mq.py when work starts, ships or a question goes out.
