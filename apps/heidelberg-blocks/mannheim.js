@@ -884,7 +884,7 @@ export function build(H){
       if(!(tx===-23.6&&sg<0)) SEATS.push({x:cx,z:tz,yaw:sg<0?-Math.PI/2:Math.PI/2,pitch:.15,stand:[cx,tz-1.05]}); } }
   P(.26,.02,.26,-23.5,T+.775,22.6,'#f4f4f0'); P(.18,.05,.18,-23.5,T+.81,22.6,'#f4eac8'); P(.1,.02,.1,-23.5,T+.845,22.6,'#c8202a'); P(.06,.012,.06,-23.47,T+.86,22.58,'#fffaf0');
   PKZ.push([-24.5,-15.5,21.7,23.55]);
-  // the kiosk near N4's north-west corner (x 42..44, clear of the N4 plate): a sales window in the ground floor, papers, sweets and a drinks fridge, Herr Gerlach
+  // the kiosk near N4's north-west corner (x 42..44, clear of the N4 plate): a sales window in the ground floor, papers, sweets and a drinks fridge, Eddy
   for(let x=42;x<=44;x++){ for(let z=39;z<=40;z++) for(let y=T;y<T+3;y++) set(x,y,z,0); set(x,T,39,B.sandstone); }
   P(3,.95,.04,43.5,T+.5,38.97,'#2e4a66'); for(let i=0;i<6;i++) for(let j=0;j<2;j++) P(.24,.32,.02,42.3+i*.48,T+.27+j*.4,38.94,['#d84a3a','#f2c84a','#4a8ad8','#ecebe4','#3aa86a','#e86aa8'][(i+j*3)%6]);
   for(let i=0;i<3;i++){ P(.38,.05,.5,42.45+i*.5,T+1.03,39.35,'#ecebe4'); P(.3,.006,.08,42.45+i*.5,T+1.058,39.2,'#2a2a2a'); }
@@ -895,7 +895,7 @@ export function build(H){
   P(3.2,.05,.9,43.5,T+2.79,38.58,'#2a5a8a',Math.PI,.38); P(3.2,.2,.03,43.5,T+2.48,38.16,'#e8e4dc',Math.PI);
   P(.6,1,.25,41.3,T+.5,38.55,'#5a5e64'); P(.5,.32,.03,41.3,T+.8,38.41,'#ecebe4'); P(.5,.32,.03,41.3,T+.4,38.41,'#f2e6c8');
   // ---- v1.66 the bag's places (Flax). A tiny Hinterhof inside N4 behind a little green door on the block's east side
-  // (passage x 47..48 at z 43; index.html draws the door, locks it through w.solid and opens it with Herr Gerlach's key),
+  // (passage x 47..48 at z 43; index.html draws the door, locks it through w.solid and opens it with Eddy's key),
   // with a bench and a cat. Liesel's Konditorei on the west Planken: her tray tipped on the step (index.html: the five pieces)
   const YD={shut:1,door:[48.96,43.02],bench:[44.4,42.3],cat:[45.02,42.32]};
   for(let x=43;x<=46;x++) for(let z=42;z<=45;z++){ for(let y=T;y<=T+22;y++) set(x,y,z,0); set(x,T-1,z,B.pave); }

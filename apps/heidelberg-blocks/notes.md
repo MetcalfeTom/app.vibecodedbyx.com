@@ -1387,3 +1387,9 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   -> stair down -> passage -> up into the L2 hall and back, L2 street walls still shut, touch stick walking in the stair
   hall, day/golden/night looks; 0 JS errors. Open questions for Flax: q1 the court looks like a plain classical court
   house; should it look like a real one? q2 is something waiting for you inside L2 at the end of the tunnel?
+- v1.69.1 (2026-10-15 21:05) the N4 kiosk keeper is EDDY now (Flax 20:25: "In Mannheim n4, characters name should be
+  Eddy"). Was Herr Gerlach (v1.65/v1.66): name 'Eddy, Kiosk', short 'Eddy' (chip "Talk to Eddy"), the yard key's bag
+  text "Eddy's sister's yard, east side of N4", the key toast "Eddy hands you a key without looking up…", comments in
+  mannheim.js. Same grumpy-but-loved lines. The folk id stays m_gerlach (PKC.by lookups; nothing saved by name). Older
+  log entries above still say Herr Gerlach: that's history, he's Eddy. Tested phone 390x844 ?touch: "Talk to Eddy" chip,
+  dialogue header EDDY, KIOSK, 0 JS errors.
