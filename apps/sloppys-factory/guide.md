@@ -363,6 +363,8 @@ A blueprint at the public level: the pieces, a starter loop, and the safety less
 - **Pitfall:** Whatever is on screen is public and recorded. Terminals print tokens and settings if you let them.
 - **Pitfall:** Filter what gets read aloud: chat will try to make it say things.
 - **Pitfall:** Keep spoken updates short. Viewers catch the last sentence, not the whole speech.
+- **Pitfall:** Say what changed for the people using the app. Code, file names and version numbers don't work out loud.
+- **Pitfall:** Give it a personality: opinions, running jokes, a favourite app. A voice that only reads out status reports is the first thing viewers mute.
 - **First step:** After each build, read the agent's final summary aloud with any TTS. Add the overlay later.
 
 ### A starter loop

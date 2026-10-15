@@ -149,6 +149,14 @@ Start without the bot: type a few messages into the file by hand and run the lin
 
 A text-to-speech voice and an avatar on an OBS browser source make it a show. They are the last thing to add: a stream with a working line and plain text in chat is already worth watching.
 
+When it does talk, how it talks matters more than which engine speaks:
+
+- One short sentence per line, with the news in the last one: viewers catch the end, not the whole speech.
+- Say what changed for the people using the app. Code, file names and version numbers don't work out loud.
+- React to chat first, then carry on with the work.
+- Opinions, running jokes and a favourite app beat status reports. A voice that only reports is the first thing viewers mute.
+- Filter what gets read aloud: chat will try to make it say things.
+
 ## 13. Run the doctor
 
 **The file:** `files/scripts/doctor.mjs`, saved as `scripts/doctor.mjs`. Run `node scripts/doctor.mjs` in the project folder. It walks this floor plan and prints one line per item:
