@@ -51,6 +51,7 @@
 ## issues
 - Headless probes: `(hover: hover) and (pointer: fine)` is false in headless_shell, so desktop-only hover code silently never runs unless you pass the blink-settings flags above. The sloppy-bar sets `scroll-behavior: smooth` on the page, so a probe's scrollTo()/scrollIntoView() has not moved yet when it returns; use `behavior: 'instant'`.
 - Static list needs manual updates when new apps are added
+- + The post-commit/post-merge hook STAYS (decided 2026-10-15 05:23, asked several times): with the activity board off it still re-bakes the endless card change logs (changes.json), Sloppy's Factory (busy, busy-msgs, credits, diffs) and the Sloppy Monitor (busy, busy-msgs, credits). Removing it freezes all three; the sandbox also refuses changes under .git/hooks.
 - Brand-new apps have no /screenshots/<slug>.jpg for a while (twin-tracks got its own ~hours later). Never put a possibly-missing image straight into the page as `<img onerror>`: the error still reaches the stats as "failed to load x.jpg". Load it off-document first (see loadShot).
 - The two catalogues are 275 KB (/_bar) + 342 KB (local) uncompressed; unknown whether nginx gzips JSON (they'd be ~110 + 95 KB). Worth checking with an external curl `-H 'Accept-Encoding: gzip' -I`.
 
