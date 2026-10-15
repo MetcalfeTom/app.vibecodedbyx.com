@@ -38,7 +38,7 @@ export function build(H){
   const AX={x0:-14,x1:-7,c:-10.5};            // Breite Straße (north of the Planken) / Kurpfalzstraße (south)
   const PLK={z0:18,z1:23};                    // the Planken
   const KR={x0:80,x1:87};                     // Kaiserring
-  const WT={x:106.5,z:20.5};                  // Wasserturm on the Friedrichsplatz
+  const WT={x:100.5,z:20.5};                  // Wasserturm on the Friedrichsplatz (v1.58 6 west, by the Kaiserring)
   const ROWW='KJHGFEDCBA', ROWE='UTSRQPONML';  // north (by the Neckar) to south (by the Schloss); there is no I
   const rowZ=r=>-62+r*14+(r>=6?2:0);
   const QD=[];
@@ -49,7 +49,7 @@ export function build(H){
   const inR=(x,z,q,m)=>x>=q.x0-(m||0)&&x<=q.x1+(m||0)&&z>=q.z0-(m||0)&&z<=q.z1+(m||0);
   const SCH={x0:-85,x1:64,z0:96,z1:105,cx0:-24,cx1:3,w1:[-50,-43],w2:[22,29],wz0:84};   // the Schloss: main wing + Ehrenhof wings
   const HBF={x0:70,x1:124,z0:114,z1:125,hx0:89,hx1:105,vz0:96};                          // Hauptbahnhof + forecourt
-  const FP={x0:88,x1:127,z0:-2,z1:43};                                                    // Friedrichsplatz
+  const FP={x0:88,x1:127,z0:-9,z1:50};                                                    // Friedrichsplatz (v1.58 was z -2..43)
   const BR={x0:-16,x1:-5};                                                                // Kurpfalzbrücke
 
   // ---- ground ----
@@ -70,14 +70,7 @@ export function build(H){
   }
   // sidewalks round every block, squares in cobbles
   for(const q of QD){ for(let x=q.x0;x<=q.x1;x++) for(let z=q.z0;z<=q.z1;z++) set(x,T-1,z,q.sq?B.cobble:B.pave); }
-  // Friedrichsplatz: gravel paths, a paved ring round the tower, a long basin to the east
-  for(let x=FP.x0;x<=127;x++) for(let z=FP.z0;z<=FP.z1;z++){ const d=Math.hypot(x+.5-WT.x,z+.5-WT.z);
-    if(d<13||Math.abs(z+.5-WT.z)<2||Math.abs(x+.5-WT.x)<2||x===FP.x0) set(x,T-1,z,d<13?B.pave:B.gravel); }
-  const BAS={x0:120,x1:124,z0:3,z1:38};   // v1.38 the long fountain basin east of the tower (was x 115..126 z 12..29); v1.50 x1 126 -> 124 for the arcades
-  for(let x=BAS.x0;x<=BAS.x1;x++) for(let z=BAS.z0;z<=BAS.z1;z++){ const rim=x===BAS.x0||x===BAS.x1||z===BAS.z0||z===BAS.z1; if(rim) set(x,T,z,B.trim); else set(x,T-1,z,B.blue); }
-  // v1.38 the Wasserspiele (Flax): a three-step cascade comes down from the tower's terrace into the basin
-  // (its water + the animated jets are meshes, see 'jets' below)
-  for(let z=18;z<=22;z++){ for(let x=116;x<=119;x++){ const h=x<=117?3:x===118?2:1; for(let y=T;y<T+h;y++) set(x,y,z,B.trim); } set(BAS.x0,T,z,0); set(BAS.x0,T-1,z,B.blue); }
+  // the Friedrichsplatz's paths, basin and water staircase: see v1.58 below
 
   // ---- the Neckar landing: steps for swimmers, bollards come as props ----
   const steps=[];
@@ -312,75 +305,115 @@ export function build(H){
     for(let f=33;f<=35;f++) set(x,T+f,z,f===35?B.trim:mid?B.window:B.cream); set(x,T+36,z,B.copper); }
   set(-76,T+37,70,B.copper);
 
-  // ---- v1.50 (Flax) the Friedrichsplatz the way Bruno Schmitz laid it out round the Wasserturm: gardens from 1899, the square done
-  // for Mannheim's 300th birthday in 1907. Real: the tower stands at the west end, the park lies about 2.5 m below the street, four
-  // red sandstone arcade houses curve round its east end, the Rosengarten (Schmitz, festival hall, 1903) faces the tower from the
-  // north and the Kunsthalle (Hermann Billing, 1907) from the south, all three on one axis. Ours: the park stays level with the
-  // street, the arcades are one straight row along the east edge of the map (no room for the curve), the Rosengarten and the
-  // Kunsthalle stand on the tower's north-south axis (x 106.5), the Kunsthalle over the two old Oststadt blocks.
-  // Built after the houses and with no R(); keep the tree trunk cells free (tree() skips a taken cell and the dice shift).
-  const AK={z0:-14,z1:62};   // the arcade row: fronts at x 125 on pillars, the walk under the arches x 126, shop windows x 127
-  for(let z=AK.z0;z<=AK.z1;z++){ const i=z-AK.z0, pc=z>=14&&z<=27, pe=z<=-6||z>=54, top=pc||pe?19:15, p=i%4===0;   // pavilions: one on the tower's axis, one at each end
-    for(let x=125;x<=127;x++){ set(x,T-1,z,B.pave); for(let y=T;y<=T+top;y++) set(x,y,z,B.sandstone); }
-    for(let y=T;y<T+4;y++) set(126,y,z,0);
-    for(let f=0;f<=2;f++) if(!p&&(f<2||i%4===2)) set(125,T+f,z,0);   // round-headed arches
-    set(125,T+3,z,B.trim);
-    for(let f=0;f<=2;f++) set(127,T+f,z,p?B.sandstone:f===2?B.trim:f===0&&i%4===2&&(i>>2)%2?B.door:hsh(127,f,z)<.5?B.shopLit:B.shop);
-    for(let f=4;f<=top;f++){ let b=null;
-      if(f===top||f===8||f===12||(top>15&&f===16)) b=B.trim;
-      else if(!p&&(pc||pe?true:i%4!==2)&&(f%4===1||f%4===2)) b=hsh(125,f,z)<.35?B.windowLit:B.window;
-      if(b) set(125,T+f,z,b); if(!p&&i%2===1&&f<top&&(f%4===1||f%4===2)) set(127,T+f,z,B.window); }   // windows at the back too (seen from the Rundflug)
-    if(top===15){ set(126,T+16,z,i%4===2?B.window:B.slate); set(127,T+16,z,B.slate); set(127,T+17,z,B.slate); } }
-  for(const z of [AK.z0,AK.z1]) for(let f=4;f<=19;f++) if(f%4===1||f%4===2) set(126,T+f,z,B.window);
-  { const cap=(za,zb,y0)=>{ for(let k=0;za+2*k<=zb-2*k;k++) for(let z=za+2*k;z<=zb-2*k;z++) for(let x=125;x<=127;x++) set(x,y0+k,z,B.copper); };
-    cap(14,27,T+20); cap(AK.z0,-6,T+20); cap(54,AK.z1,T+20); }
+  // ---- v1.58 (Flax 10:18 "Friedrichsplatz way to squeezed. way bigger waterplays") the Friedrichsplatz with room round the tower.
+  // Real (Bruno Schmitz, 1899-1903, done for Mannheim's 300th birthday in 1907): the Wasserturm stands at the west end by the
+  // Kaiserring; from its terrace a water staircase runs down into a long basin with the big fountain (it first played on
+  // 9 September 1893); pergolas flank the steps and curve out into the park; a wide path circles the basin and the tower; two red
+  // sandstone arcade houses with turrets curve round the east end, the Augustaanlage leaves between them; the Rosengarten faces the
+  // tower from the north and the Kunsthalle (Hermann Billing, 1907) from the south. Ours: the tower moved 6 west (WT), the
+  // Rosengarten 7 north, the Kunsthalle 7 south (narrower, no back wing), the arcades follow a flattened oval because the map ends
+  // at x 127, and the park stays level with the street (really it lies lower). Built after the houses and with no R(); the tree
+  // trunk cells stay free (tree() skips a taken cell and the dice shift).
+  for(let x=88;x<=127;x++) for(let z=-30;z<=64;z++){
+    if(Math.hypot(x+.5-WT.x,z+.5-WT.z)>=10.3) for(let y=T;y<=T+30;y++) set(x,y,z,0);
+    set(x,T-1,z,z>=FP.z0&&z<=FP.z1?B.grass:B.asphalt); }
+  const BAS={x0:113,x1:121,z0:1,z1:40};   // the big basin (was x 120..124 z 3..38), round corners: basD > 1 water, 0..1 the rim, < 0 outside
+  const basD=(x,z)=>{ const cx=Math.min(Math.max(x+.5,BAS.x0+3),BAS.x1-2), cz=Math.min(Math.max(z+.5,BAS.z0+3),BAS.z1-2); return 3-Math.hypot(x+.5-cx,z+.5-cz); };
+  const FF=[[100.5,-.5],[100.5,41.5]];   // the two round fountains on the tower's cross axis (were 106.5, 2.5 / 38.5)
+  // the arcades' front: a flattened oval |u/a|^4 + |v/b|^4 = 1 round (AC.x, AC.z), only its east end (x >= 114) is built.
+  // acS = roughly the distance out from the front, acL = the length along the front from the axis, acAt(L) = that point + its normal
+  const AC={x:109,z:20.5,a:15,b:30.5}, ACD=7;
+  const acR=(u,v)=>Math.pow(Math.pow(Math.abs(u)/AC.a,4)+Math.pow(Math.abs(v)/AC.b,4),.25);
+  const acS=(px,pz)=>{ const u=px-AC.x, v=pz-AC.z, e=.01; return (acR(u,v)-1)/Math.hypot((acR(u+e,v)-acR(u-e,v))/(2*e),(acR(u,v+e)-acR(u,v-e))/(2*e)); };
+  const ACT=[0]; { let pu=AC.a, pv=0; for(let k=1;k<=2000;k++){ const t=k/2000*Math.PI/2, u=AC.a*Math.sqrt(Math.cos(t)), v=AC.b*Math.sqrt(Math.sin(t)); ACT.push(ACT[k-1]+Math.hypot(u-pu,v-pv)); pu=u; pv=v; } }
+  const acL=(px,pz)=>{ const f=Math.atan2(((pz-AC.z)/AC.b)**2,((px-AC.x)/AC.a)**2)/(Math.PI/2)*2000, k=Math.min(1999,Math.floor(f)); return ACT[k]+(ACT[k+1]-ACT[k])*(f-k); };
+  const acAt=L=>{ let lo=0, hi=2000; while(hi-lo>1){ const m=(lo+hi)>>1; if(ACT[m]<L) lo=m; else hi=m; }
+    const t=hi/2000*Math.PI/2, u=AC.a*Math.sqrt(Math.cos(t)), v=AC.b*Math.sqrt(Math.sin(t)), nx=u**3/AC.a**4, nz=v**3/AC.b**4, n=Math.hypot(nx,nz); return {u,v,nx:nx/n,nz:nz/n}; };
+  // the gardens' ground: gravel paths (the north-south axis from the Rosengarten to the Kunsthalle, across through the round
+  // fountains, along the Kaiserring, the wide path round the basin), a paved terrace round the tower, a ring of flower beds
+  for(let x=88;x<=123;x++) for(let z=FP.z0;z<=FP.z1;z++){ const bd=basD(x,z); if(bd>=0) continue;
+    if(Math.abs(x+.5-WT.x)<1.51||(x<=112&&(Math.abs(z+.5-FF[0][1])<1.51||Math.abs(z+.5-FF[1][1])<1.51))||x===88||bd>=-2) set(x,T-1,z,B.gravel); }
+  for(let x=88;x<=114;x++) for(let z=4;z<=37;z++){ const ux=x+.5-WT.x, uz=z+.5-WT.z, d=Math.hypot(ux,uz);
+    if(d<12.5) set(x,T-1,z,B.pave);
+    else if(d<14.2&&x>88&&Math.abs(Math.atan2(uz,ux))>.7&&Math.abs(ux)>=1.51&&Math.abs(uz)>=2.5) set(x,T-1,z,d<13.35?B.leavesR:B.leavesY); }
+  for(let x=100;x<=118;x++) for(let z=0;z<=41;z++){ const ux=x+.5-WT.x, uz=Math.abs(z+.5-WT.z), d=Math.hypot(ux,uz), a=Math.atan2(uz,ux)*180/Math.PI;
+    if(d>=14&&d<16.6&&a>=44&&a<=84&&basD(x,z)<0) set(x,T-1,z,B.gravel); }   // the floor under the two pergolas
+  for(const [cx,cz] of FF) for(let x=94;x<=107;x++) for(let z=Math.floor(cz)-6;z<=Math.floor(cz)+6;z++){ const d=Math.hypot(x+.5-cx,z+.5-cz);
+    if(d<3.2){ set(x,T-1,z,B.blue); if(d<.8){ set(x,T,z,B.trim); set(x,T+1,z,B.trim); } }
+    else if(d<4.1) set(x,T,z,B.trim);
+    else if(d<5.7&&Math.abs(x+.5-cx)>=2&&Math.abs(z+.5-cz)>=1.51) set(x,T-1,z,(z+.5<cz)===(x+.5<cx)?B.leavesR:B.leavesY); }
+  // the street round the park in front of the arcades, the Augustaanlage between them
+  for(let x=108;x<=127;x++) for(let z=-12;z<=53;z++){ const s=acS(x+.5,z+.5); if(s>=-3&&s<0&&basD(x,z)<0) set(x,T-1,z,B.cobble); }
+  for(let x=124;x<=127;x++) for(let z=17;z<=23;z++) set(x,T-1,z,z===17||z===23?B.pave:B.asphalt);
+  // the basin: a low red rim, open on the west where the water staircase comes down
+  for(let x=BAS.x0;x<=BAS.x1;x++) for(let z=BAS.z0;z<=BAS.z1;z++){ const d=basD(x,z); if(d<0) continue;
+    if(d>=1||(x===BAS.x0&&z>=16&&z<=24)) set(x,T-1,z,B.blue); else set(x,T,z,B.trim); }
+  // the Wassertreppe: two terraces step down from the tower's terrace into the basin (their water and the jets are meshes, see 'jets')
+  for(let z=15;z<=25;z++){ const sd=z===15||z===25;
+    for(let x=109;x<=110;x++) for(let y=T;y<=T+(sd?2:1);y++) set(x,y,z,B.trim);
+    for(let x=111;x<=112;x++) for(let y=T;y<=T+(sd?1:0);y++) set(x,y,z,B.trim); }
+
+  // the arcade houses: band 0 = the front on pillars with round-headed arches, 1 = the walk under them, 2 = the shop fronts,
+  // 3..5 the houses, 6 the back. Turrets by the Augustaanlage (|v| <= 10) and at the far ends (x < 120) with stepped copper caps,
+  // a slate mansard between. The end walls and the walls facing the Augustaanlage get windows, the walk opens out through them.
+  const FIN={};
+  for(let x=114;x<=127;x++) for(let z=-22;z<=63;z++){ const v=z+.5-AC.z, av=Math.abs(v); if(av<3.5) continue;
+    const s=acS(x+.5,z+.5); if(s<0||s>=ACD) continue;
+    const bd=Math.floor(s), i=Math.floor(acL(x+.5,z+.5)-3.5), tA=av<10.5?Math.min(av-4,10-av):x<120?Math.min(x-114,119-x):-1, tur=tA>=0, top=tur?19:15;
+    const side=x===114||av===4, win=f=>hsh(x,T+f,z)<.35?B.windowLit:B.window, cor=f=>f===3||f===8||f===12||f===top||(tur&&f===16);
+    set(x,T-1,z,B.pave);
+    for(let f=0;f<=top;f++){ let b=B.sandstone;
+      if(side&&bd>=1){ if(bd===1&&f<=3) b=0; else if(cor(f)) b=B.trim; else if(f>=5&&(f%4===1||f%4===2)&&(bd===2||bd===4)) b=win(f); else if(f<=2&&(bd===3||bd===5)) b=f===0?B.sandstone:B.shop; }
+      else if(bd===0){ const p=i%4===0||side;
+        if(f<=2) b=p?B.sandstone:f<2||i%4===2?0:B.sandstone;
+        else if(cor(f)) b=B.trim;
+        else if(!p&&(tur||i%4!==2)&&(f%4===1||f%4===2)) b=win(f); }
+      else if(bd===1) b=f<=3?0:B.sandstone;
+      else if(bd===2){ if(f<=2) b=i%4===0?B.sandstone:f===2?B.trim:f===0&&i%4===2&&(i>>2)%2?B.door:hsh(x,f,z)<.5?B.shopLit:B.shop; }
+      else if(bd===ACD-1){ if(f===0) b=B.sandstone; else if(cor(f)) b=B.trim; else if((f%4===1||f%4===2)&&i%2===1) b=win(f); }
+      set(x,T+f,z,b); }
+    if(tur){ const ins=Math.min(tA,bd,ACD-1-bd), key=(av<10.5?'g':'e')+(v<0?'n':'s');
+      for(let k=0;k<=ins;k++) set(x,T+20+k,z,B.copper);
+      if(!FIN[key]||ins>FIN[key][3]) FIN[key]=[x+.5,T+21+ins,z+.5,ins]; }
+    else { const rb=Math.min(bd,ACD-1-bd); for(let k=1;k<=rb;k++) set(x,T+15+k,z,k===1&&bd===1&&i%4===2?B.window:B.slate); } }
 
   // the Rosengarten facing the tower from the north: red sandstone, a roof of green glazed tiles, the Musensaal's great arched window
-  for(let x=93;x<=119;x++) for(let z=-7;z<=-3;z++) set(x,T-1,z,B.pave);
-  rhBox(96,116,-20,-8,T,T+11,B.sandstone);
-  rhBox(101,111,-9,-7,T,T+15,B.sandstone);
-  rhBox(96,99,-11,-8,T,T+15,B.sandstone); rhBox(113,116,-11,-8,T,T+15,B.sandstone);
+  for(let x=88;x<=112;x++) for(let z=-14;z<=-10;z++) set(x,T-1,z,B.pave);
+  rhBox(90,110,-27,-15,T,T+11,B.sandstone);
+  rhBox(95,105,-16,-14,T,T+15,B.sandstone);
+  rhBox(90,93,-18,-15,T,T+15,B.sandstone); rhBox(107,110,-18,-15,T,T+15,B.sandstone);
   const rgW=(i,f,n)=>f===0||qn(i,n)?B.sandstone:f===3||f===11?B.trim:i%3===0?(f>=4?B.trim:null):(f===1||f===2||(f>=5&&f<=9))?'L':null;
-  rhFace(rhRun(100,-8,100,-8).concat(rhRun(112,-8,112,-8)),0,11,(i,f)=>f===3||f===11?B.trim:f>=5&&f<=9?'L':null);
-  for(const x of [96,116]) rhFace(rhRun(x,-19,x,-12),0,11,rgW);
-  rhFace(rhRun(97,-20,115,-20),0,11,rgW);
-  for(const [a,b] of [[96,99],[113,116]]){ const tw=(i,f)=>f===0||f===3||f===11||f===15?(f===0?B.sandstone:B.trim):f<3?null:(i===1||i===2)&&((f>=5&&f<=9)||f===13||f===14)?'L':null;
-    rhFace(rhRun(a,-8,b,-8),0,15,tw); rhFace(rhRun(a===96?96:116,-11,a===96?96:116,-8),0,15,tw); }
-  rhFace(rhRun(101,-7,111,-7),0,15,(i,f)=>{ const a=Math.hypot(i-5,Math.max(0,f-11));
+  rhFace(rhRun(94,-15,94,-15).concat(rhRun(106,-15,106,-15)),0,11,(i,f)=>f===3||f===11?B.trim:f>=5&&f<=9?'L':null);
+  for(const x of [90,110]) rhFace(rhRun(x,-26,x,-19),0,11,rgW);
+  rhFace(rhRun(91,-27,109,-27),0,11,rgW);
+  for(const [a,b] of [[90,93],[107,110]]){ const tw=(i,f)=>f===0||f===3||f===11||f===15?(f===0?B.sandstone:B.trim):f<3?null:(i===1||i===2)&&((f>=5&&f<=9)||f===13||f===14)?'L':null;
+    rhFace(rhRun(a,-15,b,-15),0,15,tw); rhFace(rhRun(a===90?90:110,-18,a===90?90:110,-15),0,15,tw); }
+  rhFace(rhRun(95,-14,105,-14),0,15,(i,f)=>{ const a=Math.hypot(i-5,Math.max(0,f-11));
     if(f<=2) return i===0||i===10?B.sandstone:i%2===1?B.door:null;
     if(f===3||f===15) return B.trim;
     if(i>=2&&i<=8&&f>=5&&(f<=11||a<=3.5)) return i===2||i===8||(f>11&&a>2.55)?B.trim:B.windowLit;
     return null; });
-  for(let k=0;k<4;k++) for(let x=102+k;x<=110-k;x++) for(let z=-8;z<=-7;z++) set(x,T+16+k,z,x===102+k||x===110-k?B.trim:B.sandstone);
-  set(106,T+20,-7,B.copper);
-  for(let k=0;k<5;k++) for(let x=96+k;x<=116-k;x++) for(let z=-20+k;z<=-8-k;z++) if(!get(x,T+12+k,z)) set(x,T+12+k,z,B.copper);
-  for(const a of [96,113]){ rhBox(a,a+3,-11,-8,T+16,T+16,B.copper); rhBox(a+1,a+2,-10,-9,T+17,T+17,B.copper); }
+  for(let k=0;k<4;k++) for(let x=96+k;x<=104-k;x++) for(let z=-15;z<=-14;z++) set(x,T+16+k,z,x===96+k||x===104-k?B.trim:B.sandstone);
+  set(100,T+20,-14,B.copper);
+  for(let k=0;k<5;k++) for(let x=90+k;x<=110-k;x++) for(let z=-27+k;z<=-15-k;z++) if(!get(x,T+12+k,z)) set(x,T+12+k,z,B.copper);
+  for(const a of [90,107]){ rhBox(a,a+3,-18,-15,T+16,T+16,B.copper); rhBox(a+1,a+2,-17,-16,T+17,T+17,B.copper); }
 
-  // the Kunsthalle facing it from the south: Billing's red sandstone front, a dome over the entrance hall, a third wing behind (a T)
-  for(let x=90;x<=124;x++) for(let z=48;z<=62;z++){ for(let y=T;y<=T+22;y++) set(x,y,z,0); set(x,T-1,z,z>=57&&(x<102||x>110)?B.grass:B.pave); }
-  rhBox(92,120,48,56,T,T+8,B.sandstone); rhBox(102,110,57,62,T,T+8,B.sandstone);
-  rhBox(101,111,47,56,T,T+11,B.sandstone); rhBox(92,94,47,56,T,T+9,B.sandstone); rhBox(118,120,47,56,T,T+9,B.sandstone);
-  rhBox(95,117,49,55,T+8,T+8,B.slate);
+  // the Kunsthalle facing it from the south: Billing's red sandstone front, a dome over the entrance hall
+  for(let x=88;x<=112;x++) for(let z=51;z<=64;z++) set(x,T-1,z,z<=63?B.pave:B.grass);
+  rhBox(89,111,55,63,T,T+8,B.sandstone);
+  rhBox(95,105,54,63,T,T+11,B.sandstone); rhBox(89,91,54,63,T,T+9,B.sandstone); rhBox(109,111,54,63,T,T+9,B.sandstone);
+  rhBox(92,108,56,62,T+8,T+8,B.slate);
   const khW=(i,f)=>f===0?B.sandstone:f===4||f===8?B.trim:i%3===1&&((f>=1&&f<=3)||f===6)?B.window:null;
-  rhFace(rhRun(95,48,100,48).concat(rhRun(112,48,117,48)),0,8,khW);
-  for(const x of [92,120]) rhFace(rhRun(x,48,x,56),0,8,khW);
-  rhFace(rhRun(95,56,101,56).concat(rhRun(111,56,117,56)),0,8,khW);
-  rhFace(rhRun(92,47,94,47).concat(rhRun(118,47,120,47)),0,9,(i,f)=>f===0?B.sandstone:f===4||f===9?B.trim:i===1&&((f>=1&&f<=3)||(f>=5&&f<=7))?B.window:null);
-  rhFace(rhRun(101,47,111,47),0,11,(i,f)=>{ if(i>=4&&i<=6&&(f<=2||(f===3&&i===5))) return 0;
+  rhFace(rhRun(92,55,94,55).concat(rhRun(106,55,108,55)),0,8,khW);
+  for(const x of [89,111]) rhFace(rhRun(x,55,x,63),0,8,khW);
+  rhFace(rhRun(90,63,110,63),0,8,khW);
+  rhFace(rhRun(89,54,91,54).concat(rhRun(109,54,111,54)),0,9,(i,f)=>f===0?B.sandstone:f===4||f===9?B.trim:i===1&&((f>=1&&f<=3)||(f>=5&&f<=7))?B.window:null);
+  rhFace(rhRun(95,54,105,54),0,11,(i,f)=>{ if(i>=4&&i<=6&&(f<=2||(f===3&&i===5))) return 0;
     if(f===4||f===11) return B.trim; if(f>=7&&f<=10&&i%2===0&&i>0&&i<10) return B.window; return null; });
-  for(let x=105;x<=107;x++) for(let f=0;f<=2;f++) set(x,T+f,48,B.door); set(106,T+3,48,B.door);
-  { const cx=106.5, cz=51.5, rr=(r,y,b,win)=>{ for(let x=101;x<=111;x++) for(let z=46;z<=57;z++){ const d=Math.hypot(x+.5-cx,z+.5-cz); if(d<=r) set(x,y,z,win&&d>r-1.05&&((x+z)&1)?B.window:b); } };
+  for(let x=99;x<=101;x++) for(let f=0;f<=2;f++) set(x,T+f,55,B.door); set(100,T+3,55,B.door);
+  { const cx=100.5, cz=58.5, rr=(r,y,b,win)=>{ for(let x=95;x<=105;x++) for(let z=53;z<=64;z++){ const d=Math.hypot(x+.5-cx,z+.5-cz); if(d<=r) set(x,y,z,win&&d>r-1.05&&((x+z)&1)?B.window:b); } };
     rr(3.7,T+12,B.sandstone,1); rr(3.7,T+13,B.sandstone); rr(4.2,T+14,B.trim);
     [[3.9,15],[3.6,16],[3.1,17],[2.4,18],[1.5,19]].forEach(([r,f])=>rr(r,T+f,B.copper)); rr(.8,T+20,B.trim); rr(.8,T+21,B.copper); }
-
-  // the gardens: a ring of flower beds round the tower's terrace, two round fountains on the cross axis, each with a basin on a stem
-  for(let x=FP.x0+1;x<=119;x++) for(let z=FP.z0;z<=FP.z1;z++){ const d=Math.hypot(x+.5-WT.x,z+.5-WT.z);
-    if(d>=13&&d<14.7&&Math.abs(z+.5-WT.z)>=2&&Math.abs(x+.5-WT.x)>=2) set(x,T-1,z,d<13.85?B.leavesR:B.leavesY); }
-  const FF=[[106.5,2.5],[106.5,38.5]];
-  for(const [cx,cz] of FF) for(let x=Math.floor(cx)-5;x<=Math.floor(cx)+5;x++) for(let z=Math.floor(cz)-5;z<=Math.floor(cz)+5;z++){ const d=Math.hypot(x+.5-cx,z+.5-cz);
-    if(d<2.45){ set(x,T-1,z,B.blue); if(d<.8){ set(x,T,z,B.trim); set(x,T+1,z,B.trim); } }
-    else if(d<3.3) set(x,T,z,B.trim);
-    else if(d<4.7&&Math.abs(x+.5-cx)>=2) set(x,T-1,z,(z+.5<cz)===(x+.5<cx)?B.leavesR:B.leavesY); }
 
   // ---- v1.51 (Flax) the Barockschloss the way it looks since the 2005-07 restoration: yellow plaster, red sandstone frames.
   // Real: begun 1720 by Elector Carl Philipp after he moved his court from Heidelberg (the quarrel over the Heiliggeistkirche),
@@ -443,7 +476,7 @@ export function build(H){
   // 28 x 28, dome 17.8 across, the real dome is 20 m). The hall floor is level with the street: the base storey is a ring of foyer round
   // it, the main doors face the Kaiserring. Built after the houses and with no R(). Glass, ribs, seats and the sky are meshes (see below).
   const PL={cx:110,cz:80,rin:8.6,rout:10.1};
-  for(let x=88;x<=126;x++) for(let z=63;z<=95;z++){ for(let y=T;y<=T+22;y++) set(x,y,z,0);
+  for(let x=88;x<=126;x++) for(let z=65;z<=95;z++){ for(let y=T;y<=T+22;y++) set(x,y,z,0);   // v1.58 z 63 -> 65 (the Kunsthalle moved south)
     const ux=x+.5-PL.cx, uz=z+.5-PL.cz, m=Math.max(Math.abs(ux),Math.abs(uz));
     set(x,T-1,z,m<14.6||(x<96&&uz>-4&&uz<4)?B.pave:B.grass); }   // lawns, a paved apron and a path in from the Kaiserring
   for(let x=96;x<=123;x++) for(let z=66;z<=93;z++){ const ux=x+.5-PL.cx, uz=z+.5-PL.cz, ax=Math.abs(ux), az=Math.abs(uz), m=Math.max(ax,az), d=Math.hypot(ux,uz);
@@ -467,9 +500,9 @@ export function build(H){
   for(let x=-120;x<=120;x+=9) if(x<BR.x0-2||x>BR.x1+2) if(x<-4||x>30) tree(x,-74);
   for(let i=0;i<70;i++){ const x=-126+Math.floor(R()*188), z=108+Math.floor(R()*34); if(x<64||z>110) tree(x,z,R()<.4); }
   for(let i=0;i<16;i++){ const x=-127+Math.floor(R()*18), z=-60+Math.floor(R()*160); tree(x,z); }
-  for(const [x,z] of [[92,0],[92,10],[92,31],[92,41],[100,40],[113,40],[124,40],[100,1],[113,1],[124,1]]) tree(x,z,true);
+  for(const [x,z] of [[90,-6],[90,6],[90,35],[90,47],[95,-7],[106,-7],[95,48],[106,48],[110,-3],[110,44]]) tree(x,z,true);   // v1.58 new spots, same count + order
   for(const [x,z] of [[-5,24],[3,24],[-5,33],[3,33]]) tree(x,z);   // Paradeplatz
-  for(const [x,z] of [[97,6],[116,6],[97,35],[116,35]]) tree(x,z);     // v1.38 lawns round the Wasserspiele
+  for(const [x,z] of [[107,1],[107,39],[93,2],[93,39]]) tree(x,z);     // v1.38 lawns round the Wasserspiele (v1.58 new spots)
 
   // ---- props: one vertex-coloured mesh (cranes, containers, bollards, benches), boards, corner signs ----
   const group=new THREE.Group(), L=[];
@@ -493,7 +526,7 @@ export function build(H){
   for(const x of [3.7,12.3]) P(.22,4.3,.22,x,T+2.15,-78.9,'#1f3f7a'); P(9.2,1.8,.1,8,T+3.4,-78.9,'#1f3f7a');
   for(const z of [-1.6,1.6]) P(.14,1.9,.14,WT.x-10.3,T+.95,WT.z+z*1.9,'#3a2a1c');
   // benches round the Wasserturm + street lamps on the Planken
-  for(let a=0;a<8;a++){ const an=a*Math.PI/4+Math.PI/8, x=WT.x+Math.sin(an)*11.5, z=WT.z+Math.cos(an)*11.5; P(1.8,.12,.5,x,T+.45,z,'#7a5232',an); P(1.8,.4,.1,x+Math.sin(an)*.25,T+.75,z+Math.cos(an)*.25,'#7a5232',an); }
+  for(let a=0;a<8;a++){ if(a===1||a===2) continue; const an=a*Math.PI/4+Math.PI/8, x=WT.x+Math.sin(an)*11.5, z=WT.z+Math.cos(an)*11.5; P(1.8,.12,.5,x,T+.45,z,'#7a5232',an); P(1.8,.4,.1,x+Math.sin(an)*.25,T+.75,z+Math.cos(an)*.25,'#7a5232',an); }
   // v1.33 street lamps all over town (iron in the props mesh, the glass in its own mesh that glows at night, a light pool under each)
   const LAMPS=[], LH=[], POOL=[];
   function lamp(x,z,k){ if(k){ P(.18,3.4,.18,x,T+1.7,z,'#24262a'); P(.3,.12,.3,x,T+.06,z,'#24262a'); P(.46,.14,.46,x,T+4.08,z,'#24262a'); P(.16,.22,.16,x,T+4.26,z,'#24262a'); LH.push([.36,.6,.36,x,T+3.72,z,'#fff2cc']); LAMPS.push([x,T+3.72,z]); }
@@ -507,7 +540,7 @@ export function build(H){
   for(let z=-54;z<=90;z+=12) if(z<PLK.z0-1||z>PLK.z1+1) for(const x of [KR.x0+.6,KR.x1+.4]) lamp(x,z);   // Kaiserring
   for(let x=-100;x<=76;x+=12) if(x<AX.x0-1||x>AX.x1+1) lamp(x,76.6);                                     // Bismarckstraße
   for(let z=-54;z<=66;z+=12) lamp(-100.6,z);                                                             // Parkring
-  for(let a=0;a<8;a++){ const an=a*Math.PI/4+Math.PI/8; lamp(WT.x+Math.sin(an)*13.6,WT.z+Math.cos(an)*13.6,1); }    // round the Wasserturm
+  for(let a=0;a<8;a++){ if(a===1||a===2) continue; const an=a*Math.PI/4+Math.PI/8; lamp(WT.x+Math.sin(an)*13.6,WT.z+Math.cos(an)*13.6,1); }    // round the Wasserturm (v1.58 not on the water staircase)
   for(const z of [-96,-89.5,-83]) for(const x of [BR.x0+1.4,BR.x1-1.4]) lamp(x,z);                       // the Kurpfalzbrücke
   for(let x=72;x<=120;x+=12) lamp(x,104,1);                                                              // Bahnhofsvorplatz
   // the Schloss: gold balls on the gate pillars, the yellow-red-yellow Baden flag on the middle ridge
@@ -591,24 +624,40 @@ export function build(H){
     P(.05,.6,.05,-82.1,T+2.35,70.5,GL); P(.05,.05,.32,-82.1,T+2.5,70.5,GL);
     // a plaque on posts by the choir step, facing the nave
     for(const z of [67.75,68.85]) P(.1,1.5,.1,-79.6,T+.75,z,'#3a2a1c'); }
-  // v1.50 the Friedrichsplatz gardens: lanterns on Jugendstil posts, two benches facing the fountains, bronze nixies and tritons on the
-  // round fountains (Schmitz had bronze ones by the small basin and stone centaurs by the big one), balconies on the arcade houses
+  // v1.58 the Friedrichsplatz: Jugendstil lanterns round the fountains and the basin, the two pergolas (red sandstone pillars,
+  // beams and rafters) with a bench under each looking up the basin to the big jet, bronze figures on the round fountains, lights
+  // in the basin, lamps on the street round the park, lanterns in the arcade walk, balconies with green railings, turret finials
   const cand=(x,z)=>{ P(.16,3.3,.16,x,T+1.65,z,'#1f2a24'); P(.36,.22,.36,x,T+.11,z,'#1f2a24'); P(1.15,.08,.08,x,T+3.2,z,'#1f2a24'); P(.1,.3,.1,x,T+3.45,z,'#1f2a24');
     for(const a of [-.52,.52]) LH.push([.26,.3,.26,x+a,T+3.4,z,'#fff4d6']); LH.push([.24,.28,.24,x,T+3.74,z,'#fff4d6']); LAMPS.push([x,T+3.5,z]); POOL.push([x,z]); };
-  for(const [x,z] of [[118.4,9.2],[118.4,31.8],[102.6,2.5],[110.4,2.5],[102.6,38.5],[110.4,38.5]]) cand(x,z);
+  for(const [cx,cz] of FF) for(const dx of [-3.4,3.4]) for(const dz of [-3.4,3.4]) cand(cx+dx,cz+dz);
+  for(const [x,z] of [[111.7,2.6],[111.7,38.4],[122.6,4.5],[122.6,36.5]]) cand(x,z);
+  const PG=['#9a4a38','#a5523e'], PGW='#5a4030', PGS='#c9bea9';
+  for(const sg of [-1,1]){ const at=(a,r)=>[WT.x+Math.cos(a)*r,WT.z+sg*Math.sin(a)*r], dg=Math.PI/180, bar=(a1,r1,a2,r2,h,w,y,c)=>{ const [xa,za]=at(a1,r1), [xb,zb]=at(a2,r2);
+      P(Math.hypot(xb-xa,zb-za),h,w,(xa+xb)/2,y,(za+zb)/2,c,Math.atan2(-(zb-za),xb-xa)); };
+    for(let k=0;k<=4;k++){ const a=(48+8*k)*dg;
+      for(const r of [14.2,16.2]){ const [x,z]=at(a,r); P(.5,3,.5,x,T+1.5,z,PG[k%2]); P(.7,.3,.7,x,T+.15,z,PGS); P(.64,.2,.64,x,T+3,z,PGS); }
+      bar(a,13.7,a,16.7,.26,.32,T+3.36,PG[0]);   // the cross beam over each pair of pillars
+      if(k<4){ for(const r of [14.2,16.2]) bar(a-.6*dg,r,a+8.6*dg,r,.3,.36,T+3.12,PG[1]);   // the long beams
+        bar(a+4*dg,13.8,a+4*dg,16.6,.14,.16,T+3.56,PGW); bar(a+2*dg,13.9,a+2*dg,16.5,.12,.12,T+3.56,PGW); bar(a+6*dg,13.9,a+6*dg,16.5,.12,.12,T+3.56,PGW); } } }   // rafters
   const SEATS=[];
-  for(const [x,z] of [[118.2,11],[118.2,30]]){ const fx=122.5-x, fz=20.5-z, l=Math.hypot(fx,fz), ux=fx/l, uz=fz/l, an=Math.atan2(-ux,-uz);   // both look up the basin to the big jet
+  for(const sg of [-1,1]){ const a=60*Math.PI/180, x=WT.x+Math.cos(a)*15.2, z=WT.z+sg*Math.sin(a)*15.2, fx=117.5-x, fz=20.5-z, l=Math.hypot(fx,fz), ux=fx/l, uz=fz/l, an=Math.atan2(-ux,-uz);   // both look up the basin to the big jet
     P(1.8,.12,.5,x,T+.45,z,'#7a5232',an); P(1.8,.45,.1,x-ux*.25,T+.78,z-uz*.25,'#7a5232',an); for(const k of [-.75,.75]) P(.08,.4,.42,x+uz*k,T+.2,z-ux*k,'#2b2b2e',an);
-    SEATS.push({x:x+ux*.05,z:z+uz*.05,yaw:an,pitch:.16,stand:[x-ux*1.1,z-uz*1.1]}); }
+    SEATS.push({x:x+ux*.05,z:z+uz*.05,yaw:an,pitch:.24,stand:[x-ux*1.1,z-uz*1.1]}); }
   const BRZ='#6e5530';
   for(const [cx,cz] of FF){ P(2.3,.32,2.3,cx,T+2.16,cz,'#9a4a38'); P(2.3,.32,2.3,cx,T+2.16,cz,'#9a4a38',Math.PI/4); P(2,.04,2,cx,T+2.33,cz,'#9fd0e4'); P(2,.04,2,cx,T+2.33,cz,'#9fd0e4',Math.PI/4);
-    statue(cx-2.9,T+1,cz,Math.PI/2,.5,{armUp:'R'},BRZ);
-    statue(cx+2.9,T+1,cz,-Math.PI/2,.5,{extra:[[.05,1.5,.05, .4,1.2,.12,BRZ],[.3,.05,.05, .4,1.95,.12,BRZ],[.05,.2,.05, .27,2.05,.12,BRZ],[.05,.2,.05, .53,2.05,.12,BRZ]]},BRZ);
+    statue(cx-3.65,T+1,cz,Math.PI/2,.5,{armUp:'R'},BRZ);
+    statue(cx+3.65,T+1,cz,-Math.PI/2,.5,{extra:[[.05,1.5,.05, .4,1.2,.12,BRZ],[.3,.05,.05, .4,1.95,.12,BRZ],[.05,.2,.05, .27,2.05,.12,BRZ],[.05,.2,.05, .53,2.05,.12,BRZ]]},BRZ);
     LH.push([.9,.04,.9,cx,T+.02,cz,'#e8f8ff']); }
-  for(const z of [20.5,15.5,25.5,10.5,30.5,6,35]) LH.push([.6,.04,.6,122.5,T+.02,z,'#e8f8ff']);   // lights in the long basin under each jet
-  for(let z=AK.z0+2;z<AK.z1;z+=8){ LH.push([.3,.22,.3,126.5,T+3.8,z,'#fff2cc']); LAMPS.push([126.5,T+3.7,z]); }
-  for(let z=AK.z0+2;z<AK.z1;z+=8) if(!(z>=14&&z<=27)) for(const f of [5,9,13]){ P(.55,.1,2.7,124.72,T+f-.05,z,'#8a3a2c'); P(.06,.5,2.7,124.47,T+f+.25,z,'#4b8774'); }
-  for(const [z,y] of [[21,T+24.3],[-9.5,T+23.3],[58.5,T+23.3]]) P(.24,.6,.24,126.5,y,z,'#4b8774');   // finials on the pavilion caps
+  LH.push([.8,.04,.8,117.5,T+.02,20.5,'#e8f8ff']); for(let k=1;k<=6;k++) for(const sg of [-1,1]) LH.push([.5,.04,.5,117.5,T+.02,20.5+sg*3*k,'#e8f8ff']);   // lights in the basin under the middle row
+  for(const L of [25,32]) for(const sg of [-1,1]){ const p=acAt(L); lamp(AC.x+p.u-2*p.nx,AC.z+sg*(p.v-2*p.nz),1); }   // the street round the park
+  for(let L=6;L<38;L+=8) for(const sg of [-1,1]){ const p=acAt(L), x=AC.x+p.u+1.5*p.nx, z=AC.z+sg*(p.v+1.5*p.nz);   // lanterns in the arcade walk
+    if(x>=114.3&&x<=127.7&&!get(Math.floor(x),T+1,Math.floor(z))){ LH.push([.3,.22,.3,x,T+3.8,z,'#fff2cc']); LAMPS.push([x,T+3.7,z]); } }
+  for(let L=14;L<36;L+=7) for(const sg of [-1,1]){ const p=acAt(L), nx=p.nx, nz=sg*p.nz; if(Math.max(Math.abs(nx),Math.abs(nz))<.9) continue;
+    const x0=AC.x+p.u, z0=AC.z+sg*p.v; if(x0<120.5) continue;   // balconies on the plain stretches, not the turrets
+    for(const f of [5,9,13]){ let d=-1.5; while(d<1.5&&!get(Math.floor(x0+nx*d),T+f,Math.floor(z0+nz*d))) d+=.05; if(d>=1.5) continue;
+      const ry=Math.atan2(-nz,nx);
+      P(.55,.1,2.7,x0+nx*(d-.28),T+f-.05,z0+nz*(d-.28),'#8a3a2c',ry); P(.06,.5,2.7,x0+nx*(d-.53),T+f+.25,z0+nz*(d-.53),'#4b8774',ry); } }
+  for(const k in FIN){ const [x,y,z]=FIN[k]; P(.24,.6,.24,x,y+.3,z,'#4b8774'); P(.14,.14,.14,x,y+.67,z,'#4b8774'); }   // finials on the turret caps
   // v1.51 the Barockschloss: lanterns in the Ehrenhof, the entrance hall, the stair's balustrade, the Rittersaal (gilded pilasters,
   // a cornice, three chandeliers, a grand piano and two dozen chairs for the Schlosskonzerte). The indoor ones are their own mesh,
   // unlit and candle-warm at night (the Schloss floodlights light the rooms' blocks, plain Lambert props went black)
@@ -747,10 +796,10 @@ export function build(H){
   },-59.96,T+16.5,70.5,Math.PI/2,false,true);
   // v1.50 the Rosengarten + Kunsthalle names and plaques
   const nameB=(t,w,x,y,z,ry)=>board(w,.7,Math.round(w*80),56,(g,cw,ch)=>{ g.clearRect(0,0,cw,ch); g.fillStyle='#e8c25a'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 40px '+FONT; g.fillText(t,cw/2,ch/2+2); },x,y,z,ry,false,true);
-  NB.push([nameB('ROSENGARTEN',5.4,106.5,T+3.5,-5.96,0),.35,1.1]);
-  NB.push([nameB('KUNSTHALLE',4.6,106.5,T+5.6,46.96,Math.PI),.35,1.1]);
-  NB.push([board(2.5,1.2,416,200,plq('Rosengarten','Bruno Schmitz · 1903','festival hall · Jugendstil'),97.5,T+1.6,-6.97,0),.3,.8]);
-  NB.push([board(2.2,1.06,416,200,plq('Kunsthalle','Hermann Billing · 1907','red sandstone · Jugendstil'),102.6,T+1.6,46.97,Math.PI),.3,.8]);
+  NB.push([nameB('ROSENGARTEN',5.4,100.5,T+3.5,-12.96,0),.35,1.1]);   // v1.58 both moved with their buildings
+  NB.push([nameB('KUNSTHALLE',4.6,100.5,T+5.6,53.96,Math.PI),.35,1.1]);
+  NB.push([board(2.5,1.2,416,200,plq('Rosengarten','Bruno Schmitz · 1903','festival hall · Jugendstil'),91.5,T+1.6,-13.97,0),.3,.8]);
+  NB.push([board(2.2,1.06,416,200,plq('Kunsthalle','Hermann Billing · 1907','red sandstone · Jugendstil'),96.6,T+1.6,53.97,Math.PI),.3,.8]);
   for(const [x,y,z] of SCHP) board(3.4,3.4,136,136,(g,w,h)=>{ g.clearRect(0,0,w,h);
       g.save(); g.beginPath(); g.ellipse(w/2,h*.58,w*.34,h*.38,0,0,7); g.clip();
       for(let i=-6;i<7;i++) for(let j=-6;j<7;j++){ const cx=w/2+(i-j)*11, cy=h*.58+(i+j)*11; g.fillStyle=(i+j)&1?'#f4f1ea':'#2f6fb8'; g.beginPath(); g.moveTo(cx,cy-11); g.lineTo(cx+11,cy); g.lineTo(cx,cy+11); g.lineTo(cx-11,cy); g.fill(); }
@@ -887,12 +936,18 @@ export function build(H){
   const bw=new THREE.Mesh(new THREE.PlaneGeometry(BAS.x1-BAS.x0-1,BAS.z1-BAS.z0-1),new THREE.MeshPhongMaterial({color:0x6f9fb8,shininess:90,transparent:true,opacity:.85}));
   bw.rotation.x=-Math.PI/2; bw.position.set((BAS.x0+BAS.x1+1)/2,T-.15,(BAS.z0+BAS.z1+1)/2); bw.matrixAutoUpdate=false; bw.updateMatrix(); group.add(bw);
   // v1.38 the cascade's water (one see-through mesh) + the fountain jets (one instanced mesh, they breathe in tick)
+  // v1.58 the water staircase: water over both terraces and down their edges into the basin
   const CASW=[], wc='#d6f0fa';
-  CASW.push([2,.05,5,117,T+3.03,20.5,wc],[1,.05,5,118.5,T+2.03,20.5,wc],[1,.05,5,119.5,T+1.03,20.5,wc]);
-  CASW.push([.05,1,5,118.03,T+2.5,20.5,wc],[.05,1,5,119.03,T+1.5,20.5,wc],[.05,1.15,5,120.03,T+.43,20.5,wc]);
+  CASW.push([2,.05,9,110,T+2.03,20.5,wc],[2,.05,9,112,T+1.03,20.5,wc]);
+  CASW.push([.05,1,9,111.03,T+1.5,20.5,wc],[.05,1.15,9,113.03,T+.43,20.5,wc]);
   const cw=new THREE.Mesh(blockyGeo(CASW),new THREE.MeshLambertMaterial({vertexColors:true,transparent:true,opacity:.72,depthWrite:false,emissive:0x5f8fa8,emissiveIntensity:.35}));
   cw.matrixAutoUpdate=false; group.add(cw);
-  const JET=[[122.5,20.5,13],[122.5,15.5,8],[122.5,25.5,8],[122.5,10.5,6],[122.5,30.5,6],[122.5,6,4.5],[122.5,35,4.5]];   // v1.50 x 123 -> 122.5 (narrower basin)
+  // v1.58 (Flax 10:18 "way bigger waterplays") the big jet in the middle of the basin (the real one reaches 28 m), a row stepping
+  // down from it to both ends, a lower row on each side, small jets on the two water terraces, one in each round fountain
+  const JET=[[117.5,20.5,17]];
+  [11,9,7,6,5,4.5].forEach((h,k)=>{ for(const sg of [-1,1]) JET.push([117.5,20.5+sg*3*(k+1),h]); });
+  for(const x of [115.3,119.7]) for(let k=0;k<6;k++) for(const sg of [-1,1]) JET.push([x,20.5+sg*(1.5+3*k),3.5-k*.2]);
+  for(const dz of [-3.5,-1.5,0,1.5,3.5]){ JET.push([110,20.5+dz,1.4,T+2]); JET.push([112,20.5+dz,1.1,T+1]); }
   for(const [x,z] of FF) JET.push([x,z,1.7,T+2.3]);   // v1.50 the round fountains
 
   const jets=new THREE.InstancedMesh(new THREE.CylinderGeometry(.06,.32,1,7,1,true).translate(0,.5,0),
@@ -902,7 +957,7 @@ export function build(H){
   const veil=new THREE.InstancedMesh(jets.geometry,new THREE.MeshBasicMaterial({color:0xeef9ff,transparent:true,opacity:.22,depthWrite:false,side:THREE.DoubleSide}),JET.length);
   veil.frustumCulled=false; group.add(veil);
   const jo=new THREE.Object3D(); let jt=0;
-  function jetsSet(){ JET.forEach(([x,z,h0,y0],i)=>{ const h=h0*(.9+.08*Math.sin(jt*1.9+i*1.7)+.03*Math.sin(jt*7.3+i)), b=y0??T-.15, s=h0<3?1.7:4.2+i%2;
+  function jetsSet(){ JET.forEach(([x,z,h0,y0],i)=>{ const h=h0*(.9+.08*Math.sin(jt*1.9+i*1.7)+.03*Math.sin(jt*7.3+i)), b=y0??T-.15, s=h0<3?1.2:Math.min(4.6,1.2+h0*.22);   // v1.58 the veil grows with the jet
     jo.position.set(x,b,z); jo.scale.set(1,h,1); jo.updateMatrix(); jets.setMatrixAt(i,jo.matrix);
     jo.position.set(x,b,z); jo.scale.set(s*.8,h*1.02,s*.8); jo.updateMatrix(); veil.setMatrixAt(i,jo.matrix); }); jets.instanceMatrix.needsUpdate=veil.instanceMatrix.needsUpdate=true; }
   jetsSet();
@@ -924,11 +979,16 @@ export function build(H){
   for(let i=0;i<90;i++){ const a=R()*Math.PI*2, d=200+R()*230, x=Math.sin(a)*d, z=Math.cos(a)*d; if(z>RIV.n-30&&z<RIV.s+30) continue; const h=5+R()*R()*30;
     S.push([8+R()*22,h,8+R()*22,x,T+h/2,z,['#b9b1a2','#a39a8c','#c9bfa8','#8f8a80','#b28a6a'][Math.floor(R()*5)]]); }
   // v1.38 the city carries on past the hedge (Angie 13:27: the edge looked blank): low house blocks and trees, same mesh
-  { let q=0; const cb=(x,z)=>{ q++; const a=hsh(q,3,7), b=hsh(q,5,1), c=hsh(q,9,4); if(z>RIV.n-14&&z<RIV.s+14) return; const tr=a<.3, h=tr?4+b*4:6+b*10, w=tr?3+c*3:7+c*7;
+  { let q=0; const cb=(x,z)=>{ q++; if(x>128&&z>=8&&z<=34) return; const a=hsh(q,3,7), b=hsh(q,5,1), c=hsh(q,9,4); if(z>RIV.n-14&&z<RIV.s+14) return; const tr=a<.3, h=tr?4+b*4:6+b*10, w=tr?3+c*3:7+c*7;
       const d=w*(.7+a*.6), X=x+b*5, Z=z+c*5; if(!tr){ S.push([w+.7,1.1,d+.7,X,T+h+.55,Z,['#5a5f6a','#8a4a34','#6a5a50'][Math.floor(a*9)%3]]); for(const f of [.32,.62]) S.push([w+.08,.9,d+.08,X,T+h*f,Z,'#3a3d48']); }
       S.push([w,h,d,X,T+h/2,Z,tr?['#4f6a3a','#5a7440','#465f34'][Math.floor(b*3)]:['#c9bfa8','#b9b1a2','#d2c4a4','#a39a8c','#b28a6a','#c8a890'][Math.floor(c*6)]]); };
     for(let x=-220;x<=220;x+=13) for(const z of [-138,-156,-178,170,188,210]) cb(x,z);
     for(let z=-200;z<=230;z+=13) for(const x of [-154,-172,-194,153,171,193]) cb(x,z); }
+  // v1.58 the Augustaanlage runs on east from between the arcades: a road between lawns and lime trees, houses on both sides
+  S.push([200,.04,7,228,T+.02,20.5,'#5c5e62'],[200,.04,3,228,T+.03,15,'#7a9a52'],[200,.04,3,228,T+.03,26,'#7a9a52']);
+  for(let x=134;x<=320;x+=8) for(const z of [15,26]) S.push([.5,2.2,.5,x,T+1.1,z,'#5a4030'],[3,3,3,x,T+3.6,z,'#4f6a3a']);
+  for(let x=132;x<=320;x+=11) for(const sg of [-1,1]){ const h=7+hsh(x,sg,3)*8, w=9+hsh(x,sg,5)*1.5, z=20.5+sg*11.5;
+    S.push([w,h,6,x+w/2,T+h/2,z,['#c9bfa8','#b9b1a2','#d2c4a4','#c8a890'][Math.floor(hsh(x,sg,9)*4)]],[w+.6,1,6.6,x+w/2,T+h+.5,z,'#5a5f6a']); }
   for(const [x,z] of [[-330,-260],[-315,-262],[360,250]]){ S.push([5,64,5,x,T+32,z,'#c9c3b8'],[5.3,4,5.3,x,T+58,z,'#b8402c'],[5.3,4,5.3,x,T+48,z,'#e8e2d8']); }
   const sk=new THREE.Mesh(blockyGeo(S),new THREE.MeshLambertMaterial({vertexColors:true})); sk.matrixAutoUpdate=false; group.add(sk);
 
@@ -959,11 +1019,12 @@ export function build(H){
     if(z<RIV.n) return x>=26.5&&x<41.5?(z<-104?'Popakademie':'Jungbusch · Popakademie'):'Hafen';   // v1.52
     if(z<=RIV.s+1) return x>=BR.x0&&x<=BR.x1+1?'Kurpfalzbrücke':'Neckar';
     if(z<=-71) return x>-4&&x<30?'Anlegestelle':'Neckarufer';
-    if(x>=124.6&&z>=AK.z0-.5&&z<AK.z1+1) return 'Friedrichsplatz · Arkaden';   // v1.50
-    if(x>=95.5&&x<117.5&&z>=-21&&z<-5.8) return 'Rosengarten';
-    if(x>=91.5&&x<121&&z>=46.6&&z<63) return 'Kunsthalle';
+    if(x>=114&&Math.abs(z-AC.z)>=3.5&&z>-24&&z<65){ const s=acS(x,z); if(s>=-.3&&s<ACD+.5) return 'Friedrichsplatz · Arkaden'; }   // v1.50, v1.58 on the curve
+    if(x>=121&&Math.abs(z-AC.z)<3.5) return 'Augustaanlage';   // v1.58
+    if(x>=89.5&&x<111.5&&z>=-28&&z<-12.8) return 'Rosengarten';   // v1.58 moved with the buildings
+    if(x>=88.5&&x<112.5&&z>=53.6&&z<64) return 'Kunsthalle';
     if(x>=88&&z>=63&&z<96) return Math.hypot(x-PL.cx,z-PL.cz)<PL.rout&&y<T+6?'Planetarium · Kuppelsaal':'Planetarium';   // v1.57
-    if(x>=FP.x0&&z>=FP.z0&&z<=FP.z1) return x>=115.5&&z>=BAS.z0&&z<=BAS.z1+1?'Wasserspiele':Math.hypot(x-WT.x,z-WT.z)<12?'Wasserturm':'Friedrichsplatz';
+    if(x>=FP.x0&&z>=FP.z0&&z<=FP.z1+1) return x>=108.5&&x<122.5&&z>=BAS.z0-1&&z<=BAS.z1+2?'Wasserspiele':Math.hypot(x-WT.x,z-WT.z)<12?'Wasserturm':'Friedrichsplatz';   // v1.58 the basin + its terraces
     if(x>=L2.x0&&x<L2.x1+1&&z>=L2.z0&&z<L2.z1+1&&y>T-1){ if(y>=LT+.5) return 'L2 · Dach'; if(x>=L2.x0+1&&x<L2.x1&&z>=L2.z0+1&&z<L2.z1) return y>=HC+.5?'L2 · Treppenhaus':'Gedenkhalle'; }
     if(x>=66&&z>=HBF.vz0-8) return z>=HBF.z0-.5?'Hauptbahnhof':'Bahnhofsvorplatz';
     if(x>=RX0+1&&x<RX1&&z>=RZ+1&&z<SCH.z1&&y>T-1&&y<T+13) return y>=T+4.5?'Schloss · Rittersaal':z<RZ+4?'Schloss · Eingangshalle':'Schloss · Treppenhaus';   // v1.51
@@ -1003,7 +1064,8 @@ export function build(H){
     spawn:{x:4.5,z:-74.6,yaw:Math.PI}, pop:{x:34,z:-103}, jupp:{x:7.2,z:-77.4}, seats:SEATS,
     dark:[PL.cx,PL.cz,PL.rin+.75,PL.rout+.3,T+4.05], pl:{staff:PLD.staff,doze:PLD.doze,mat:PLD.mat},   // v1.57 the Planetarium's dark hall + its two people
     facts:[[WT.x,WT.z,15,'Wasserturm: 60 m tall, built 1886-1889 to a design by Gustav Halmhuber. Up on the dome stands Amphitrite, the sea goddess, in copper.'],
-      [119,20.5,7,'Bruno Schmitz laid out these gardens from 1899: water steps, basins, arcades, lanterns. The square was ready for Mannheim\'s 300th birthday in 1907.'],
+      [112,20.5,6,'The Wasserspiele: the big fountain first played on 9 September 1893. Bruno Schmitz added the water steps, the basin and the pergolas from 1899. Today 178 nozzles, the tallest jet up to 28 m, from spring to mid-October.'],   // v1.58
+      [107,6.8,4,'Bruno Schmitz laid out the square from 1899: the arcade houses, the Rosengarten, the water steps, the pergolas and the lanterns. It was ready for Mannheim\'s 300th birthday in 1907.'],
       [-10,87.5,9,'Mannheim Palace: Elector Carl Philipp quarrelled with Heidelberg\'s Protestants over the Heiliggeistkirche and moved his court down the Neckar. First stone 1720, done about 1760, almost 450 m long. Today: the University.'],   // v1.51
       [34,-102,10,'Popakademie Baden-W\u00fcrttemberg: the state\'s college for pop music and the music business, founded in 2003. It moved into its new building in the Jungbusch, by the harbour, in 2004.'],   // v1.52
       [-10,98.5,6,'Rittersaal: Cosmas Damian Asam painted its ceiling in 1728-30. The bombs of 1943-44 destroyed it; Carolus Vocke painted it again in the 1960s from old photographs. Concerts play here today.',T+5],

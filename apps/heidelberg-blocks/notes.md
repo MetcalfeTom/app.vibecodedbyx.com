@@ -825,6 +825,8 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   planken 26/53k, wt 15/26k; desktop 1280x720 max 67/140k (landing), aerial 55/113k, planken 41/74k. Day +2 calls/+5k.
 - v1.57 Planetarium (day): desktop 1280x800 Kuppelsaal 31 calls / 65.5k tris / 426 star points; phone 390x844 hall
   27/50k, foyer 31/54k, Kaiserring street west of it 28/61k. Hall meshes hidden outside 16.5 of its centre.
+- v1.58 Friedrichsplatz (day): desktop 1280x800 aerial over the square 85 calls / 145.8k tris (v1.57 same spot 87 / 137.9k);
+  phone 390x844 on the lawn 25/73k, aerial SE 53/103k. Jets: 1 + 12 middle row + 24 side rows + 10 terrace + 2 round = 49 instances.
 
 ## testing
 - scratch: $SP/hb (index.html + mk.sh injects window.__G/__E into gaunt/sw/hm43/hb). The live file only has a
@@ -1135,3 +1137,16 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   swallowed the rest of its line (pitch, velocity, onGround, rideUi after a Rundflug). NOT the real thing: the real one is on
   the Europaplatz ~1.3 km ESE of the Wasserturm and bigger (our base 28x28, dome 17.8 across vs 20 m); real projector since
   2002 is a Zeiss Universarium, ours is a plain ball; real seat count 220-280, ours ~130. Budget below.
+- v1.58 2026-10-15 11:10 the Friedrichsplatz, roomy (Flax 10:18: "Friedrichsplatz way to squeezed. way bigger waterplays").
+  mannheim.js: square FP x 88..127, z -9..50 (was squeezed round x 106); Wasserturm moved to (100.5,20.5); a long basin
+  BAS x 113..121, z 1..40 with a 17-high middle jet, a stepping row of 12 down both ends, two lower side rows (24), and a
+  two-step water staircase (terraces at x 109..112) falling from the tower terrace into it; two round fountains FF
+  (100.5,-.5)/(100.5,41.5) with bronze figures; two red sandstone pergolas with a bench each looking up the basin; flower
+  ring; the arcades are now one loop x 114..127, z -22..63 curving round the east side (AC ellipse {x:109,z:20.5,a:15,b:30.5},
+  ACD 7 deep), with turrets at both ends, balconies, lanterns in the walk; the Augustaanlage leaves through a gap at
+  z 17..23. Rosengarten moved to x 90..110, z -27..-14, Kunsthalle to x 89..111, z 54..63. Rundflug circle re-centred
+  on the tower (min clearance 2.57). R() order kept (voxel hash x -128..86 identical to v1.57). NOT the real thing: the
+  real arcades are a full half-ring; ours are a flattened
+  oval because the map ends at x 127 (only 4 bands deep at the apex); our basin runs long north-south, not matched to
+  the real one's exact shape; the
+  Kunsthalle has no back wing; the pergolas are props you can walk through. Budget below.
