@@ -256,5 +256,4 @@ console.error('AI bucket (' + aiList.length + '):', aiList.slice(0, 20).join(', 
 
 mv "$TMP" "$OUT"
 chmod 644 "$OUT"
-python3 "$(dirname "$0")/backdate.py"   # the app list is data too: dated before the code so the catalog doesn't call it an update
 echo "wrote $OUT ($(wc -c < "$OUT") bytes)"
