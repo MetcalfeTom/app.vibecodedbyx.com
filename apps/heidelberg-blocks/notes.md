@@ -1095,3 +1095,20 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   stop, and P.bobA (0..1, up at 4/s walking, down at 3/s otherwise, also on flights) scales the bob: it fades out in a
   third of a second with no wobble. Every P.bob=0 reset zeroes bobA too. Probe: loads with 0 errors (headless at ~3 fps
   couldn't drive a real walk, so the fade is checked by the math, not a run). Ask coldpresss if it's calm now.
+- v1.55 2026-10-15 08:52 the Imbiss am Ring, a döner window on the Breite Straße (coldpresss 08:32 "where's the nearest doener"
+  ... "three isnt any", after Deniz's old bark 'Best Döner is on the Breite Straße. Don't tell the bakery.'). In K1's NE corner,
+  on the Breite Straße just off the Friedrichsring, in sight of Grumbach's door across the street (the first block you pass from
+  the boat). mannheim.js after the bakery: DN={x:-14.5,z:-57.9,sx:-14.45,sz:-60.3}; a red/yellow awning of 6 slats (bigger than the
+  bakery's) with a striped edge, a tiled back wall in RSL (lit at night like the Schloss rooms), a 'DÖNER · DÜRÜM' sign and a menu
+  board (Döner, Dürüm, Falafel, Ayran) in NB, a steel counter with a sneeze guard and five salad trays, the spit by its orange
+  heater (its own mesh `spit`, turned in tick at .9 rad/s, rsNight material at night), one standing table with a can, two bulbs
+  under the awning (LH + LAMPS). placeName 'Breite Straße · Imbiss am Ring'. mhq.doner -> index.html mhFolk 'doner': Murat, red
+  apron + moustache, fixed; barks; first talk sets Q.mhd (Deniz sent you, the feud with Grumbach: 'He glares, I wave. Eleven
+  years now.'); after Grumbach's bread run (Q.mhb>=2) he whispers that his bread IS Grumbach's (delivered to the back door, the
+  baker thinks it goes to a hotel); each talk ends with a toast. Generic names, no brands (headless renders Pixelify's B like a G,
+  so the sign avoids 'IMBISS').
+  Same step (coldpresss 08:46 "could the west entrance be more conspicuous?"): L2's walk-through door gets a wall lamp over it
+  (glows at night + a light pool), a doormat and a little sign beside it, 'Eingang ←' / 'Treppe zum Dach' (a jokier 'einfach durch die Wand' was swapped before the commit: Flax 08:52 "Its not a fun park. It is a City").
+  Probe (hooked copy): place name right, Talk to Murat prompt shows, day + night + front shots, L2 door shot, 0 errors,
+  58 draw calls / 114k tris at the stand. NOT asked: coldpresss 08:52 wants L2 one storey taller to jump onto the Schloss roof:
+  Flax 08:52: "Veto against the mannheim heidelberg changes. Its not a fun park. It is a City" -> L2 stays as it is, no jump route.

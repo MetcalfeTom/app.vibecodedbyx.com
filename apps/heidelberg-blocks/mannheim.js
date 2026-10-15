@@ -623,6 +623,24 @@ export function build(H){
   for(let i=0;i<6;i++) P(.9,.1,1.3,BK.x-2.25+i*.9,T+2.9,BK.z-.62,i%2?'#f4f1ea':'#b8322a',0,-.22);
   P(1.8,.9,.7,BK.x-1.7,T+.45,BK.z-.4,'#7a4a2a'); P(1.9,.08,.8,BK.x-1.7,T+.94,BK.z-.4,'#5a3418');
   P(.5,.22,.28,BK.x-2.2,T+1.09,BK.z-.42,'#c8873a'); P(.5,.22,.28,BK.x-1.6,T+1.09,BK.z-.36,'#a8652a'); P(.36,.1,.3,BK.x-1.05,T+1.03,BK.z-.4,'#8a4a1a');
+  // v1.55 (coldpresss 08:32 "where's the nearest doener") the Imbiss am Ring: a döner window in K1's corner on the Breite Straße, in plain
+  // sight of Grumbach's door across the street. Awning, a steel counter with the salad trays, the spit turning by its heater (its own mesh,
+  // spun in tick), one standing table; the vendor is in index.html's mhFolk. Generic names only
+  const DN={x:-14.5,z:-57.9,sx:-14.45,sz:-60.3}, SPL=[];
+  for(let i=0;i<6;i++) P(.9,.1,1.9,-14.05,T+3.0,-60.35+i*.9,i%2?'#f2c53a':'#c8322a',-Math.PI/2,-.22);   // a bigger awning than the bakery's, naturally
+  for(let i=0;i<6;i++) P(.05,.3,.9,-13.12,T+2.68,-60.35+i*.9,i%2?'#f2c53a':'#c8322a');   // the striped edge you see from the street
+  RSL.push([.04,1.7,5,-14.975,T+1.75,-58.1,'#e8dcc0',0,0,0]);   // the tiled back wall, lit at night like the Schloss rooms
+  P(.55,1,3.6,-13.85,T+.5,DN.z,'#a8a6a0'); P(.02,.24,3.6,-13.565,T+.72,DN.z,'#f2c53a'); P(.7,.06,3.8,-13.85,T+1.03,DN.z,'#e4e2dc');
+  P(.04,.32,3.2,-13.6,T+1.24,DN.z,'#cfe6ee');
+  [['#5a9a3a',-56.7],['#c8402a',-57.05],['#f2ecd8',-57.4],['#8a3a6a',-57.75],['#e8e2c8',-58.1]].forEach(([c,z])=>P(.26,.05,.3,-13.95,T+1.08,z,c));
+  P(.6,.9,.6,DN.sx,T+.45,DN.sz,'#8a8680'); P(.08,1.1,.5,DN.sx-.38,T+1.55,DN.sz,'#e8702a'); P(.04,1.1,.42,DN.sx-.33,T+1.55,DN.sz,'#ffb048');
+  SPL.push([.05,1.3,.05,0,T+1.55,0,'#c8c8c8',0,0,0],[.16,.06,.16,0,T+2.22,0,'#b8b8b8',0,0,0]);
+  for(let i=0;i<7;i++){ const w=.24+i*.035; SPL.push([w,.15,w,0,T+1.05+i*.15,0,i%3===1?'#a8602e':i%3?'#7a3e1c':'#8f4c24',i*.28,0,0]); }
+  P(.07,1.05,.07,-12.2,T+.525,-57.6,'#5a5a62'); P(.4,.04,.4,-12.2,T+.02,-57.6,'#5a5a62'); P(.64,.05,.64,-12.2,T+1.07,-57.6,'#d8d4cc'); P(.07,.13,.07,-12.05,T+1.16,-57.5,'#c83a2a');
+  LH.push([.12,.16,.12,-13.6,T+2.62,-59.2,'#fff2cc'],[.12,.16,.12,-13.6,T+2.62,-56.8,'#fff2cc']); LAMPS.push([-13.6,T+2.5,-59.2],[-13.6,T+2.5,-56.8]);
+  // v1.55 (coldpresss 08:46 "could the west entrance be more conspicuous?") L2's walk-through door gets a lamp, a mat and a sign
+  P(.1,.3,.14,9.95,T+3.3,71,'#3a3530'); LH.push([.14,.22,.2,9.83,T+3.52,71,'#ffe2a8']); LAMPS.push([9.6,T+3.5,71]); POOL.push([9.2,71]);
+  P(.6,.03,1.7,9.66,T+.015,71,'#6a3a26');
   P(1,.04,.62,44.5,T+.02,65.6,'#6a4a2a'); P(.42,.5,.42,43.2,T+.25,65.6,'#b85a3a'); P(.56,.42,.56,43.2,T+.7,65.6,'#4a7a3a'); P(.14,.14,.14,43.2,T+.98,65.5,'#d84a6a');
   // two trains at the platforms behind the Hauptbahnhof
   for(const z of [HBF.z1+5.5,HBF.z1+15.5]){ P(40,3,2.8,100,T+1.9,z,'#e8e8ea'); P(40.05,.8,2.85,100,T+2.5,z,'#2a3550'); P(40.1,.4,2.9,100,T+1.1,z,'#c23a2a'); }
@@ -640,6 +658,7 @@ export function build(H){
   for(const [x,z] of [[11.6,68.4],[16.4,73.4]]){ P(.6,.5,.6,x,LT+1.25,z,'#a0582f'); P(.7,.6,.7,x,LT+1.8,z,'#3f7f3a'); }
   const propMat=new THREE.MeshLambertMaterial({vertexColors:true});
   const pm=new THREE.Mesh(blockyGeo(L),propMat); pm.matrixAutoUpdate=false; group.add(pm);
+  const spit=new THREE.Mesh(blockyGeo(SPL),propMat); spit.position.set(DN.sx,0,DN.sz); spit.matrixAutoUpdate=false; spit.updateMatrix(); group.add(spit);   // v1.55
   const rsDay=new THREE.MeshLambertMaterial({vertexColors:true}), rsNight=new THREE.MeshBasicMaterial({vertexColors:true,color:0xc8b49a});   // v1.51 the Schloss rooms' props
   const rsm=new THREE.Mesh(blockyGeo(RSL),rsDay); rsm.matrixAutoUpdate=false; group.add(rsm);
 
@@ -666,6 +685,12 @@ export function build(H){
   board(9,1.6,576,102,(g,w,h)=>{ g.fillStyle='#1f3f7a'; g.fillRect(0,0,w,h); g.strokeStyle='#f4f1ea'; g.lineWidth=6; g.strokeRect(6,6,w-12,h-12); g.fillStyle='#f4f1ea'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 50px '+FONT; g.fillText('MANNHEIM',w/2,h*.4); g.font='400 22px '+FONT; g.fillText('Anlegestelle · Quadratestadt',w/2,h*.78); },
     8,T+3.4,-78.97,Math.PI);
   const NB=[];   // v1.33 boards that light up at night: [board, day, night]
+  NB.push([board(3.4,.62,544,100,(g,w,h)=>{ g.fillStyle='#c8322a'; g.fillRect(0,0,w,h); g.strokeStyle='#f2c53a'; g.lineWidth=6; g.strokeRect(6,6,w-12,h-12);
+    g.fillStyle='#fff4d8'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 52px '+FONT; g.fillText('DÖNER · DÜRÜM',w/2,h*.54); },-14.95,T+3.62,-58.1,Math.PI/2),.35,.9]);   // v1.55
+  NB.push([board(2.8,.5,560,100,(g,w,h)=>{ g.fillStyle='#24452e'; g.fillRect(0,0,w,h); g.fillStyle='#f4ecd0'; g.textBaseline='middle'; g.font='700 30px '+FONT;
+    [['Döner','6,50'],['Dürüm','7,00'],['Falafel','6,00'],['Ayran','2,00']].forEach(([a,b],i)=>{ const x=14+i*137; g.textAlign='left'; g.fillText(a,x,h*.33); g.fillStyle='#f2c53a'; g.fillText(b,x,h*.74); g.fillStyle='#f4ecd0'; }); },-14.94,T+2.3,-58.1,Math.PI/2),.35,.9]);   // v1.55 the menu over Murat's head
+  NB.push([board(1.2,.6,288,144,(g,w,h)=>{ g.fillStyle='#2e2418'; g.fillRect(0,0,w,h); g.strokeStyle='#d8b060'; g.lineWidth=5; g.strokeRect(5,5,w-10,h-10);
+    g.fillStyle='#f4e6c0'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 40px '+FONT; g.fillText('Eingang ←',w/2,h*.38); g.font='400 22px '+FONT; g.fillText('Treppe zum Dach',w/2,h*.72); },9.97,T+1.55,73.1,-Math.PI/2),.3,.8]);   // v1.55 L2's door
   NB.push([board(15,1.5,640,64,(g,w,h)=>{ g.fillStyle='#14233f'; g.fillRect(0,0,w,h); g.fillStyle='#f4f1ea'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 40px '+FONT; g.fillText('MANNHEIM HAUPTBAHNHOF',w/2,h/2+2); },
     (HBF.hx0+HBF.hx1+1)/2,T+12.6,HBF.z0-.03,Math.PI),.3,.9]);
   const clock=board(2.6,2.6,128,128,()=>{},(HBF.hx0+HBF.hx1+1)/2,T+14.65,HBF.z0-.04,Math.PI); NB.push([clock,.3,1.25]);
@@ -842,6 +867,7 @@ export function build(H){
     if(x>=-26.6&&x<-13.4&&z>=-6.8&&z<3.6) return z<-5&&x>=-21&&x<-18?'Rathausturm':x<-20?'St. Sebastian':'Altes Rathaus';
     if(x>=-84.6&&x<-59.4&&z>=65.4&&z<75.6){ if(!(x>-83&&x<-61&&z>67&&z<74)) return 'Jesuitenkirche';   // v1.49
       return jkO(Math.floor(x),Math.floor(z))<=3.45?'Jesuitenkirche · unter der Kuppel':x<-80?'Jesuitenkirche · Chor':x>-64?'Jesuitenkirche · Vorhalle':'Jesuitenkirche · Langhaus'; }
+    if(x>=-15&&x<-12.6&&z>=-61&&z<-55.4) return 'Breite Straße · Imbiss am Ring';   // v1.55
     const q=nearQ(x,z,2.2), on=q?' · '+q.code:'';
     if(q&&q.sq&&inR(x,z,q)) return q.sq+' · '+q.code;
     if(z<=-62.5) return (x<AX.c?'Luisenring':'Friedrichsring')+on;
@@ -859,12 +885,12 @@ export function build(H){
   function tick(dt,night){
     if(night!==nightWas){ nightWas=night; lamps.visible=pools.visible=night; headMat.emissive.set(night?0xffd27a:0x000000); headMat.emissiveIntensity=night?1.3:0;
       for(const [b,d,n] of NB) b.m.material.emissiveIntensity=night?n:d;
-      bw.material.emissive.setHex(night?0x2c6c92:0); cw.material.emissiveIntensity=night?.9:.35; rsm.material=night?rsNight:rsDay; }   // v1.50 the fountains are lit at night
+      bw.material.emissive.setHex(night?0x2c6c92:0); cw.material.emissiveIntensity=night?.9:.35; rsm.material=night?rsNight:rsDay; spit.material=night?rsNight:propMat; }   // v1.50 the fountains are lit at night
     if(night&&(tvT-=dt)<0){ tvT=.1+Math.random()*.35; tvPaint(TL.winTv,.45+Math.random()*.55,Math.random()); if(Math.random()<.5) tvPaint(TL.winTv2,.4+Math.random()*.5,Math.random()); H.emTex.needsUpdate=true; }
-    jt+=dt; jetsSet();
+    jt+=dt; jetsSet(); spit.rotation.y+=dt*.9; spit.updateMatrix();
     if((clk-=dt)<0){ clk=5; if(new Date().getMinutes()!==clockDraw.m) clockDraw(); } }
 
-  return { mhq:{baker:[BK.x+.4,BK.z-.75,Math.PI],kessler:[44.5,65.25,Math.PI],hannes:[13.5,-72.6,-2.4]}, group, place, riverD, tick, steps, QD, benz, flood, ghost:L2G, l2:{x:14,z:71,roofY:LT+1},
+  return { mhq:{doner:[DN.x,DN.z,Math.PI/2],baker:[BK.x+.4,BK.z-.75,Math.PI],kessler:[44.5,65.25,Math.PI],hannes:[13.5,-72.6,-2.4]}, group, place, riverD, tick, steps, QD, benz, flood, ghost:L2G, l2:{x:14,z:71,roofY:LT+1},
     spawn:{x:4.5,z:-74.6,yaw:Math.PI}, pop:{x:34,z:-103}, jupp:{x:7.2,z:-77.4}, seats:SEATS,
     facts:[[WT.x,WT.z,15,'Wasserturm: 60 m tall, built 1886-1889 to a design by Gustav Halmhuber. Up on the dome stands Amphitrite, the sea goddess, in copper.'],
       [119,20.5,7,'Bruno Schmitz laid out these gardens from 1899: water steps, basins, arcades, lanterns. The square was ready for Mannheim\'s 300th birthday in 1907.'],
