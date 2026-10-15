@@ -638,9 +638,6 @@ export function build(H){
   for(let i=0;i<7;i++){ const w=.24+i*.035; SPL.push([w,.15,w,0,T+1.05+i*.15,0,i%3===1?'#a8602e':i%3?'#7a3e1c':'#8f4c24',i*.28,0,0]); }
   P(.07,1.05,.07,-12.2,T+.525,-57.6,'#5a5a62'); P(.4,.04,.4,-12.2,T+.02,-57.6,'#5a5a62'); P(.64,.05,.64,-12.2,T+1.07,-57.6,'#d8d4cc'); P(.07,.13,.07,-12.05,T+1.16,-57.5,'#c83a2a');
   LH.push([.12,.16,.12,-13.6,T+2.62,-59.2,'#fff2cc'],[.12,.16,.12,-13.6,T+2.62,-56.8,'#fff2cc']); LAMPS.push([-13.6,T+2.5,-59.2],[-13.6,T+2.5,-56.8]);
-  // v1.55 (coldpresss 08:46 "could the west entrance be more conspicuous?") L2's walk-through door gets a lamp, a mat and a sign
-  P(.1,.3,.14,9.95,T+3.3,71,'#3a3530'); LH.push([.14,.22,.2,9.83,T+3.52,71,'#ffe2a8']); LAMPS.push([9.6,T+3.5,71]); POOL.push([9.2,71]);
-  P(.6,.03,1.7,9.66,T+.015,71,'#6a3a26');
   P(1,.04,.62,44.5,T+.02,65.6,'#6a4a2a'); P(.42,.5,.42,43.2,T+.25,65.6,'#b85a3a'); P(.56,.42,.56,43.2,T+.7,65.6,'#4a7a3a'); P(.14,.14,.14,43.2,T+.98,65.5,'#d84a6a');
   // two trains at the platforms behind the Hauptbahnhof
   for(const z of [HBF.z1+5.5,HBF.z1+15.5]){ P(40,3,2.8,100,T+1.9,z,'#e8e8ea'); P(40.05,.8,2.85,100,T+2.5,z,'#2a3550'); P(40.1,.4,2.9,100,T+1.1,z,'#c23a2a'); }
@@ -689,8 +686,6 @@ export function build(H){
     g.fillStyle='#fff4d8'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 52px '+FONT; g.fillText('DÖNER · DÜRÜM',w/2,h*.54); },-14.95,T+3.62,-58.1,Math.PI/2),.35,.9]);   // v1.55
   NB.push([board(2.8,.5,560,100,(g,w,h)=>{ g.fillStyle='#24452e'; g.fillRect(0,0,w,h); g.fillStyle='#f4ecd0'; g.textBaseline='middle'; g.font='700 30px '+FONT;
     [['Döner','6,50'],['Dürüm','7,00'],['Falafel','6,00'],['Ayran','2,00']].forEach(([a,b],i)=>{ const x=14+i*137; g.textAlign='left'; g.fillText(a,x,h*.33); g.fillStyle='#f2c53a'; g.fillText(b,x,h*.74); g.fillStyle='#f4ecd0'; }); },-14.94,T+2.3,-58.1,Math.PI/2),.35,.9]);   // v1.55 the menu over Murat's head
-  NB.push([board(1.2,.6,288,144,(g,w,h)=>{ g.fillStyle='#2e2418'; g.fillRect(0,0,w,h); g.strokeStyle='#d8b060'; g.lineWidth=5; g.strokeRect(5,5,w-10,h-10);
-    g.fillStyle='#f4e6c0'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 40px '+FONT; g.fillText('Eingang ←',w/2,h*.38); g.font='400 22px '+FONT; g.fillText('Treppe zum Dach',w/2,h*.72); },9.97,T+1.55,73.1,-Math.PI/2),.3,.8]);   // v1.55 L2's door
   NB.push([board(15,1.5,640,64,(g,w,h)=>{ g.fillStyle='#14233f'; g.fillRect(0,0,w,h); g.fillStyle='#f4f1ea'; g.textAlign='center'; g.textBaseline='middle'; g.font='700 40px '+FONT; g.fillText('MANNHEIM HAUPTBAHNHOF',w/2,h/2+2); },
     (HBF.hx0+HBF.hx1+1)/2,T+12.6,HBF.z0-.03,Math.PI),.3,.9]);
   const clock=board(2.6,2.6,128,128,()=>{},(HBF.hx0+HBF.hx1+1)/2,T+14.65,HBF.z0-.04,Math.PI); NB.push([clock,.3,1.25]);
