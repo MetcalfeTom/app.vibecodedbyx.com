@@ -26,6 +26,11 @@ A 90-ball bingo caller for Pushed's workplace in Wigan (colleagues with a range 
   - 0 = a real O hand (Pushed 20:23: "All four fingers form a hook shape and the thumb comes up to meet them in the middle, closing the loop"). A separate side-view drawing #oh (inside #wag, outside #ori, mirrored so the loop sits up and away from the face at the 40 degree tilt): hand edge, index hooked over with the middle and ring showing behind it, thumb rising from below to meet the fingertips, nails on both tips, a clear hole in the middle. Shape code '0' = 'iddddo': the 6th letter o fades #ori out and #oh in. The old #ring is no longer used (kept, opacity 0).
   - Palm side: nails hide when the palm shows. About line now "back of the hand, fingers spread, 10 turns palm out and back" (still 2 lines at 1280 and 1920; 7 lines on a 390 phone). og-image re-rendered (23 with the spread 3).
   - Tests: t1 43/43 (spread angles, 10 palm out -> back -> palm again, undo stops the turning, 0 = O hand, 41 drops it). Sheet of 0, 1-10 and 10 mid-turn shown on stream.
+- 2026-10-16 06:58 v1.4 (Pushed 10-15 20:4x, Monitor q117 + q120):
+  - Two-digit numbers sit at two spots (Pushed: "22 just reads as 2 ... the first number is further from the elbow, the second number moves closer"). placeHand(where, side) moves #shake (wraps #tilt, so the whole arm and sleeve) along the forearm: first digit out 20 px towards the fingertips, second digit in 20 px towards the elbow, 0.5 s slide. Upright the vector is (sin40, -cos40) because #tilt leans 40 degrees; sideways (London 6-9) the elbow is to the left, so it slides on x at 0.75 strength (the hand would touch the left edge at full strength). 1-19 and 10 stay in the middle; restHand resets it. Reduced motion: it snaps (the #sig transition:none rule).
+  - Folded fingers are now knuckle bumps over the top edge of the hand (Pushed: "it should be overlapping the edge of the hand so it appears the knuckles protrude"): fingerT 'd' = translateY(-4px) scaleY(33/L), little finger translateY(2px) scaleY(28/L), so each bump sticks out about 12 px past the hand's outline.
+  - About line: "20 to 90 digit by digit, the second digit a step closer to the elbow". Build stamp v1.4.
+  - Tests (scratch bh14, ports 18973/19423, numbers forced by putting all-but-n into bingoHands.v1.game and pressing Next): 22 out -> in, 36 upright -> sideways, 47, 66 (sideways both), 90 (sideways -> O hand in), 13/10/7 centred, undo re-signs; no exceptions. Sheet shown on stream.
 
 ## issues
 - FONTS, what the live page requests: Google Fonts css2 for Atkinson Hyperlegible 400/700 (all text) + Bricolage Grotesque 800 (the title and dialog headings only). Digits use the embedded "BH Digits" @font-face (Atkinson Hyperlegible Next subset, data: URI, unicode-range U+0030-0039). Stack: "BH Digits", "Atkinson Hyperlegible", Verdana, Tahoma, sans-serif. Before v1.1 the sandbox screenshots used DejaVu Sans because the harness maps Google Fonts away, so the digits looked "regular" (viewer 19:53). Run the harness with FONTS=1 to load the real web fonts. Checked with CDP CSS.getPlatformFontsForNode: #cur renders in "Atkinson Hyperlegible Next" with or without Google Fonts.
@@ -44,6 +49,7 @@ A 90-ball bingo caller for Pushed's workplace in Wigan (colleagues with a range 
 - Maybe: traditional bingo call phrases as an option (ask first), 75-ball mode (ask first).
 
 ## questions for Pushed
+- v1.4: is the slide between the two digits big enough, and is the direction right (first out by the fingertips, second in towards the elbow)? Do the knuckle bumps look right?
 - Counting style: answered 19:13, London/southern by default (Wigan workplace, taught the London way), northern available as a switch.
 - How do your colleagues sign two-digit numbers? Teens answered 19:32 (unit waggled side to side). What about 20, 30 ... 90 and numbers like 47: digit by digit, or their own signs?
 - 90-ball (1-90) or 75-ball?
